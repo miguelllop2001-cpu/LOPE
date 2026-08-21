@@ -8423,7 +8423,7 @@ async function cargarRecepcionesHoy(){
   const nombreProd = id => { const p=PRODUCTOS.find(x=>x.id===id); return p?p.nombre:('#'+id); };
   let subidas = [];
   if(navigator.onLine){
-    try{ const r = await sb.from('recepciones').select('*').eq('almacen_id', puestoActual.id).eq('fecha', hoy).order('id',{ascending:false}); subidas = r.data||[]; }catch(e){}
+    try{ const r = await sb.from('recepciones').select('*').eq('almacen_id', puestoActual.id).eq('fecha', hoy).eq('revisado', false).order('id',{ascending:false}); subidas = r.data||[]; }catch(e){ try{ const r2 = await sb.from('recepciones').select('*').eq('almacen_id', puestoActual.id).eq('fecha', hoy).order('id',{ascending:false}); subidas = r2.data||[]; }catch(e2){} }
   }
   const pend = lsGet('recep_pending', []).map((f,idx)=>({...f, __idx:idx})).filter(f=>f.almacen_id===puestoActual.id && f.fecha===hoy);
   if(!subidas.length && !pend.length){ body.innerHTML='<div class="empty">Todavía no has anotado nada hoy.</div>'; return; }
@@ -8460,22 +8460,29 @@ function conciliarRecepcion(d){
   return { filas, cuadran, descuadran: filas.length-cuadran };
 }
 
-// El dueño da por bueno un artículo: borra la recepción de ese producto en ese puesto/día,
-// con lo que desaparece de su comparativa Y de la lista del vendedor.
-// El dueño da por bueno un artículo: borra la recepción de ese producto en ese puesto (todas
-// las fechas pendientes), con lo que desaparece de su comparativa Y de la lista del vendedor.
-async function quitarRecepcionProducto(puestoId, productoId){
-  if(!confirm('¿Quitar este artículo? Se dará por revisado y se borrará de la recepción del vendedor.')) return;
-  if(!navigator.onLine){ alert('Necesitas internet para quitarlo.'); return; }
+// El dueño da por bueno un artículo. En vez de borrar, lo marca como "revisado":
+// - las anotaciones del vendedor de ese producto/puesto pasan a revisado=true (salen de su lista)
+// - si NO había anotación (solo se envió), inserta una marca revisada con la cantidad enviada,
+//   para que ese envío quede "consumido" y no reaparezca en la comparación.
+async function quitarRecepcionProducto(puestoId, productoId, enviadoNeto){
+  if(!confirm('¿Dar por bueno este artículo? Sale de la comparación y de la lista del vendedor.')) return;
+  if(!navigator.onLine){ alert('Necesitas internet para hacerlo.'); return; }
   try{
-    const { error } = await sb.from('recepciones').delete().eq('almacen_id', puestoId).eq('producto_id', productoId);
-    if(error) throw error;
-  }catch(e){ alert('No se pudo quitar: '+(e.message||e)); return; }
+    const upd = await sb.from('recepciones').update({revisado:true}).eq('almacen_id', puestoId).eq('producto_id', productoId).eq('revisado', false).select('id');
+    if(upd.error) throw upd.error;
+    const marco = (upd.data||[]).length;
+    // Si no había nada anotado pero SÍ se había enviado, dejamos una marca revisada.
+    if(marco===0 && Number(enviadoNeto)>0){
+      const ins = await sb.from('recepciones').insert({almacen_id:puestoId, producto_id:productoId, cantidad:Number(enviadoNeto), fecha:fechaHoyLocal(), usuario_id:usuarioActual.id, revisado:true});
+      if(ins.error) throw ins.error;
+    }
+  }catch(e){ alert('No se pudo: '+(e.message||e)); return; }
   cargarConciliacion();
 }
 
-// Muestra TODO lo que los vendedores anotaron y aún no se ha revisado, agrupado por puesto
-// (sin elegir día). Compara lo anotado contra lo enviado en las fechas de esas anotaciones.
+// Muestra TODO lo que está pendiente de cuadrar, por puesto: tanto lo que el vendedor anotó como
+// lo que el admin/dueño ENVIÓ al puesto (aunque el vendedor no lo haya anotado). Lo ya revisado
+// no aparece. Compara "Anotó" (vendedor) contra "Enviado" (sistema) y marca las diferencias.
 async function cargarConciliacion(){
   const body = document.getElementById('recAdminBody');
   const msg = document.getElementById('recAdminMsg');
@@ -8485,58 +8492,79 @@ async function cargarConciliacion(){
   try{
     const nombreProd = id => { const p=(PRODUCTOS||[]).find(x=>x.id===id); return p?p.nombre:('#'+id); };
     const nombreAlm = id => { const a=(ALMACENES||[]).find(x=>x.id===id); return a?a.nombre:('Puesto '+id); };
-    // 1) Todas las recepciones pendientes (las revisadas ya fueron borradas). Paginado.
-    const rec=[]; { const PAGE=1000; let d=0; for(;;){ const r=await sb.from('recepciones').select('almacen_id,producto_id,cantidad,fecha').range(d,d+PAGE-1); if(r.error||!r.data)break; rec.push(...r.data); if(r.data.length<PAGE)break; d+=PAGE; } }
-    if(!rec.length){ body.innerHTML='<div class="empty">No hay recepciones pendientes. Todo revisado. 👍</div>'; msg.textContent=''; return; }
-    // Agrupar por puesto: declarado {pid:qty} y el conjunto de fechas anotadas
-    const porPuesto = {};
-    rec.forEach(r=>{ const g = porPuesto[r.almacen_id] || (porPuesto[r.almacen_id]={declarado:{}, fechas:new Set()}); g.declarado[r.producto_id]=(g.declarado[r.producto_id]||0)+Number(r.cantidad||0); g.fechas.add(r.fecha); });
-    const puestoIds = Object.keys(porPuesto).map(Number);
-    // 2) Movimientos de ingreso/traslado hacia esos puestos (paginado), para el "enviado"
-    const mov=[]; { const PAGE=1000; let d=0; for(;;){ const r=await sb.from('movimientos').select('almacen_destino_id,producto_id,cantidad,tipo,creado_en').in('almacen_destino_id', puestoIds).range(d,d+PAGE-1); if(r.error||!r.data)break; mov.push(...r.data); if(r.data.length<PAGE)break; d+=PAGE; } }
+    const puestosApp = (ALMACENES||[]).filter(esPuntoVenta).map(a=>a.id);
     const fechaLocal = ts => { if(!ts) return ''; const dd=new Date(ts); if(isNaN(dd)) return (ts||'').slice(0,10); const z=new Date(dd.getTime()-dd.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); };
     const sumaDias = (f, n) => { const d=new Date(f+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
-    // Ventana de fechas por puesto: desde la anotación más vieja hasta la más nueva, con ±1 día
-    // de margen (por si el envío se registró un día antes/después de que el vendedor lo anotó).
-    Object.values(porPuesto).forEach(g=>{
-      const arr = [...g.fechas].filter(Boolean).sort();
-      g.min = arr.length ? sumaDias(arr[0], -1) : '';
-      g.max = arr.length ? sumaDias(arr[arr.length-1], 1) : '';
-    });
-    const enviadoPorPuesto = {};
-    mov.forEach(m=>{ if(!(m.tipo==='ingreso'||m.tipo==='traslado')) return; const g=porPuesto[m.almacen_destino_id]; if(!g) return; const f=fechaLocal(m.creado_en); if(!(f>=g.min && f<=g.max)) return; (enviadoPorPuesto[m.almacen_destino_id]=enviadoPorPuesto[m.almacen_destino_id]||{}); enviadoPorPuesto[m.almacen_destino_id][m.producto_id]=(enviadoPorPuesto[m.almacen_destino_id][m.producto_id]||0)+Number(m.cantidad||0); });
+    const hoy = fechaHoyLocal();
 
+    // 1) Recepciones (todas: pendientes y revisadas). Paginado.
+    const rec=[]; { const PAGE=1000; let d=0; for(;;){ const r=await sb.from('recepciones').select('almacen_id,producto_id,cantidad,fecha,revisado').range(d,d+PAGE-1); if(r.error||!r.data)break; rec.push(...r.data); if(r.data.length<PAGE)break; d+=PAGE; } }
+    // declarado (revisado=false) y revisado (revisado=true) por puesto/producto; fechas de lo pendiente
+    const declPP = {}, revPP = {}, fechasP = {};
+    rec.forEach(r=>{
+      const a=r.almacen_id, pid=r.producto_id, c=Number(r.cantidad||0);
+      if(r.revisado){ (revPP[a]=revPP[a]||{})[pid]=(revPP[a][pid]||0)+c; }
+      else { (declPP[a]=declPP[a]||{})[pid]=(declPP[a][pid]||0)+c; (fechasP[a]=fechasP[a]||new Set()).add(r.fecha); }
+    });
+
+    // 2) Ventana de fechas para el "enviado": desde 21 días atrás (o desde la anotación pendiente
+    //    más vieja, lo que sea más temprano) hasta hoy.
+    let inicio = sumaDias(hoy, -21);
+    Object.values(fechasP).forEach(set=>{ [...set].filter(Boolean).forEach(f=>{ const w=sumaDias(f,-1); if(w<inicio) inicio=w; }); });
+
+    // 3) Movimientos de ingreso/traslado hacia CUALQUIER puesto, desde 'inicio'. Paginado.
+    const mov=[]; { const PAGE=1000; let d=0; for(;;){ const r=await sb.from('movimientos').select('almacen_destino_id,producto_id,cantidad,tipo,creado_en').in('almacen_destino_id', puestosApp).gte('creado_en', inicio+'T00:00:00').range(d,d+PAGE-1); if(r.error||!r.data)break; mov.push(...r.data); if(r.data.length<PAGE)break; d+=PAGE; } }
+    const enviadoPP = {};
+    mov.forEach(m=>{ if(!(m.tipo==='ingreso'||m.tipo==='traslado')) return; const a=m.almacen_destino_id; if(!puestosApp.includes(a)) return; (enviadoPP[a]=enviadoPP[a]||{})[m.producto_id]=(enviadoPP[a][m.producto_id]||0)+Number(m.cantidad||0); });
+
+    // 4) Armar por puesto: producto sale si tiene anotado pendiente O enviado-neto > 0
     const badge = est => {
       if(est==='cuadra') return '<span style="color:var(--green)">✓ cuadra</span>';
-      if(est==='no_enviado') return '<span style="color:var(--red)">⛔ no se envió</span>';
-      if(est==='de_mas') return '<span style="color:var(--red)">▲ anotó de más</span>';
-      if(est==='de_menos') return '<span style="color:var(--amber)">▼ anotó de menos</span>';
-      return '<span style="color:var(--amber)">⚠</span>';
+      if(est==='no_anotado') return '<span style="color:var(--red)">⛔ enviado, NO lo anotó</span>';
+      if(est==='no_enviado') return '<span style="color:var(--amber)">⚠ anotó, no se envió</span>';
+      if(est==='de_mas') return '<span style="color:var(--amber)">▲ anotó de más</span>';
+      return '<span style="color:var(--amber)">▼ anotó de menos</span>';
     };
+    const puestos = [...new Set([...Object.keys(declPP), ...Object.keys(enviadoPP)].map(Number))];
     let html=''; let totalPend=0;
-    puestoIds.forEach(pid=>{
-      const { filas } = conciliarRecepcion({ declarado:porPuesto[pid].declarado, enviado:enviadoPorPuesto[pid]||{}, nombreProd });
-      const pend = filas.filter(f=>f.declarado>0); // lo que el vendedor anotó y falta revisar
-      if(!pend.length) return;
-      totalPend += pend.length;
+    puestos.forEach(pid=>{
+      const decl = declPP[pid]||{}, env = enviadoPP[pid]||{}, rev = revPP[pid]||{};
+      const productos = [...new Set([...Object.keys(decl), ...Object.keys(env)].map(Number))];
+      const filas = [];
+      productos.forEach(prod=>{
+        const anoto = Number(decl[prod]||0);
+        const enviadoNeto = Math.max(0, Number(env[prod]||0) - Number(rev[prod]||0)); // descontamos lo ya revisado
+        if(anoto<=0 && enviadoNeto<=0) return;
+        const dif = anoto - enviadoNeto;
+        let estado;
+        if(anoto===enviadoNeto) estado='cuadra';
+        else if(enviadoNeto>0 && anoto===0) estado='no_anotado';
+        else if(anoto>0 && enviadoNeto===0) estado='no_enviado';
+        else if(anoto>enviadoNeto) estado='de_mas';
+        else estado='de_menos';
+        filas.push({ prod, nombre:nombreProd(prod), anoto, enviadoNeto, dif, estado });
+      });
+      if(!filas.length) return;
+      filas.sort((a,b)=>{ const ca=a.estado==='cuadra'?1:0, cb=b.estado==='cuadra'?1:0; if(ca!==cb) return ca-cb; return a.nombre.localeCompare(b.nombre); });
+      totalPend += filas.length;
       html += `<div style="border:2px solid var(--border); border-radius:14px; padding:12px; margin-bottom:16px">
-        <div style="font-weight:800; font-size:17px; margin-bottom:8px">${nombreAlm(pid)} <span style="color:var(--muted); font-weight:500; font-size:14px">— ${pend.length} por revisar</span></div>
+        <div style="font-weight:800; font-size:17px; margin-bottom:8px">${nombreAlm(pid)} <span style="color:var(--muted); font-weight:500; font-size:14px">— ${filas.length} por revisar</span></div>
         <table><thead><tr><th>Producto</th><th class="numcell">Anotó</th><th class="numcell">Enviado</th><th class="numcell">Dif.</th><th>Estado</th><th></th></tr></thead><tbody>`;
-      html += pend.map(f=>`<tr>
+      html += filas.map(f=>`<tr>
         <td>${f.nombre}</td>
-        <td class="numcell">${num(f.declarado)}</td>
-        <td class="numcell">${num(f.enviado)}</td>
-        <td class="numcell" style="font-weight:700; color:${f.diferencia===0?'var(--muted)':(f.diferencia>0?'var(--red)':'var(--amber)')}">${f.diferencia>0?'+':''}${num(f.diferencia)}</td>
+        <td class="numcell">${num(f.anoto)}</td>
+        <td class="numcell">${num(f.enviadoNeto)}</td>
+        <td class="numcell" style="font-weight:700; color:${f.dif===0?'var(--muted)':(f.dif>0?'var(--red)':'var(--amber)')}">${f.dif>0?'+':''}${num(f.dif)}</td>
         <td>${badge(f.estado)}</td>
-        <td><button class="ghost" onclick="quitarRecepcionProducto(${pid}, ${f.producto_id})">✓ Quitar</button></td>
+        <td><button class="ghost" onclick="quitarRecepcionProducto(${pid}, ${f.prod}, ${f.enviadoNeto})">✓ Quitar</button></td>
       </tr>`).join('');
       html += `</tbody></table></div>`;
     });
-    if(!totalPend){ body.innerHTML='<div class="empty">No hay recepciones pendientes. Todo revisado. 👍</div>'; msg.textContent=''; return; }
+    if(!totalPend){ body.innerHTML='<div class="empty">No hay nada por revisar. Todo cuadra. 👍</div>'; msg.textContent=''; return; }
     body.innerHTML = html;
-    msg.textContent = `${totalPend} artículo(s) por revisar en ${puestoIds.length} puesto(s).`;
+    msg.textContent = `${totalPend} artículo(s) por revisar en ${puestos.length} puesto(s).`;
     msg.className = 'msg';
-  }catch(e){ body.textContent=''; msg.textContent='No se pudo cargar: '+(e.message||e); msg.className='msg err'; }
+  }catch(e){ body.textContent=''; msg.textContent='No se pudo cargar: '+(e.message||e)+'. (¿Corriste el SQL de la columna "revisado"?)'; msg.className='msg err'; }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -9116,6 +9144,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v75</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v76</div>
 </body>
 </html>
