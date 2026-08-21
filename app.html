@@ -8460,6 +8460,43 @@ function conciliarRecepcion(d){
   return { filas, cuadran, descuadran: filas.length-cuadran };
 }
 
+// Guarda lo mostrado en la conciliación para poder limpiar de golpe.
+let __conciliacionData = [];
+
+// Da por buena UNA fila (marca revisado / consume el envío) sin preguntar (uso interno).
+async function marcarRevisado(puestoId, productoId, enviadoNeto){
+  const upd = await sb.from('recepciones').update({revisado:true}).eq('almacen_id', puestoId).eq('producto_id', productoId).eq('revisado', false).select('id');
+  if(upd.error) throw upd.error;
+  if((upd.data||[]).length===0 && Number(enviadoNeto)>0){
+    const ins = await sb.from('recepciones').insert({almacen_id:puestoId, producto_id:productoId, cantidad:Number(enviadoNeto), fecha:fechaHoyLocal(), usuario_id:usuarioActual.id, revisado:true});
+    if(ins.error) throw ins.error;
+  }
+}
+
+// Da por bueno TODO un puesto.
+async function quitarPuestoRecepcion(puestoId){
+  const p = __conciliacionData.find(x=>x.pid===puestoId);
+  if(!p) return;
+  if(!confirm('¿Dar por buenos TODOS los artículos de este puesto?')) return;
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  const msg=document.getElementById('recAdminMsg'); msg.textContent='Limpiando…'; msg.className='msg';
+  try{ for(const it of p.items){ await marcarRevisado(puestoId, it.prod, it.enviadoNeto); } }
+  catch(e){ msg.textContent='No se pudo del todo: '+(e.message||e); msg.className='msg err'; }
+  cargarConciliacion();
+}
+
+// Da por buena TODA la lista (todos los puestos).
+async function quitarTodoRecepcion(){
+  if(!__conciliacionData.length) return;
+  const total = __conciliacionData.reduce((s,p)=>s+p.items.length,0);
+  if(!confirm(`¿Dar por buena TODA la lista (${total} artículo(s) en ${__conciliacionData.length} puesto(s))? Se limpia la comparación y la lista de los vendedores.`)) return;
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  const msg=document.getElementById('recAdminMsg'); msg.textContent='Limpiando todo…'; msg.className='msg';
+  try{ for(const p of __conciliacionData){ for(const it of p.items){ await marcarRevisado(p.pid, it.prod, it.enviadoNeto); } } }
+  catch(e){ msg.textContent='No se pudo del todo: '+(e.message||e); msg.className='msg err'; cargarConciliacion(); return; }
+  cargarConciliacion();
+}
+
 // El dueño da por bueno un artículo. En vez de borrar, lo marca como "revisado":
 // - las anotaciones del vendedor de ese producto/puesto pasan a revisado=true (salen de su lista)
 // - si NO había anotación (solo se envió), inserta una marca revisada con la cantidad enviada,
@@ -8547,9 +8584,13 @@ async function cargarConciliacion(){
       if(!filas.length) return;
       filas.sort((a,b)=>{ const ca=a.estado==='cuadra'?1:0, cb=b.estado==='cuadra'?1:0; if(ca!==cb) return ca-cb; return a.nombre.localeCompare(b.nombre); });
       totalPend += filas.length;
-      html += `<div style="border:2px solid var(--border); border-radius:14px; padding:12px; margin-bottom:16px">
-        <div style="font-weight:800; font-size:17px; margin-bottom:8px">${nombreAlm(pid)} <span style="color:var(--muted); font-weight:500; font-size:14px">— ${filas.length} por revisar</span></div>
-        <table><thead><tr><th>Producto</th><th class="numcell">Anotó</th><th class="numcell">Enviado</th><th class="numcell">Dif.</th><th>Estado</th><th></th></tr></thead><tbody>`;
+      html += `<div style="border:2px solid var(--border); border-radius:14px; padding:12px; margin-bottom:16px; overflow:hidden">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap">
+          <div style="font-weight:800; font-size:17px">${nombreAlm(pid)} <span style="color:var(--muted); font-weight:500; font-size:14px">— ${filas.length} por revisar</span></div>
+          <button class="ghost" style="font-size:13px; padding:6px 12px" onclick="quitarPuestoRecepcion(${pid})">✓ Quitar todo</button>
+        </div>
+        <div style="overflow-x:auto; -webkit-overflow-scrolling:touch">
+        <table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Anotó</th><th class="numcell">Enviado</th><th class="numcell">Dif.</th><th>Estado</th><th></th></tr></thead><tbody>`;
       html += filas.map(f=>`<tr>
         <td>${f.nombre}</td>
         <td class="numcell">${num(f.anoto)}</td>
@@ -8558,10 +8599,16 @@ async function cargarConciliacion(){
         <td>${badge(f.estado)}</td>
         <td><button class="ghost" onclick="quitarRecepcionProducto(${pid}, ${f.prod}, ${f.enviadoNeto})">✓ Quitar</button></td>
       </tr>`).join('');
-      html += `</tbody></table></div>`;
+      html += `</tbody></table></div></div>`;
     });
-    if(!totalPend){ body.innerHTML='<div class="empty">No hay nada por revisar. Todo cuadra. 👍</div>'; msg.textContent=''; return; }
-    body.innerHTML = html;
+    if(!totalPend){ body.innerHTML='<div class="empty">No hay nada por revisar. Todo cuadra. 👍</div>'; msg.textContent=''; __conciliacionData=[]; return; }
+    // Guardamos lo mostrado para el botón "Quitar todo".
+    __conciliacionData = puestos.map(pid=>{
+      const decl = declPP[pid]||{}, env = enviadoPP[pid]||{}, rev = revPP[pid]||{};
+      const items = [...new Set([...Object.keys(decl), ...Object.keys(env)].map(Number))].map(prod=>({ prod, enviadoNeto: Math.max(0, Number(env[prod]||0) - Number(rev[prod]||0)) })).filter(x=> (Number(decl[x.prod]||0)>0) || x.enviadoNeto>0);
+      return { pid, items };
+    }).filter(p=>p.items.length);
+    body.innerHTML = `<button class="ghost" style="width:100%; margin-bottom:12px" onclick="quitarTodoRecepcion()">✓ Quitar todo (dar por buena toda la lista)</button>` + html;
     msg.textContent = `${totalPend} artículo(s) por revisar en ${puestos.length} puesto(s).`;
     msg.className = 'msg';
   }catch(e){ body.textContent=''; msg.textContent='No se pudo cargar: '+(e.message||e)+'. (¿Corriste el SQL de la columna "revisado"?)'; msg.className='msg err'; }
@@ -9144,6 +9191,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v76</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v77</div>
 </body>
 </html>
