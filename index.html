@@ -1699,10 +1699,10 @@ async function cargarVentasPorVendedor(){
           </tr>
           <tr id="vv-det-${x.dia.id}" style="display:none"><td colspan="${verGanancia ? 8 : 7}" style="padding:0">
             <table style="margin:0; background:var(--panel2)">
-              <thead><tr><th style="padding-left:22px">Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th>${verGanancia ? '<th class="numcell">Ganancia</th>' : ''}</tr></thead>
+              <thead><tr><th style="padding-left:22px">Producto</th><th class="numcell">Cant.</th>${verGanancia ? '<th class="numcell">Costo</th>' : ''}<th class="numcell">Precio</th><th class="numcell">Subtotal</th>${verGanancia ? '<th class="numcell">Ganancia</th>' : ''}</tr></thead>
               <tbody>
                 ${x.items.length === 0
-                  ? `<tr><td colspan="${verGanancia ? 5 : 4}" class="empty">Esta venta no tiene artículos.</td></tr>`
+                  ? `<tr><td colspan="${verGanancia ? 6 : 4}" class="empty">Esta venta no tiene artículos.</td></tr>`
                   : x.items.map(it=>{
                       const p = PRODUCTOS.find(z=>z.id===it.producto_id);
                       const sub = Number(it.cantidad)*Number(it.precio_venta);
@@ -1710,6 +1710,7 @@ async function cargarVentasPorVendedor(){
                       return `<tr>
                         <td style="padding-left:22px">${p?p.nombre:'(producto borrado)'}</td>
                         <td class="numcell">${num(it.cantidad)}</td>
+                        ${verGanancia ? `<td class="numcell" style="color:var(--muted)">$${num(it.costo)}</td>` : ''}
                         <td class="numcell">$${num(it.precio_venta)}</td>
                         <td class="numcell">$${num(sub)}</td>
                         ${verGanancia ? `<td class="numcell" style="color:var(--green)">$${num(gan)}</td>` : ''}
@@ -1722,15 +1723,22 @@ async function cargarVentasPorVendedor(){
 
       return `
         <div class="card">
-          <h2 style="margin-bottom:4px">${nombre}</h2>
-          <div style="color:var(--muted); font-size:13px; margin-bottom:12px">
-            ${v.ventas.length} venta(s) · ${num(v.uds)} unidades ·
-            <strong style="color:var(--green)">$${num(v.totalVenta)}</strong> vendidos${verGanancia ? ` · ganancia $${num(v.totalGanancia)}` : ''}
+          <div onclick="toggleVendedor(${vi})" style="cursor:pointer; display:flex; justify-content:space-between; align-items:flex-start; gap:10px">
+            <div style="flex:1; min-width:0">
+              <h2 style="margin-bottom:4px">${nombre}</h2>
+              <div style="color:var(--muted); font-size:13px">
+                ${v.ventas.length} venta(s) · ${num(v.uds)} unidades ·
+                <strong style="color:var(--green)">$${num(v.totalVenta)}</strong> vendidos${verGanancia ? ` · ganancia $${num(v.totalGanancia)}` : ''}
+              </div>
+            </div>
+            <span id="vend-arrow-${vi}" style="font-size:22px; flex:none; color:var(--muted)">▸</span>
           </div>
-          <table>
-            <thead><tr><th>Fecha</th><th>Hora</th><th>Puesto</th><th class="numcell">Artíc.</th><th class="numcell">Venta</th>${verGanancia ? '<th class="numcell">Ganancia</th>' : ''}<th>Estado</th><th></th></tr></thead>
-            <tbody>${filas}</tbody>
-          </table>
+          <div id="vend-body-${vi}" style="display:none; margin-top:12px">
+            <table>
+              <thead><tr><th>Fecha</th><th>Hora</th><th>Puesto</th><th class="numcell">Artíc.</th><th class="numcell">Venta</th>${verGanancia ? '<th class="numcell">Ganancia</th>' : ''}<th>Estado</th><th></th></tr></thead>
+              <tbody>${filas}</tbody>
+            </table>
+          </div>
         </div>`;
     }).join('');
 
@@ -1739,6 +1747,16 @@ async function cargarVentasPorVendedor(){
     msgEl.textContent = 'No se pudieron cargar las ventas: ' + (err.message||err);
     msgEl.className = 'msg err';
   }
+}
+
+// Abre o cierra el bloque de ventas de un vendedor (para no ver todos a la vez).
+function toggleVendedor(vi){
+  const body = document.getElementById('vend-body-'+vi);
+  const arrow = document.getElementById('vend-arrow-'+vi);
+  if(!body) return;
+  const abierto = body.style.display !== 'none';
+  body.style.display = abierto ? 'none' : '';
+  if(arrow) arrow.textContent = abierto ? '▸' : '▾';
 }
 
 // Abre o cierra el detalle de una venta concreta.
@@ -8481,8 +8499,16 @@ async function cargarConciliacion(){
     // 2) Movimientos de ingreso/traslado hacia esos puestos (paginado), para el "enviado"
     const mov=[]; { const PAGE=1000; let d=0; for(;;){ const r=await sb.from('movimientos').select('almacen_destino_id,producto_id,cantidad,tipo,creado_en').in('almacen_destino_id', puestoIds).range(d,d+PAGE-1); if(r.error||!r.data)break; mov.push(...r.data); if(r.data.length<PAGE)break; d+=PAGE; } }
     const fechaLocal = ts => { if(!ts) return ''; const dd=new Date(ts); if(isNaN(dd)) return (ts||'').slice(0,10); const z=new Date(dd.getTime()-dd.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); };
+    const sumaDias = (f, n) => { const d=new Date(f+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
+    // Ventana de fechas por puesto: desde la anotación más vieja hasta la más nueva, con ±1 día
+    // de margen (por si el envío se registró un día antes/después de que el vendedor lo anotó).
+    Object.values(porPuesto).forEach(g=>{
+      const arr = [...g.fechas].filter(Boolean).sort();
+      g.min = arr.length ? sumaDias(arr[0], -1) : '';
+      g.max = arr.length ? sumaDias(arr[arr.length-1], 1) : '';
+    });
     const enviadoPorPuesto = {};
-    mov.forEach(m=>{ if(!(m.tipo==='ingreso'||m.tipo==='traslado')) return; const g=porPuesto[m.almacen_destino_id]; if(!g) return; if(!g.fechas.has(fechaLocal(m.creado_en))) return; (enviadoPorPuesto[m.almacen_destino_id]=enviadoPorPuesto[m.almacen_destino_id]||{}); enviadoPorPuesto[m.almacen_destino_id][m.producto_id]=(enviadoPorPuesto[m.almacen_destino_id][m.producto_id]||0)+Number(m.cantidad||0); });
+    mov.forEach(m=>{ if(!(m.tipo==='ingreso'||m.tipo==='traslado')) return; const g=porPuesto[m.almacen_destino_id]; if(!g) return; const f=fechaLocal(m.creado_en); if(!(f>=g.min && f<=g.max)) return; (enviadoPorPuesto[m.almacen_destino_id]=enviadoPorPuesto[m.almacen_destino_id]||{}); enviadoPorPuesto[m.almacen_destino_id][m.producto_id]=(enviadoPorPuesto[m.almacen_destino_id][m.producto_id]||0)+Number(m.cantidad||0); });
 
     const badge = est => {
       if(est==='cuadra') return '<span style="color:var(--green)">✓ cuadra</span>';
@@ -9094,7 +9120,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v73</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v75</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
