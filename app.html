@@ -2260,17 +2260,32 @@ async function aplicarLineaMovimiento(it){
     const r = await ajustarInventario(it.origen_id, it.producto_id, -it.cantidad);
     await insertarMovimiento({tipo:'extraccion', producto_id:it.producto_id, almacen_origen_id:it.origen_id, cantidad:it.cantidad, nota:it.nota, clave_local:clave, cant_antes:r.antes, cant_despues:r.despues});
   } else { // traslado
-    const rOrigen = await ajustarInventario(it.origen_id, it.producto_id, -it.cantidad); // 1) bajar del origen
-    let destinoHecho = false;
+    // Preferimos la función ATÓMICA de la base (todo en una sola operación: si se corta la luz,
+    // no queda nada a medias). Si esa función aún no existe, usamos el camino con rollback.
+    let usoAtomico = false;
     try{
-      const rDestino = await ajustarInventario(it.destino_id, it.producto_id, it.cantidad); // 2) subir al destino
-      destinoHecho = true;
-      await insertarMovimiento({tipo:'traslado', producto_id:it.producto_id, almacen_origen_id:it.origen_id, almacen_destino_id:it.destino_id, cantidad:it.cantidad, nota:it.nota, clave_local:clave, cant_antes:rOrigen.antes, cant_despues:rOrigen.despues, cant_antes_destino:rDestino.antes, cant_despues_destino:rDestino.despues}); // 3) registrar
+      const { error } = await sb.rpc('trasladar_atomico', {
+        p_origen: it.origen_id, p_destino: it.destino_id, p_producto: it.producto_id,
+        p_cantidad: it.cantidad, p_nota: it.nota||'', p_clave: clave
+      });
+      if(error) throw error;
+      usoAtomico = true;
     }catch(e){
-      // Deshacemos lo que SÍ se hizo, para no perder NI duplicar unidades (todo-o-nada):
-      if(destinoHecho){ try{ await ajustarInventario(it.destino_id, it.producto_id, -it.cantidad); }catch(_){} } // quitar del destino
-      try{ await ajustarInventario(it.origen_id, it.producto_id, it.cantidad); }catch(_){} // devolver al origen
-      throw e;
+      const msg = (e && (e.message||e.code||'')+'' ).toLowerCase();
+      const faltaFuncion = msg.includes('does not exist') || msg.includes('not find') || msg.includes('42883') || msg.includes('schema cache') || msg.includes('404');
+      if(!faltaFuncion) throw e; // error real (ej. stock insuficiente): no seguir por el otro camino
+      // La función no está creada todavía → camino con rollback (todo-o-nada por software).
+      const rOrigen = await ajustarInventario(it.origen_id, it.producto_id, -it.cantidad);
+      let destinoHecho = false;
+      try{
+        const rDestino = await ajustarInventario(it.destino_id, it.producto_id, it.cantidad);
+        destinoHecho = true;
+        await insertarMovimiento({tipo:'traslado', producto_id:it.producto_id, almacen_origen_id:it.origen_id, almacen_destino_id:it.destino_id, cantidad:it.cantidad, nota:it.nota, clave_local:clave, cant_antes:rOrigen.antes, cant_despues:rOrigen.despues, cant_antes_destino:rDestino.antes, cant_despues_destino:rDestino.despues});
+      }catch(e2){
+        if(destinoHecho){ try{ await ajustarInventario(it.destino_id, it.producto_id, -it.cantidad); }catch(_){} }
+        try{ await ajustarInventario(it.origen_id, it.producto_id, it.cantidad); }catch(_){}
+        throw e2;
+      }
     }
   }
 
@@ -7610,6 +7625,7 @@ async function cambiarPuestoComodin(){
   puestoActual = {id: nuevoPuesto, nombre: almacen?almacen.nombre:'Puesto'};
   document.getElementById('puestoActualLabel').textContent = 'Puesto: ' + puestoActual.nombre;
   await abrirPanelVenta();
+  try{ cargarRecepcionesHoy(); }catch(e){}
   alert('Ahora estás trabajando en: ' + puestoActual.nombre);
 }
 
@@ -9191,6 +9207,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v77</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v78</div>
 </body>
 </html>
