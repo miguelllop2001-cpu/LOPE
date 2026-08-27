@@ -361,6 +361,7 @@
       <button data-tab="usuarios" id="tabBtnUsuarios" style="display:none">👤 Usuarios</button>
       <button data-tab="estadisticas" id="tabBtnEstadisticas" style="display:none">🗂️ Ventas registradas</button>
       <button data-tab="analizador" id="tabBtnAnalizador" style="display:none">🎛️ Sala de Control</button>
+      <button data-tab="analisisprod" id="tabBtnAnalisisProd" style="display:none">📈 Análisis de productos</button>
       <button data-tab="cobraradmin" id="tabBtnCobrarAdmin" style="display:none">💰 Cobrar</button>
       <button onclick="cerrarSesion()">🚪 Cerrar sesión</button>
     </div>
@@ -867,6 +868,28 @@
     <div id="vvBody"></div>
   </div>
 
+  <div id="tab-analisisprod" class="tab" style="display:none">
+    <div class="card">
+      <h2>📈 Análisis de productos</h2>
+      <div style="color:var(--muted); font-size:13px; margin-bottom:10px">Analiza todas las ventas cerradas para decirte qué se vende rápido, qué está frenado, qué subió o bajó, y qué precios conviene actualizar (con tu visto bueno).</div>
+      <div class="row" style="align-items:flex-end">
+        <div class="field">
+          <label>Período a analizar</label>
+          <select id="apPeriodo">
+            <option value="30">Últimos 30 días</option>
+            <option value="60" selected>Últimos 60 días</option>
+            <option value="90">Últimos 90 días</option>
+            <option value="180">Últimos 6 meses</option>
+            <option value="0">Todo el historial</option>
+          </select>
+        </div>
+        <button class="primary" onclick="cargarAnalisisProductos()">Analizar</button>
+      </div>
+      <div id="apMsg" class="msg" style="margin-top:8px"></div>
+    </div>
+    <div id="apBody"></div>
+  </div>
+
   <div id="tab-pedidos" class="tab" style="display:none">
     <div class="card">
       <h2>Pedidos de los puestos</h2>
@@ -1226,6 +1249,7 @@ document.querySelectorAll('.tabs button').forEach(btn=>{
     if(btn.dataset.tab==='compras') prepararCompras();
     if(btn.dataset.tab==='ventasvendedor') prepararVentasPorVendedor();
     if(btn.dataset.tab==='analizador' && usuarioActual.rol==='dueno') cargarAnalizador();
+    if(btn.dataset.tab==='analisisprod' && usuarioActual.rol==='dueno') cargarAnalisisProductos();
     if(btn.dataset.tab==='admin' && usuarioActual.rol==='dueno') cargarHistorialPrecios();
     cerrarMenu();
   });
@@ -8550,8 +8574,8 @@ async function cargarConciliacion(){
     const sumaDias = (f, n) => { const d=new Date(f+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
     const hoy = fechaHoyLocal();
 
-    // 1) Recepciones (todas: pendientes y revisadas). Paginado.
-    const rec=[]; { const PAGE=1000; let d=0; for(;;){ const r=await sb.from('recepciones').select('almacen_id,producto_id,cantidad,fecha,revisado').range(d,d+PAGE-1); if(r.error||!r.data)break; rec.push(...r.data); if(r.data.length<PAGE)break; d+=PAGE; } }
+    // 1) Recepciones (todas: pendientes y revisadas). Paginado con ORDEN estable.
+    const rec=[]; { const PAGE=1000; let d=0; for(;;){ const r=await sb.from('recepciones').select('almacen_id,producto_id,cantidad,fecha,revisado').order('id',{ascending:true}).range(d,d+PAGE-1); if(r.error||!r.data)break; rec.push(...r.data); if(r.data.length<PAGE)break; d+=PAGE; } }
     // declarado (revisado=false) y revisado (revisado=true) por puesto/producto; fechas de lo pendiente
     const declPP = {}, revPP = {}, fechasP = {};
     rec.forEach(r=>{
@@ -8560,15 +8584,21 @@ async function cargarConciliacion(){
       else { (declPP[a]=declPP[a]||{})[pid]=(declPP[a][pid]||0)+c; (fechasP[a]=fechasP[a]||new Set()).add(r.fecha); }
     });
 
-    // 2) Ventana de fechas para el "enviado": desde 21 días atrás (o desde la anotación pendiente
+    // Puestos a CONSULTAR envíos: los que se llaman "P ..." + CUALQUIER almacén donde el vendedor
+    // anotó recepción (por si un puesto tiene otro nombre). Así nunca dejamos fuera un puesto real.
+    const puestosConsulta = [...new Set([ ...puestosApp, ...Object.keys(declPP).map(Number), ...Object.keys(revPP).map(Number) ])];
+
+    // 2) Ventana de fechas para el "enviado": desde 45 días atrás (o desde la anotación pendiente
     //    más vieja, lo que sea más temprano) hasta hoy.
-    let inicio = sumaDias(hoy, -21);
+    let inicio = sumaDias(hoy, -45);
     Object.values(fechasP).forEach(set=>{ [...set].filter(Boolean).forEach(f=>{ const w=sumaDias(f,-1); if(w<inicio) inicio=w; }); });
 
-    // 3) Movimientos de ingreso/traslado hacia CUALQUIER puesto, desde 'inicio'. Paginado.
-    const mov=[]; { const PAGE=1000; let d=0; for(;;){ const r=await sb.from('movimientos').select('almacen_destino_id,producto_id,cantidad,tipo,creado_en').in('almacen_destino_id', puestosApp).gte('creado_en', inicio+'T00:00:00').range(d,d+PAGE-1); if(r.error||!r.data)break; mov.push(...r.data); if(r.data.length<PAGE)break; d+=PAGE; } }
+    // 3) Movimientos de ingreso/traslado hacia esos puestos, desde 'inicio'. Paginado con ORDEN.
+    //    (El TRASLADO también entra mercancía al puesto, así que cuenta igual que el ingreso.)
+    const mov=[]; { const PAGE=1000; let d=0; for(;;){ const r=await sb.from('movimientos').select('almacen_destino_id,producto_id,cantidad,tipo,creado_en').in('almacen_destino_id', puestosConsulta).gte('creado_en', inicio+'T00:00:00').order('id',{ascending:true}).range(d,d+PAGE-1); if(r.error||!r.data)break; mov.push(...r.data); if(r.data.length<PAGE)break; d+=PAGE; } }
+    let nEnviosContados = 0;
     const enviadoPP = {};
-    mov.forEach(m=>{ if(!(m.tipo==='ingreso'||m.tipo==='traslado')) return; const a=m.almacen_destino_id; if(!puestosApp.includes(a)) return; (enviadoPP[a]=enviadoPP[a]||{})[m.producto_id]=(enviadoPP[a][m.producto_id]||0)+Number(m.cantidad||0); });
+    mov.forEach(m=>{ const t=(m.tipo||'').toString().toLowerCase().trim(); if(t!=='ingreso' && t!=='traslado') return; const a=Number(m.almacen_destino_id); if(!puestosConsulta.includes(a)) return; (enviadoPP[a]=enviadoPP[a]||{})[m.producto_id]=(enviadoPP[a][m.producto_id]||0)+Number(m.cantidad||0); nEnviosContados++; });
 
     // 4) Armar por puesto: producto sale si tiene anotado pendiente O enviado-neto > 0
     const badge = est => {
@@ -8625,7 +8655,7 @@ async function cargarConciliacion(){
       return { pid, items };
     }).filter(p=>p.items.length);
     body.innerHTML = `<button class="ghost" style="width:100%; margin-bottom:12px" onclick="quitarTodoRecepcion()">✓ Quitar todo (dar por buena toda la lista)</button>` + html;
-    msg.textContent = `${totalPend} artículo(s) por revisar en ${puestos.length} puesto(s).`;
+    msg.textContent = `${totalPend} artículo(s) por revisar en ${puestos.length} puesto(s). (Encontré ${nEnviosContados} envío(s) a puestos desde ${inicio}.)`;
     msg.className = 'msg';
   }catch(e){ body.textContent=''; msg.textContent='No se pudo cargar: '+(e.message||e)+'. (¿Corriste el SQL de la columna "revisado"?)'; msg.className='msg err'; }
 }
@@ -9194,11 +9224,211 @@ async function cargarEstadisticas(){
   }
 }
 
+// ══════════════════════════════════════════════════════════════════
+// 📈 ANÁLISIS DE PRODUCTOS (solo dueño)
+// Lee todas las ventas cerradas del período y calcula: velocidad (rápida/lenta),
+// tendencia (subió/bajó), márgenes, capital parado y precios desactualizados.
+// ══════════════════════════════════════════════════════════════════
+async function cargarAnalisisProductos(){
+  const body = document.getElementById('apBody');
+  const msg = document.getElementById('apMsg');
+  msg.textContent='';
+  if(!navigator.onLine){ msg.textContent='Necesitas internet para analizar.'; msg.className='msg err'; return; }
+  body.innerHTML='<div class="card">Analizando todas las ventas… un momento.</div>';
+  try{
+    const dias = Number(document.getElementById('apPeriodo').value)||0;
+    const hoy = fechaHoyLocal();
+    const sumaDias = (f,n)=>{ const d=new Date(f+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
+    const desde = dias>0 ? sumaDias(hoy, -dias) : '2000-01-01';
+    const nom = id=>{ const p=(PRODUCTOS||[]).find(x=>x.id===id); return p?p.nombre:('#'+id); };
+    const prodCat = id=>(PRODUCTOS||[]).find(x=>x.id===id);
+
+    // 1) Ventas cerradas del período (paginado, ordenado).
+    const ventas=[]; { const PAGE=1000; let d=0; for(;;){ const r=await sb.from('ventas_dia').select('id,fecha,total').eq('cerrado',true).gte('fecha',desde).order('id',{ascending:true}).range(d,d+PAGE-1); if(r.error||!r.data)break; ventas.push(...r.data); if(r.data.length<PAGE)break; d+=PAGE; } }
+    if(!ventas.length){ body.innerHTML='<div class="card"><div class="empty">No hay ventas cerradas en ese período.</div></div>'; msg.textContent=''; return; }
+    const totalPorVenta = {}; ventas.forEach(v=>totalPorVenta[v.id]=v.total);
+    const fechaVenta = {}; ventas.forEach(v=>fechaVenta[v.id]=v.fecha);
+
+    // 2) Ítems de esas ventas (en lotes por id).
+    const ids = ventas.map(v=>v.id);
+    const items=[];
+    for(let i=0;i<ids.length;i+=300){
+      const trozo = ids.slice(i,i+300);
+      let d=0; const PAGE=1000;
+      for(;;){ const r=await sb.from('venta_items').select('venta_dia_id,producto_id,cantidad,precio_venta,costo').in('venta_dia_id',trozo).order('id',{ascending:true}).range(d,d+PAGE-1); if(r.error||!r.data)break; items.push(...r.data); if(r.data.length<PAGE)break; d+=PAGE; }
+    }
+    // Agrupar ítems por venta y quitar duplicados con la lógica segura.
+    const porVenta={}; items.forEach(it=>{ (porVenta[it.venta_dia_id]=porVenta[it.venta_dia_id]||[]).push(it); });
+
+    // 3) Acumular por producto.
+    const mitad = dias>0 ? sumaDias(hoy, -Math.round(dias/2)) : sumaDias(hoy, -Math.round((()=>{ let min=hoy; ventas.forEach(v=>{ if(v.fecha<min)min=v.fecha; }); const d0=new Date(min+'T00:00:00'), d1=new Date(hoy+'T00:00:00'); return Math.max(2,Math.round((d1-d0)/86400000)); })()/2));
+    const P={}; // producto_id -> agregados
+    const reg = id => P[id] || (P[id]={uds:0,venta:0,ganancia:0,fechas:new Set(),udsRec:0,udsPrev:0,precioTally:{}});
+    Object.keys(porVenta).forEach(vid=>{
+      const reales = itemsRealesDeVenta(porVenta[vid], totalPorVenta[vid]);
+      const f = fechaVenta[vid];
+      reales.forEach(it=>{
+        const a=reg(it.producto_id);
+        const c=Number(it.cantidad)||0, pv=Number(it.precio_venta)||0, co=Number(it.costo)||0;
+        a.uds+=c; a.venta+=c*pv; a.ganancia+=c*(pv-co); a.fechas.add(f);
+        if(f>=mitad) a.udsRec+=c; else a.udsPrev+=c;
+        a.precioTally[pv]=(a.precioTally[pv]||0)+c; // para saber a qué precio venden de verdad
+      });
+    });
+
+    const diasPeriodo = dias>0 ? dias : (()=>{ let min=hoy; ventas.forEach(v=>{ if(v.fecha<min)min=v.fecha; }); const d0=new Date(min+'T00:00:00'), d1=new Date(hoy+'T00:00:00'); return Math.max(1,Math.round((d1-d0)/86400000)+1); })();
+
+    const lista = Object.keys(P).map(id=>{
+      const a=P[Number(id)]||P[id]; const pid=Number(id);
+      const udsDia = a.uds/diasPeriodo;
+      const margen = a.venta>0 ? (a.ganancia/a.venta) : 0;
+      let tendencia; const rec=a.udsRec, prev=a.udsPrev;
+      if(prev===0 && rec===0) tendencia=0;
+      else if(prev===0) tendencia=999; // apareció/creció desde cero
+      else tendencia=(rec-prev)/prev*100;
+      // precio real más usado (moda ponderada por cantidad)
+      let precioReal=null, maxC=-1; Object.keys(a.precioTally).forEach(px=>{ if(a.precioTally[px]>maxC){maxC=a.precioTally[px]; precioReal=Number(px);} });
+      const cat=prodCat(pid);
+      return { pid, nombre:nom(pid), uds:a.uds, udsDia, venta:a.venta, ganancia:a.ganancia, margen, dias:a.fechas.size, tendencia, rec, prev, precioReal, precioCat: cat?Number(cat.precio_venta):null };
+    });
+
+    // Inventario para "capital parado" (con stock pero sin ventas).
+    const stockPorProd={}; (INVENTARIO||[]).forEach(r=>{ stockPorProd[r.producto_id]=(stockPorProd[r.producto_id]||0)+Number(r.cantidad||0); });
+
+    const fmt = n => '$'+num(n);
+    const pct = n => (n===999?'nuevo':(n>0?'+':'')+Math.round(n)+'%');
+
+    // ---- Secciones ----
+    let html='';
+
+    // Resumen
+    const totUds=lista.reduce((s,x)=>s+x.uds,0), totVenta=lista.reduce((s,x)=>s+x.venta,0), totGan=lista.reduce((s,x)=>s+x.ganancia,0);
+    html+=`<div class="card"><h2>Resumen del período</h2>
+      <div class="row">
+        <div class="field"><label>Productos vendidos</label><div style="font-size:20px;font-weight:800">${lista.length}</div></div>
+        <div class="field"><label>Unidades</label><div style="font-size:20px;font-weight:800">${num(totUds)}</div></div>
+        <div class="field"><label>Venta total</label><div style="font-size:20px;font-weight:800;color:var(--green)">${fmt(totVenta)}</div></div>
+        <div class="field"><label>Ganancia total</label><div style="font-size:20px;font-weight:800;color:var(--green)">${fmt(totGan)}</div></div>
+      </div>
+      <div style="color:var(--muted);font-size:12px;margin-top:6px">${diasPeriodo} día(s) analizados · ${ventas.length} ventas cerradas</div></div>`;
+
+    const tablaProd = (arr, cols) => {
+      let h=`<div style="overflow-x:auto"><table style="min-width:520px"><thead><tr><th>Producto</th>${cols.map(c=>`<th class="numcell">${c.h}</th>`).join('')}</tr></thead><tbody>`;
+      h+=arr.map(x=>`<tr><td>${x.nombre}</td>${cols.map(c=>`<td class="numcell" style="${c.style?c.style(x):''}">${c.f(x)}</td>`).join('')}</tr>`).join('');
+      return h+'</tbody></table></div>';
+    };
+
+    // 🔥 Venta rápida
+    const rapidos=[...lista].sort((a,b)=>b.udsDia-a.udsDia).slice(0,15);
+    html+=`<div class="card"><h2>🔥 Venta rápida (los que más rotan)</h2>${tablaProd(rapidos,[
+      {h:'Uds', f:x=>num(x.uds)},
+      {h:'Uds/día', f:x=>x.udsDia.toFixed(2)},
+      {h:'Venta', f:x=>fmt(x.venta)},
+      {h:'Ganancia', f:x=>fmt(x.ganancia), style:()=> 'color:var(--green)'},
+    ])}</div>`;
+
+    // 🐌 Venta lenta (con ventas pero muy poca rotación)
+    const lentos=[...lista].filter(x=>x.uds>0).sort((a,b)=>a.udsDia-b.udsDia).slice(0,15);
+    html+=`<div class="card"><h2>🐌 Venta lenta (rotan poco)</h2>${tablaProd(lentos,[
+      {h:'Uds', f:x=>num(x.uds)},
+      {h:'Uds/día', f:x=>x.udsDia.toFixed(3)},
+      {h:'Stock hoy', f:x=>num(stockPorProd[x.pid]||0)},
+      {h:'Ganancia', f:x=>fmt(x.ganancia), style:()=>'color:var(--green)'},
+    ])}</div>`;
+
+    // 📈 Subieron / 📉 Bajaron
+    const subieron=[...lista].filter(x=>x.tendencia>=30 && x.rec>=3).sort((a,b)=>b.tendencia-a.tendencia).slice(0,15);
+    const bajaron=[...lista].filter(x=>x.tendencia<=-30 && x.prev>=3).sort((a,b)=>a.tendencia-b.tendencia).slice(0,15);
+    html+=`<div class="card"><h2>📈 Subieron mucho las ventas</h2>
+      <div style="color:var(--muted);font-size:12px;margin-bottom:6px">Alta demanda: podrías <strong>subir el precio</strong> y/o reponer más.</div>
+      ${subieron.length?tablaProd(subieron,[
+        {h:'Antes', f:x=>num(x.prev)},{h:'Ahora', f:x=>num(x.rec)},
+        {h:'Cambio', f:x=>pct(x.tendencia), style:()=>'color:var(--green);font-weight:700'},
+        {h:'Precio', f:x=>x.precioCat!=null?fmt(x.precioCat):'—'},
+      ]):'<div class="empty">Sin subidas fuertes.</div>'}</div>`;
+    html+=`<div class="card"><h2>📉 Bajaron las ventas</h2>
+      <div style="color:var(--muted);font-size:12px;margin-bottom:6px">Revisa: quizá <strong>bajar el precio</strong>, promocionar o no reponer tanto.</div>
+      ${bajaron.length?tablaProd(bajaron,[
+        {h:'Antes', f:x=>num(x.prev)},{h:'Ahora', f:x=>num(x.rec)},
+        {h:'Cambio', f:x=>pct(x.tendencia), style:()=>'color:var(--red);font-weight:700'},
+        {h:'Precio', f:x=>x.precioCat!=null?fmt(x.precioCat):'—'},
+      ]):'<div class="empty">Sin bajadas fuertes.</div>'}</div>`;
+
+    // 💰 Margen bajo
+    const margenBajo=[...lista].filter(x=>x.venta>0 && x.margen<0.15).sort((a,b)=>a.margen-b.margen).slice(0,15);
+    if(margenBajo.length) html+=`<div class="card"><h2>💰 Margen bajo (ganas poco por venta)</h2>
+      <div style="color:var(--muted);font-size:12px;margin-bottom:6px">Menos del 15% de ganancia. Revisa costo o precio.</div>
+      ${tablaProd(margenBajo,[
+        {h:'Margen', f:x=>Math.round(x.margen*100)+'%', style:()=>'color:var(--amber);font-weight:700'},
+        {h:'Venta', f:x=>fmt(x.venta)},{h:'Ganancia', f:x=>fmt(x.ganancia)},
+      ])}</div>`;
+
+    // 💤 Capital parado (stock sin ventas en el período)
+    const vendidosSet=new Set(lista.map(x=>x.pid));
+    const parados=(PRODUCTOS||[]).filter(p=>(stockPorProd[p.id]||0)>0 && !vendidosSet.has(p.id))
+      .map(p=>({pid:p.id,nombre:p.nombre,stock:stockPorProd[p.id]||0,inmov:(stockPorProd[p.id]||0)*Number(p.costo||0)}))
+      .sort((a,b)=>b.inmov-a.inmov).slice(0,20);
+    if(parados.length) html+=`<div class="card"><h2>💤 Capital parado (con stock, sin vender)</h2>
+      <div style="color:var(--muted);font-size:12px;margin-bottom:6px">No se vendió nada en el período pero hay stock. Dinero detenido.</div>
+      ${tablaProd(parados,[
+        {h:'Stock', f:x=>num(x.stock)},
+        {h:'$ detenido', f:x=>fmt(x.inmov), style:()=>'color:var(--amber);font-weight:700'},
+      ])}</div>`;
+
+    // 🏷️ Precios desactualizados (comparar catálogo vs precio real de venta)
+    const sugerencias=lista.filter(x=>{
+      if(x.precioReal==null || x.precioCat==null || x.precioCat<=0) return false;
+      if(x.uds<3) return false; // pocas ventas: no es confiable
+      const dif=Math.abs(x.precioReal-x.precioCat)/x.precioCat;
+      return dif>=0.10 && Math.abs(x.precioReal-x.precioCat)>=1;
+    }).map(x=>({...x, difPct:(x.precioReal-x.precioCat)/x.precioCat*100}))
+      .sort((a,b)=>Math.abs(b.difPct)-Math.abs(a.difPct));
+    __apSugerencias=sugerencias;
+    if(sugerencias.length){
+      let h=`<div class="card"><h2>🏷️ Precios a actualizar (con tu visto bueno)</h2>
+        <div style="color:var(--muted);font-size:12px;margin-bottom:8px">El precio del catálogo no coincide con el precio al que los vendedores están vendiendo de verdad. Aprueba uno por uno el que quieras cambiar.</div>
+        <div style="overflow-x:auto"><table style="min-width:560px"><thead><tr><th>Producto</th><th class="numcell">Catálogo</th><th class="numcell">Precio real</th><th class="numcell">Dif.</th><th></th></tr></thead><tbody>`;
+      h+=sugerencias.map(x=>`<tr>
+        <td>${x.nombre}</td>
+        <td class="numcell">${fmt(x.precioCat)}</td>
+        <td class="numcell" style="font-weight:700">${fmt(x.precioReal)}</td>
+        <td class="numcell" style="color:${x.difPct>0?'var(--green)':'var(--red)'};font-weight:700">${x.difPct>0?'+':''}${Math.round(x.difPct)}%</td>
+        <td><button class="primary" style="padding:6px 12px;font-size:13px" onclick="aprobarPrecioSugerido(${x.pid}, ${x.precioReal})">✓ Actualizar a ${fmt(x.precioReal)}</button></td>
+      </tr>`).join('');
+      h+=`</tbody></table></div></div>`;
+      html+=h;
+    } else {
+      html+=`<div class="card"><h2>🏷️ Precios a actualizar</h2><div class="empty">Los precios del catálogo coinciden con lo que venden. Nada que actualizar.</div></div>`;
+    }
+
+    body.innerHTML=html;
+    msg.textContent='';
+  }catch(e){ body.innerHTML=''; msg.textContent='No se pudo analizar: '+(e.message||e); msg.className='msg err'; }
+}
+let __apSugerencias=[];
+
+// El dueño aprueba cambiar el precio de catálogo al precio real de venta.
+async function aprobarPrecioSugerido(pid, nuevoPrecio){
+  const p=(PRODUCTOS||[]).find(x=>x.id===pid);
+  if(!confirm(`¿Actualizar el precio de "${p?p.nombre:('#'+pid)}" a $${num(nuevoPrecio)}?`)) return;
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  try{
+    const {data,error}=await sb.from('productos').update({precio_venta:Number(nuevoPrecio)}).eq('id',pid).select();
+    if(error) throw error;
+    if(!data||!data.length){ alert('El servidor no aplicó el cambio (permisos).'); return; }
+    if(p) p.precio_venta=Number(nuevoPrecio);
+    lsSet('adm_cache_productos', PRODUCTOS);
+    alert('Precio actualizado. ✓');
+    cargarAnalisisProductos();
+  }catch(e){ alert('No se pudo: '+(e.message||e)); }
+}
+
 function aplicarRestriccionesDeRol(){
   const esDueno = usuarioActual.rol === 'dueno';
   document.getElementById('tabBtnUsuarios').style.display = esDueno ? 'inline-block' : 'none';
   document.getElementById('tabBtnEstadisticas').style.display = esDueno ? 'inline-block' : 'none';
   document.getElementById('tabBtnAnalizador').style.display = esDueno ? 'inline-block' : 'none';
+  { const b=document.getElementById('tabBtnAnalisisProd'); if(b) b.style.display = esDueno ? 'inline-block' : 'none'; }
   document.getElementById('tabBtnCobrarAdmin').style.display = usuarioActual.rol==='administrador' ? 'inline-block' : 'none';
   const cardComp = document.getElementById('cardComprobarInv');
   if(cardComp) cardComp.style.display = esDueno ? '' : 'none';
@@ -9207,6 +9437,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v78</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v79</div>
 </body>
 </html>
