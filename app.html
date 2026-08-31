@@ -866,6 +866,20 @@
 
     <div id="vvResumen"></div>
     <div id="vvBody"></div>
+
+    <div class="card solo-dueno" style="display:none; border:2px solid var(--amber)">
+      <h2>🧮 Recuperar comisiones que faltan</h2>
+      <p style="color:var(--muted); font-size:13px; margin:0 0 12px">Busca ventas con ganancia que NO le generaron la comisión (el cobro) al vendedor, y te deja generarla con un botón. No la duplica si ya existe.</p>
+      <div class="row">
+        <div class="field"><label>Desde</label><input type="date" id="comFaltDesde"></div>
+        <div class="field"><label>Hasta</label><input type="date" id="comFaltHasta"></div>
+        <div class="field" style="display:flex; align-items:flex-end">
+          <button class="primary" style="width:100%" onclick="revisarComisionesFaltantes()">🔎 Buscar comisiones faltantes</button>
+        </div>
+      </div>
+      <div id="comFaltMsg" class="msg"></div>
+      <div id="comFaltBody" style="overflow-x:auto; margin-top:8px"></div>
+    </div>
   </div>
 
   <div id="tab-analisisprod" class="tab" style="display:none">
@@ -6873,7 +6887,11 @@ async function finalizarDiaInterno(){
         let rCom = await sb.from('deudas').insert(filaCom);
         if(rCom.error && ((rCom.error.message||'').includes('clave_comision') || (rCom.error.message||'').includes('column'))){
           delete filaCom.clave_comision;
-          await sb.from('deudas').insert(filaCom);
+          rCom = await sb.from('deudas').insert(filaCom);
+        }
+        if(rCom.error){
+          console.error('COMISIÓN NO CREADA al cerrar:', rCom.error.message, filaCom);
+          try{ const log=lsGet('com_fallidas',[]); log.push({fecha, persona:quienCobra, monto:comision, venta_dia_id:ventaDiaAbiertaId, error:rCom.error.message, ts:Date.now()}); lsSet('com_fallidas',log); }catch(e){}
         }
       }
     }
@@ -7284,7 +7302,11 @@ async function sincronizarUnDia(dia){
       let rCom = await sb.from('deudas').insert(filaCom);
       if(rCom.error && ((rCom.error.message||'').includes('clave_comision') || (rCom.error.message||'').includes('column'))){
         delete filaCom.clave_comision;
-        await sb.from('deudas').insert(filaCom);
+        rCom = await sb.from('deudas').insert(filaCom);
+      }
+      if(rCom.error){
+        console.error('COMISIÓN NO CREADA al sincronizar:', rCom.error.message, filaCom);
+        try{ const log=lsGet('com_fallidas',[]); log.push({fecha:dia.fecha, persona:(dia.cobra_comision||dia.almacen_nombre), monto:comision, venta_dia_id:nuevo.id, error:rCom.error.message, ts:Date.now()}); lsSet('com_fallidas',log); }catch(e){}
       }
     }
   }
@@ -9437,6 +9459,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v79</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v81</div>
 </body>
 </html>
