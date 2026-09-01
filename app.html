@@ -499,7 +499,8 @@
       <div class="row">
         <div class="field" style="flex:2">
           <label>Producto que devuelven</label>
-          <select id="devProducto" onchange="devPrecioPorDefecto()"></select>
+          <input type="text" id="devBuscar" placeholder="🔎 Escribe para buscar por nombre…" oninput="filtrarDevProductos()" autocomplete="off" style="margin-bottom:6px">
+          <select id="devProducto" onchange="devPrecioPorDefecto()" size="6"></select>
         </div>
         <div class="field" style="max-width:110px">
           <label>Cantidad</label>
@@ -2085,6 +2086,8 @@ document.addEventListener('click', (e)=>{
 // de Movimientos cuánto hay EN EL ALMACÉN elegido — así el que hace los traslados/operaciones ve
 // el stock de ese almacén, no la suma de todos. Se llama al entrar a la pestaña. Paginado por si >1000.
 async function cargarInventarioMov(){
+  // Restaura el borrador de movimientos por si se minimizó la app y se descartó la memoria.
+  try{ const b = lsGet('mov_borrador', []); if(Array.isArray(b) && b.length && listaMovimientos.length===0){ listaMovimientos = b; renderListaMovimientos(); } }catch(e){}
   try{
     const mapa = {}; const PAGE=1000; let desde=0;
     for(;;){
@@ -2216,6 +2219,7 @@ function quitarMovDeLista(i){
 const ETIQUETA_TIPO_MOV = {ingreso:'Ingreso', extraccion:'Extracción', traslado:'Traslado'};
 
 function renderListaMovimientos(){
+  lsSet('mov_borrador', listaMovimientos); // guarda el borrador por si minimizas la app
   const body = document.getElementById('movListaBody');
   const empty = document.getElementById('movListaEmpty');
   if(listaMovimientos.length===0){ body.innerHTML=''; empty.style.display='block'; return; }
@@ -9459,6 +9463,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v81</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v82</div>
 </body>
 </html>
