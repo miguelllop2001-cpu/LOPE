@@ -2092,6 +2092,7 @@ document.addEventListener('click', (e)=>{
 async function cargarInventarioMov(){
   // Restaura el borrador de movimientos por si se minimizó la app y se descartó la memoria.
   try{ const b = lsGet('mov_borrador', []); if(Array.isArray(b) && b.length && listaMovimientos.length===0){ listaMovimientos = b; renderListaMovimientos(); } }catch(e){}
+  try{ restaurarSelectsMov(); }catch(e){}
   try{
     const mapa = {}; const PAGE=1000; let desde=0;
     for(;;){
@@ -2174,7 +2175,23 @@ function renderSelects(){
   document.getElementById('movDestino').innerHTML = opAlm;
   const selDeudaAlm = document.getElementById('deudaAlmacen');
   if(selDeudaAlm) selDeudaAlm.innerHTML = opAlm;
+  restaurarSelectsMov();
 }
+
+// Recuerda el tipo y los almacenes elegidos en Movimientos, para que al cambiar de pestaña
+// (o al reconstruir los selects) NO se reinicien a la primera opción.
+function restaurarSelectsMov(){
+  const setSel = (id, val)=>{ const el=document.getElementById(id); if(el && val && [...el.options].some(o=>o.value===val)) el.value=val; };
+  setSel('movTipo', lsGet('mov_sel_tipo',''));
+  setSel('movOrigen', lsGet('mov_sel_origen',''));
+  setSel('movDestino', lsGet('mov_sel_destino',''));
+  // Ajusta la vista (destino visible / etiqueta) según el tipo restaurado.
+  const t=document.getElementById('movTipo'); if(t) t.dispatchEvent(new Event('change'));
+}
+['movTipo','movOrigen','movDestino'].forEach(id=>{
+  const el=document.getElementById(id);
+  if(el) el.addEventListener('change', ()=>{ lsSet('mov_sel_'+id.replace('mov','').toLowerCase(), el.value); });
+});
 
 // ---------- REGISTRAR MOVIMIENTO ----------
 let listaMovimientos = []; // [{tipo, origen_id, destino_id, producto_id, nombre, cantidad, nota}]
@@ -2232,7 +2249,12 @@ function renderListaMovimientos(){
     const almTexto = it.tipo==='ingreso' ? `→ ${it.origen_nombre}`
       : it.tipo==='extraccion' ? `${it.origen_nombre} →`
       : `${it.origen_nombre} → ${it.destino_nombre}`;
-    return `<tr>
+    // Tinte suave de toda la fila según el tipo (mismo color que el historial, pero más leve),
+    // solo como ayuda visual para no confundir ingreso / extracción / traslado.
+    const tinte = it.tipo==='ingreso' ? 'rgba(62,207,142,.08)'
+      : it.tipo==='extraccion' ? 'rgba(255,92,92,.08)'
+      : 'rgba(255,180,84,.08)';
+    return `<tr style="background:${tinte}">
       <td><span class="badge ${it.tipo}">${ETIQUETA_TIPO_MOV[it.tipo]}</span></td>
       <td>${it.nombre}</td>
       <td class="numcell">${num(it.cantidad)}</td>
@@ -8618,17 +8640,25 @@ async function cargarConciliacion(){
     // anotó recepción (por si un puesto tiene otro nombre). Así nunca dejamos fuera un puesto real.
     const puestosConsulta = [...new Set([ ...puestosApp, ...Object.keys(declPP).map(Number), ...Object.keys(revPP).map(Number) ])];
 
-    // 2) Ventana de fechas para el "enviado": desde 45 días atrás (o desde la anotación pendiente
-    //    más vieja, lo que sea más temprano) hasta hoy.
-    let inicio = sumaDias(hoy, -45);
-    Object.values(fechasP).forEach(set=>{ [...set].filter(Boolean).forEach(f=>{ const w=sumaDias(f,-1); if(w<inicio) inicio=w; }); });
+    // 2) Ventana de fechas del "enviado", POR PUESTO:
+    //    - Si el puesto TIENE anotaciones pendientes: desde (la anotación más vieja − 1 día) hasta hoy.
+    //    - Si NO tiene anotaciones: solo miramos envíos de los ÚLTIMOS 3 DÍAS (para no arrastrar
+    //      envíos viejos que ya se recibieron hace tiempo e inflaban los números).
+    const DIAS_SIN_ANOTACION = 3;
+    const ventana = {};
+    let inicioGlobal = sumaDias(hoy, -DIAS_SIN_ANOTACION);
+    puestosConsulta.forEach(pid=>{
+      const set = fechasP[pid];
+      if(set && set.size){ const arr=[...set].filter(Boolean).sort(); const ini=sumaDias(arr[0],-1); ventana[pid]={ini, fin:hoy}; if(ini<inicioGlobal) inicioGlobal=ini; }
+      else { ventana[pid]={ini:sumaDias(hoy,-DIAS_SIN_ANOTACION), fin:hoy}; }
+    });
 
-    // 3) Movimientos de ingreso/traslado hacia esos puestos, desde 'inicio'. Paginado con ORDEN.
+    // 3) Movimientos de ingreso/traslado hacia esos puestos, desde el inicio más temprano. Paginado.
     //    (El TRASLADO también entra mercancía al puesto, así que cuenta igual que el ingreso.)
-    const mov=[]; { const PAGE=1000; let d=0; for(;;){ const r=await sb.from('movimientos').select('almacen_destino_id,producto_id,cantidad,tipo,creado_en').in('almacen_destino_id', puestosConsulta).gte('creado_en', inicio+'T00:00:00').order('id',{ascending:true}).range(d,d+PAGE-1); if(r.error||!r.data)break; mov.push(...r.data); if(r.data.length<PAGE)break; d+=PAGE; } }
+    const mov=[]; { const PAGE=1000; let d=0; for(;;){ const r=await sb.from('movimientos').select('almacen_destino_id,producto_id,cantidad,tipo,creado_en').in('almacen_destino_id', puestosConsulta).gte('creado_en', inicioGlobal+'T00:00:00').order('id',{ascending:true}).range(d,d+PAGE-1); if(r.error||!r.data)break; mov.push(...r.data); if(r.data.length<PAGE)break; d+=PAGE; } }
     let nEnviosContados = 0;
     const enviadoPP = {};
-    mov.forEach(m=>{ const t=(m.tipo||'').toString().toLowerCase().trim(); if(t!=='ingreso' && t!=='traslado') return; const a=Number(m.almacen_destino_id); if(!puestosConsulta.includes(a)) return; (enviadoPP[a]=enviadoPP[a]||{})[m.producto_id]=(enviadoPP[a][m.producto_id]||0)+Number(m.cantidad||0); nEnviosContados++; });
+    mov.forEach(m=>{ const t=(m.tipo||'').toString().toLowerCase().trim(); if(t!=='ingreso' && t!=='traslado') return; const a=Number(m.almacen_destino_id); if(!puestosConsulta.includes(a)) return; const f=fechaLocal(m.creado_en); const w=ventana[a]; if(!w) return; if(f<w.ini || f>w.fin) return; (enviadoPP[a]=enviadoPP[a]||{})[m.producto_id]=(enviadoPP[a][m.producto_id]||0)+Number(m.cantidad||0); nEnviosContados++; });
 
     // 4) Armar por puesto: producto sale si tiene anotado pendiente O enviado-neto > 0
     const badge = est => {
@@ -8685,7 +8715,7 @@ async function cargarConciliacion(){
       return { pid, items };
     }).filter(p=>p.items.length);
     body.innerHTML = `<button class="ghost" style="width:100%; margin-bottom:12px" onclick="quitarTodoRecepcion()">✓ Quitar todo (dar por buena toda la lista)</button>` + html;
-    msg.textContent = `${totalPend} artículo(s) por revisar en ${puestos.length} puesto(s). (Encontré ${nEnviosContados} envío(s) a puestos desde ${inicio}.)`;
+    msg.textContent = `${totalPend} artículo(s) por revisar en ${puestos.length} puesto(s). (Encontré ${nEnviosContados} envío(s) en la ventana revisada.)`;
     msg.className = 'msg';
   }catch(e){ body.textContent=''; msg.textContent='No se pudo cargar: '+(e.message||e)+'. (¿Corriste el SQL de la columna "revisado"?)'; msg.className='msg err'; }
 }
@@ -9467,7 +9497,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v82</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v83</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
