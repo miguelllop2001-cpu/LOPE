@@ -1324,6 +1324,15 @@ document.getElementById('movTipo').addEventListener('change', (e)=>{
   const tipo = e.target.value;
   document.getElementById('fieldDestino').style.display = tipo==='traslado' ? 'block' : 'none';
   document.getElementById('labelOrigen').textContent = tipo==='ingreso' ? 'Almacén destino' : (tipo==='traslado' ? 'Almacén origen' : 'Almacén');
+  // Tinte suave del selector según el tipo (misma idea que las filas y el historial).
+  const t = document.getElementById('movTipo');
+  const tinte = tipo==='ingreso' ? 'rgba(62,207,142,.15)'
+    : tipo==='extraccion' ? 'rgba(255,92,92,.15)'
+    : 'rgba(255,180,84,.15)';
+  const borde = tipo==='ingreso' ? 'var(--green)' : tipo==='extraccion' ? 'var(--red)' : 'var(--amber)';
+  t.style.background = tinte;
+  t.style.borderColor = borde;
+  t.style.fontWeight = '700';
 });
 
 // ---------- CARGA INICIAL ----------
@@ -9493,6 +9502,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v83</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v84</div>
 </body>
 </html>
