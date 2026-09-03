@@ -3,7 +3,7 @@
 // IMPORTANTE: esto NO reemplaza la sincronización con Supabase (eso ya lo hace app.html
 // con su propio sistema de cola). Esto solo permite que la página misma cargue sin red.
 
-const CACHE_NAME = 'mi-negocio-v123';
+const CACHE_NAME = 'mi-negocio-v127';
 const ARCHIVOS_DEL_SHELL = [
   './',
   './index.html',

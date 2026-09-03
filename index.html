@@ -2105,7 +2105,7 @@ async function cargarInventarioMov(){
   try{
     const mapa = {}; const PAGE=1000; let desde=0;
     for(;;){
-      const r = await sb.from('inventario').select('producto_id, almacen_id, cantidad').range(desde, desde+PAGE-1);
+      const r = await sb.from('inventario').select('producto_id, almacen_id, cantidad').order('id',{ascending:true}).range(desde, desde+PAGE-1);
       if(r.error || !r.data) break;
       r.data.forEach(row=>{ (mapa[row.producto_id] = mapa[row.producto_id] || {})[row.almacen_id] = Number(row.cantidad||0); });
       if(r.data.length < PAGE) break;
@@ -2330,12 +2330,32 @@ async function aplicarLineaMovimiento(it){
   }
 
   const clave = it.clave_local || null;
-  if(it.tipo==='ingreso'){
-    const r = await ajustarInventario(it.origen_id, it.producto_id, it.cantidad); // en ingreso, "origen" es el almacén destino real
-    await insertarMovimiento({tipo:'ingreso', producto_id:it.producto_id, almacen_destino_id:it.origen_id, cantidad:it.cantidad, nota:it.nota, clave_local:clave, cant_antes:r.antes, cant_despues:r.despues});
-  } else if(it.tipo==='extraccion'){
-    const r = await ajustarInventario(it.origen_id, it.producto_id, -it.cantidad);
-    await insertarMovimiento({tipo:'extraccion', producto_id:it.producto_id, almacen_origen_id:it.origen_id, cantidad:it.cantidad, nota:it.nota, clave_local:clave, cant_antes:r.antes, cant_despues:r.despues});
+  if(it.tipo==='ingreso' || it.tipo==='extraccion'){
+    const delta = it.tipo==='ingreso' ? it.cantidad : -it.cantidad;
+    // Intento ATÓMICO (ajusta inventario + registra movimiento juntos). Si la función no existe,
+    // usamos el camino de siempre (dos pasos).
+    let hecho = false;
+    try{
+      const { error } = await sb.rpc('mover_inventario_atomico', {
+        p_almacen: it.origen_id, p_producto: it.producto_id, p_delta: delta,
+        p_tipo: it.tipo, p_nota: it.nota||'', p_clave: clave||''
+      });
+      if(error) throw error;
+      hecho = true;
+    }catch(e){
+      const msg=(e && (e.message||e.code||'')+'').toLowerCase();
+      const falta = msg.includes('does not exist')||msg.includes('not find')||msg.includes('42883')||msg.includes('schema cache')||msg.includes('404');
+      if(!falta) throw e; // error real (ej. stock insuficiente): no seguir por el otro camino
+    }
+    if(!hecho){
+      if(it.tipo==='ingreso'){
+        const r = await ajustarInventario(it.origen_id, it.producto_id, it.cantidad); // en ingreso, "origen" es el almacén destino real
+        await insertarMovimiento({tipo:'ingreso', producto_id:it.producto_id, almacen_destino_id:it.origen_id, cantidad:it.cantidad, nota:it.nota, clave_local:clave, cant_antes:r.antes, cant_despues:r.despues});
+      } else {
+        const r = await ajustarInventario(it.origen_id, it.producto_id, -it.cantidad);
+        await insertarMovimiento({tipo:'extraccion', producto_id:it.producto_id, almacen_origen_id:it.origen_id, cantidad:it.cantidad, nota:it.nota, clave_local:clave, cant_antes:r.antes, cant_despues:r.despues});
+      }
+    }
   } else { // traslado
     // Preferimos la función ATÓMICA de la base (todo en una sola operación: si se corta la luz,
     // no queda nada a medias). Si esa función aún no existe, usamos el camino con rollback.
@@ -2557,7 +2577,7 @@ async function comprobarInventario(){
     let movs = [], desde = 0, tanda = 1000;
     while(true){
       const {data, error} = await sb.from('movimientos').select('tipo, producto_id, cantidad, almacen_origen_id, almacen_destino_id')
-        .range(desde, desde+tanda-1);
+        .order('id',{ascending:true}).range(desde, desde+tanda-1);
       if(error) throw error;
       movs = movs.concat(data||[]);
       if(!data || data.length < tanda) break;
@@ -2954,7 +2974,7 @@ async function exportarInventarioPuesto(){
     // Inventario del puesto (paginado = completo).
     const inv = {}; const PAGE=1000; let desde=0;
     for(;;){
-      const r = await sb.from('inventario').select('producto_id, cantidad').eq('almacen_id', a.id).range(desde, desde+PAGE-1);
+      const r = await sb.from('inventario').select('producto_id, cantidad').eq('almacen_id', a.id).order('id',{ascending:true}).range(desde, desde+PAGE-1);
       if(r.error || !r.data) break;
       r.data.forEach(row=>{ inv[row.producto_id] = Number(row.cantidad||0); });
       if(r.data.length < PAGE) break;
@@ -3010,7 +3030,7 @@ async function previsualizarImportInv(){
       // Inventario actual del puesto (paginado) para comparar.
       const invActual = {}; const PAGE=1000; let desde=0;
       for(;;){
-        const r = await sb.from('inventario').select('producto_id, cantidad').eq('almacen_id', a.id).range(desde, desde+PAGE-1);
+        const r = await sb.from('inventario').select('producto_id, cantidad').eq('almacen_id', a.id).order('id',{ascending:true}).range(desde, desde+PAGE-1);
         if(r.error || !r.data) break;
         r.data.forEach(row=>{ invActual[row.producto_id] = Number(row.cantidad||0); });
         if(r.data.length < PAGE) break; desde += PAGE;
@@ -4101,7 +4121,13 @@ async function cargarDeudas(){
 // sueltas (por ejemplo, de una venta que se borró y cuya comisión no tenía el vínculo).
 async function borrarDeuda(id, persona, monto){
   if(usuarioActual.rol !== 'dueno'){ alert('Solo el dueño puede borrar deudas.'); return; }
-  if(!confirm(`¿Borrar esta deuda/comisión?\n\n${persona} — $${num(monto)}\n\nEsto la elimina del todo. Úsalo para limpiar comisiones que quedaron sueltas de una venta borrada.`)) return;
+  const d = (typeof DEUDAS_CACHE!=='undefined' ? DEUDAS_CACHE : []).find(x=>x.id===id);
+  if(d && d.pagada){
+    // Ojo: borrar una deuda YA PAGADA no revierte el dinero que ya entró/salió de la caja.
+    if(!confirm(`⚠️ Esta deuda de ${persona} ($${num(monto)}) ya está PAGADA.\n\nBorrarla NO devuelve ni quita el dinero de la caja — solo elimina el registro. La caja quedará como está.\n\nSi lo que quieres es corregir la caja, hazlo aparte en 💵 Dinero.\n\n¿Borrar de todos modos el registro?`)) return;
+  } else {
+    if(!confirm(`¿Borrar esta deuda/comisión?\n\n${persona} — $${num(monto)}\n\nEsto la elimina del todo. Úsalo para limpiar comisiones que quedaron sueltas de una venta borrada.`)) return;
+  }
   try{
     const {error} = await sb.from('deudas').delete().eq('id', id);
     if(error) throw error;
@@ -4360,7 +4386,7 @@ async function idsConMovimiento(ids){
     for(;;){
       let data, error;
       try{
-        const r = await sb.from('movimientos').select('venta_dia_id').in('venta_dia_id', sub).range(desde, desde+PAGE-1);
+        const r = await sb.from('movimientos').select('venta_dia_id').in('venta_dia_id', sub).order('id',{ascending:true}).range(desde, desde+PAGE-1);
         data = r.data; error = r.error;
       }catch(e){ error = e; }
       if(error || !data) break;
@@ -4384,7 +4410,7 @@ async function traerItemsDe(ids, cols){
     for(;;){
       let data, error;
       try{
-        const r = await sb.from('venta_items').select(cols||'*').in('venta_dia_id', sub).range(desde, desde+PAGE-1);
+        const r = await sb.from('venta_items').select(cols||'*').in('venta_dia_id', sub).order('id',{ascending:true}).range(desde, desde+PAGE-1);
         data = r.data; error = r.error;
       }catch(e){ error = e; }
       if(error || !data) break;
@@ -6293,7 +6319,8 @@ async function procesarDevolucion(){
     almacen_id: puestoActual.id, almacen_nombre: puestoActual.nombre,
     producto_id: productoId, nombre: p.nombre,
     cantidad, precio_venta: precio, costo: Number(p.costo),
-    metodo, nota, fecha: fechaHoyLocal()
+    metodo, nota, fecha: fechaHoyLocal(),
+    clave: 'dev_' + Date.now() + '_' + Math.random().toString(36).slice(2,8)
   };
 
   if(!navigator.onLine){
@@ -6345,36 +6372,83 @@ function encolarDevolucion(payload){
 //    de la ganancia devuelta de la comisión pendiente del vendedor de una vez.
 //    Si el día aún no se cierra, queda marcada como no-aplicada y finalizarDia la descuenta.
 async function aplicarDevolucionEnServidor(d){
-  const {data: devRow, error: e1} = await sb.from('devoluciones').insert({
-    almacen_id: d.almacen_id, producto_id: d.producto_id, cantidad: d.cantidad,
-    precio_venta: d.precio_venta, costo: d.costo, metodo: d.metodo,
-    nota: d.nota || null, fecha: d.fecha, aplicada: false
-  }).select().single();
-  if(e1) throw e1;
+  // Intento ATÓMICO primero: registra devolución + regresa producto + movimiento + saca de caja,
+  // todo en una sola operación e idempotente por 'clave'. Si la función aún no existe en la base,
+  // usamos el camino paso a paso de siempre.
+  let devId = undefined; let usoAtomico = false; let yaAplicada = false;
+  try{
+    const { data, error } = await sb.rpc('devolver_atomico', {
+      p_almacen:d.almacen_id, p_producto:d.producto_id, p_cantidad:d.cantidad,
+      p_precio:d.precio_venta, p_costo:d.costo, p_metodo:d.metodo,
+      p_nota:d.nota||'', p_fecha:d.fecha, p_clave:d.clave||'',
+      p_nombre:d.nombre||'', p_almacen_nombre:d.almacen_nombre||''
+    });
+    if(error) throw error;
+    usoAtomico = true;
+    devId = data;              // id de la devolución, o null si ya estaba aplicada (idempotente)
+    yaAplicada = (data == null);
+  }catch(e){
+    const msg = (e && (e.message||e.code||'')+'').toLowerCase();
+    const faltaFuncion = msg.includes('does not exist') || msg.includes('not find') || msg.includes('42883') || msg.includes('schema cache') || msg.includes('404');
+    if(!faltaFuncion) throw e; // error real (ej. permiso): que lo maneje quien llama
+    // ---- Camino de respaldo (paso a paso, como antes) ----
+    // Candado anti-duplicado por clave, si la columna existe.
+    if(d.clave){
+      try{ const {data:ya} = await sb.from('devoluciones').select('id').eq('clave_local', d.clave).maybeSingle(); if(ya){ return; } }catch(_){}
+    }
+    const {data: devRow, error: e1} = await sb.from('devoluciones').insert({
+      almacen_id: d.almacen_id, producto_id: d.producto_id, cantidad: d.cantidad,
+      precio_venta: d.precio_venta, costo: d.costo, metodo: d.metodo,
+      nota: d.nota || null, fecha: d.fecha, aplicada: false,
+      ...(d.clave ? {clave_local: d.clave} : {})
+    }).select().single();
+    if(e1){
+      // Si la columna clave_local no existe todavía, reintenta sin ella.
+      if((e1.message||'').includes('clave_local') || (e1.message||'').includes('column')){
+        const r2 = await sb.from('devoluciones').insert({
+          almacen_id: d.almacen_id, producto_id: d.producto_id, cantidad: d.cantidad,
+          precio_venta: d.precio_venta, costo: d.costo, metodo: d.metodo,
+          nota: d.nota || null, fecha: d.fecha, aplicada: false
+        }).select().single();
+        if(r2.error) throw r2.error;
+        devId = r2.data.id;
+      } else throw e1;
+    } else { devId = devRow.id; }
+    await ajustarInventario(d.almacen_id, d.producto_id, d.cantidad);
+    await sb.from('movimientos').insert({tipo:'ingreso', producto_id:d.producto_id, almacen_destino_id:d.almacen_id, cantidad:d.cantidad, nota:'Devolución de cliente' + (d.nota ? ' — ' + d.nota : '')});
+    await sb.from('caja_movimientos').insert({tipo:'egreso', metodo:d.metodo, categoria:'otro', monto: d.cantidad*d.precio_venta, concepto:`Devolución ${d.nombre} ×${num(d.cantidad)} — ${d.almacen_nombre}`, almacen_id:d.almacen_id});
+  }
 
-  await ajustarInventario(d.almacen_id, d.producto_id, d.cantidad);
-  await sb.from('movimientos').insert({tipo:'ingreso', producto_id:d.producto_id, almacen_destino_id:d.almacen_id, cantidad:d.cantidad, nota:'Devolución de cliente' + (d.nota ? ' — ' + d.nota : '')});
-  await sb.from('caja_movimientos').insert({tipo:'egreso', metodo:d.metodo, categoria:'otro', monto: d.cantidad*d.precio_venta, concepto:`Devolución ${d.nombre} ×${num(d.cantidad)} — ${d.almacen_nombre}`, almacen_id:d.almacen_id});
+  if(yaAplicada) return; // ya se había aplicado antes (reintento): no descontar comisión otra vez
 
   const gananciaDevuelta = d.cantidad * (d.precio_venta - d.costo);
   if(gananciaDevuelta > 0){
-    const {data: deudas} = await sb.from('deudas').select('*').eq('tipo','debo').eq('persona', d.almacen_nombre).eq('pagada', false);
-    const objetivo = (deudas||[]).find(x => (x.nota||'').includes('Comisión 15%') && (x.nota||'').includes(`venta del ${d.fecha}`));
+    // Busca la comisión del vendedor de ESE puesto que todavía NO se ha pagado.
+    // Funciona con vendedor fijo (persona = nombre del puesto) y con comodín (la comisión
+    // quedó a nombre del vendedor pero la nota lleva el puesto entre paréntesis, ej "(P 110)").
+    const {data: deudas} = await sb.from('deudas').select('*').eq('tipo','debo').eq('pagada', false);
+    const delPuesto = (deudas||[]).filter(x =>
+      (x.nota||'').includes('Comisión 15%') &&
+      ( x.persona === d.almacen_nombre || (x.nota||'').includes('('+d.almacen_nombre+')') )
+    );
+    // Preferimos la comisión de la MISMA fecha; si no existe (devolución otro día), tomamos
+    // la más reciente pendiente de ese puesto → se le descuenta de su próximo pago.
+    let objetivo = delPuesto.find(x => (x.nota||'').includes(`venta del ${d.fecha}`));
+    if(!objetivo && delPuesto.length){
+      objetivo = delPuesto.sort((a,b)=> Number(b.id||0) - Number(a.id||0))[0];
+    }
     if(objetivo){
       const comisionARestar = gananciaDevuelta * 0.15;
-      // El monto que queda también se deja en número cerrado (múltiplo de 5)
       const nuevoMonto = redondearComision(Math.max(0, Number(objetivo.monto) - comisionARestar));
       if(nuevoMonto <= 0.004){
         await sb.from('deudas').update({monto:0, pagada:true, pagada_en:new Date().toISOString(), nota: objetivo.nota + ' (anulada por devoluciones)'}).eq('id', objetivo.id);
       } else {
         await sb.from('deudas').update({monto: nuevoMonto, nota: objetivo.nota + ` (−$${comisionARestar.toFixed(2)} por devolución)`}).eq('id', objetivo.id);
       }
-      await sb.from('devoluciones').update({aplicada:true}).eq('id', devRow.id);
+      if(devId) await sb.from('devoluciones').update({aplicada:true}).eq('id', devId);
     }
-    // Si no hay comisión de hoy todavía (día sin cerrar), queda aplicada=false
-    // y finalizarDia la descontará al calcular la comisión.
   } else {
-    await sb.from('devoluciones').update({aplicada:true}).eq('id', devRow.id);
+    if(devId) await sb.from('devoluciones').update({aplicada:true}).eq('id', devId);
   }
 }
 
@@ -8251,7 +8325,7 @@ async function cargarReposicion(){
   try{
     // Inventario completo (paginado).
     const inv=[]; const PAGE=1000; let desde=0;
-    for(;;){ const r=await sb.from('inventario').select('producto_id, almacen_id, cantidad').range(desde,desde+PAGE-1); if(r.error||!r.data)break; inv.push(...r.data); if(r.data.length<PAGE)break; desde+=PAGE; }
+    for(;;){ const r=await sb.from('inventario').select('producto_id, almacen_id, cantidad').order('id',{ascending:true}).range(desde,desde+PAGE-1); if(r.error||!r.data)break; inv.push(...r.data); if(r.data.length<PAGE)break; desde+=PAGE; }
     const umbral = Number(document.getElementById('repoUmbral').value)||0;
     const puestoId = document.getElementById('repoPuesto').value || null;
     const { porPuesto, total } = analizarReposicion({ inventario:inv, productos:PRODUCTOS, almacenes:ALMACENES, umbral, puestoId });
@@ -8303,7 +8377,7 @@ async function calcularReposicionInteligente(){
     const puestoId = document.getElementById('repoPuesto') ? (document.getElementById('repoPuesto').value||null) : null;
 
     // Inventario completo (paginado)
-    const inv=[]; { const PAGE=1000; let desde=0; for(;;){ const r=await sb.from('inventario').select('producto_id, almacen_id, cantidad').range(desde,desde+PAGE-1); if(r.error||!r.data)break; inv.push(...r.data); if(r.data.length<PAGE)break; desde+=PAGE; } }
+    const inv=[]; { const PAGE=1000; let desde=0; for(;;){ const r=await sb.from('inventario').select('producto_id, almacen_id, cantidad').order('id',{ascending:true}).range(desde,desde+PAGE-1); if(r.error||!r.data)break; inv.push(...r.data); if(r.data.length<PAGE)break; desde+=PAGE; } }
 
     // Ventas del historial: ventas_dia cerradas de los puestos en la ventana de días.
     const hoy = new Date(); const corte = new Date(hoy); corte.setDate(corte.getDate() - (diasHistorial-1));
@@ -9506,7 +9580,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v84</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v88</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
