@@ -499,8 +499,10 @@
       <div class="row">
         <div class="field" style="flex:2">
           <label>Producto que devuelven</label>
-          <input type="text" id="devBuscar" placeholder="🔎 Escribe para buscar por nombre…" oninput="filtrarDevProductos()" autocomplete="off" style="margin-bottom:6px">
-          <select id="devProducto" onchange="devPrecioPorDefecto()" size="6"></select>
+          <input type="text" id="devBuscar" placeholder="🔎 Escribe para buscar por nombre…" oninput="filtrarDevProductos()" autocomplete="off">
+          <div id="devSugerencias" style="display:none; border:1px solid var(--border); border-radius:10px; margin-top:4px; max-height:240px; overflow-y:auto; background:var(--panel)"></div>
+          <input type="hidden" id="devProducto">
+          <div id="devElegido" style="margin-top:6px; font-size:13px; color:var(--green); font-weight:700"></div>
         </div>
         <div class="field" style="max-width:110px">
           <label>Cantidad</label>
@@ -619,9 +621,14 @@
 
     <div id="vtab-historial" class="vtab" style="display:none">
     <div class="card">
-      <h2>Historial de días cerrados</h2>
-      <div id="historialDias"></div>
-      <div id="historialEmpty" class="empty" style="display:none">Sin días cerrados todavía.</div>
+      <div onclick="toggleHistorialDias()" style="cursor:pointer; display:flex; justify-content:space-between; align-items:center; gap:10px">
+        <h2 style="margin:0">Historial de días cerrados</h2>
+        <span id="histDiasFlecha" style="font-size:22px; color:var(--muted); flex:none">▸</span>
+      </div>
+      <div id="historialDiasWrap" style="display:none; margin-top:12px">
+        <div id="historialDias"></div>
+        <div id="historialEmpty" class="empty" style="display:none">Sin días cerrados todavía.</div>
+      </div>
     </div>
 
     <div class="card">
@@ -1094,6 +1101,8 @@
       <div id="importMsg" class="msg"></div>
 
       <input type="text" id="filtroProductosAdmin" placeholder="🔍 Buscar producto..." style="width:100%; margin-top:14px;">
+      <button class="ghost solo-dueno" style="width:100%; margin-top:10px; display:none" onclick="buscarProductosParecidos()">🔎 Buscar productos con nombres parecidos o repetidos</button>
+      <div id="dupProductosBody" style="margin-top:10px"></div>
       <div id="productosBody" style="margin-top:12px"></div>
       <div id="productoEditMsg" class="msg"></div>
     </div>
@@ -1836,8 +1845,8 @@ function renderInventario(){
   const filtro = (document.getElementById('filtroInventarioAdmin').value || '').trim().toLowerCase();
   const productosFiltrados = filtro ? PRODUCTOS.filter(p=>p.nombre.toLowerCase().includes(filtro)) : PRODUCTOS;
   const items = productosFiltrados.map(p=>{
-      const inv = INVENTARIO.find(i=>i.almacen_id===a.id && i.producto_id===p.id);
-      const cantidad = inv ? Number(inv.cantidad) : 0;
+      // Sumar TODAS las filas de ese producto+almacén (por si la tabla tiene filas duplicadas).
+      const cantidad = INVENTARIO.filter(i=>i.almacen_id===a.id && i.producto_id===p.id).reduce((s,i)=>s+Number(i.cantidad||0),0);
       return `<tr><td>${p.nombre}</td><td class="numcell">${num(cantidad)}</td><td class="numcell">$${num(p.costo)}</td><td class="numcell">$${num(p.precio_venta)}</td></tr>`;
     }).join('');
   const totalUnidades = INVENTARIO.filter(i=>i.almacen_id===a.id).reduce((s,i)=>s+Number(i.cantidad),0);
@@ -2103,7 +2112,7 @@ async function cargarInventarioMov(){
     for(;;){
       const r = await sb.from('inventario').select('producto_id, almacen_id, cantidad').order('id',{ascending:true}).range(desde, desde+PAGE-1);
       if(r.error || !r.data) break;
-      r.data.forEach(row=>{ (mapa[row.producto_id] = mapa[row.producto_id] || {})[row.almacen_id] = Number(row.cantidad||0); });
+      r.data.forEach(row=>{ const m=(mapa[row.producto_id]=mapa[row.producto_id]||{}); m[row.almacen_id]=(m[row.almacen_id]||0)+Number(row.cantidad||0); });
       if(r.data.length < PAGE) break;
       desde += PAGE;
     }
@@ -2647,24 +2656,40 @@ async function comprobarInventario(){
 }
 
 async function ajustarInventario(almacenId, productoId, delta){
-  const {data, error} = await sb.from('inventario').select('*').eq('almacen_id', almacenId).eq('producto_id', productoId).maybeSingle();
+  const {data:rows, error} = await sb.from('inventario').select('id,cantidad').eq('almacen_id', almacenId).eq('producto_id', productoId).order('id',{ascending:true});
   if(error) throw error;
-  if(data){
-    const antes = Number(data.cantidad);
+  if(rows && rows.length){
+    // Suma por si quedaran filas duplicadas; deja el total en la primera y las demás en 0.
+    const antes = rows.reduce((s,r)=>s+Number(r.cantidad||0),0);
     const nuevaCantidad = antes + delta;
-    // Nunca dejar el inventario en negativo: es físicamente imposible tener -2 de algo.
     if(nuevaCantidad < 0){
       throw new Error(`No se puede dejar el inventario en negativo (hay ${antes} y se intentan quitar ${Math.abs(delta)}).`);
     }
-    const {error:e2} = await sb.from('inventario').update({cantidad:nuevaCantidad}).eq('id', data.id);
+    const {error:e2} = await sb.from('inventario').update({cantidad:nuevaCantidad}).eq('id', rows[0].id);
     if(e2) throw e2;
+    for(let k=1;k<rows.length;k++){ try{ await sb.from('inventario').update({cantidad:0}).eq('id', rows[k].id); }catch(_){} }
     return {antes, despues: nuevaCantidad};
   } else {
     if(delta < 0){
       throw new Error('No se puede descontar de un producto que no tiene inventario en este almacén.');
     }
     const {error:e3} = await sb.from('inventario').insert({almacen_id:almacenId, producto_id:productoId, cantidad:delta});
-    if(e3) throw e3;
+    if(e3){
+      // Si el candado único rechaza porque la fila ya apareció, re-leemos y SUMAMOS (no perdemos el ajuste).
+      if((e3.message||'').toLowerCase().includes('duplicate') || e3.code==='23505'){
+        const {data:d2} = await sb.from('inventario').select('id,cantidad').eq('almacen_id', almacenId).eq('producto_id', productoId).order('id',{ascending:true});
+        if(d2 && d2.length){
+          const antes = d2.reduce((s,r)=>s+Number(r.cantidad||0),0);
+          const nuevaCantidad = antes + delta;
+          if(nuevaCantidad < 0) throw new Error(`No se puede dejar el inventario en negativo (hay ${antes}).`);
+          const {error:e4} = await sb.from('inventario').update({cantidad:nuevaCantidad}).eq('id', d2[0].id);
+          if(e4) throw e4;
+          for(let k=1;k<d2.length;k++){ try{ await sb.from('inventario').update({cantidad:0}).eq('id', d2[k].id); }catch(_){} }
+          return {antes, despues: nuevaCantidad};
+        }
+      }
+      throw e3;
+    }
     return {antes: 0, despues: delta};
   }
 }
@@ -3345,6 +3370,39 @@ function renderAdmin(){
   ).join('') || `<div class="empty">${filtro ? 'Ningún producto coincide con la búsqueda' : 'Sin productos'}</div>`;
 }
 document.getElementById('filtroProductosAdmin').addEventListener('input', renderAdmin);
+
+// Detecta productos con nombres iguales o muy parecidos (para cazar duplicados que cruzan
+// las comparaciones, ej. "CAJA 4X2" vs "CAJA 4X2 CRIOLLA"). NO borra nada — solo avisa.
+function buscarProductosParecidos(){
+  const cont = document.getElementById('dupProductosBody');
+  const norm = s => (s||'').toLowerCase().trim().replace(/\s+/g,' ');
+  const lista = (PRODUCTOS||[]).map(p=>({id:p.id, nombre:p.nombre, n:norm(p.nombre)}));
+  const grupos = [];
+  const usados = new Set();
+  for(let i=0;i<lista.length;i++){
+    if(usados.has(lista[i].id)) continue;
+    const grupo = [lista[i]];
+    for(let j=i+1;j<lista.length;j++){
+      if(usados.has(lista[j].id)) continue;
+      const a=lista[i].n, b=lista[j].n;
+      // Parecidos: uno contiene al otro, o son casi iguales al quitar espacios
+      const igual = a===b;
+      const contiene = a.length>=4 && b.length>=4 && (a.includes(b) || b.includes(a));
+      const sinEspacios = a.replace(/ /g,'')===b.replace(/ /g,'');
+      if(igual || contiene || sinEspacios){ grupo.push(lista[j]); usados.add(lista[j].id); }
+    }
+    if(grupo.length>1){ usados.add(lista[i].id); grupos.push(grupo); }
+  }
+  if(!grupos.length){ cont.innerHTML='<div class="empty">No encontré nombres repetidos ni muy parecidos. 👍</div>'; return; }
+  const stockDe = pid => (INVENTARIO||[]).filter(i=>i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
+  cont.innerHTML = `<div style="border:2px solid var(--amber); border-radius:12px; padding:12px">
+    <div style="font-weight:800; margin-bottom:8px">⚠️ ${grupos.length} grupo(s) de nombres parecidos</div>
+    <div style="color:var(--muted); font-size:12px; margin-bottom:10px">Si dos filas son en realidad el MISMO producto, conviene dejar solo una y borrar la otra (o ponerles nombres bien distintos). Fíjate cuál tiene el stock/movimientos.</div>
+    ${grupos.map(g=>`<div style="border-top:1px solid var(--border); padding-top:8px; margin-top:8px">
+      ${g.map(x=>`<div style="display:flex; justify-content:space-between; gap:8px; padding:4px 0"><span>${x.nombre}</span><span style="color:var(--muted); font-size:13px; flex:none">stock: ${num(stockDe(x.id))}</span></div>`).join('')}
+    </div>`).join('')}
+  </div>`;
+}
 
 // ============================================================
 // PEDIDOS
@@ -6261,14 +6319,44 @@ function quitarCobroDelCarrito(index){
 
 // ---------- DEVOLUCIONES ----------
 function cargarDevolucionesTab(){
-  const sel = document.getElementById('devProducto');
-  sel.innerHTML = '<option value="">— elige el producto —</option>' +
-    [...PRODUCTOS].sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(p=>`<option value="${p.id}">${p.nombre}</option>`).join('');
+  document.getElementById('devBuscar').value = '';
+  document.getElementById('devProducto').value = '';
+  document.getElementById('devElegido').textContent = '';
+  document.getElementById('devSugerencias').style.display = 'none';
   document.getElementById('devCantidad').value = '';
   document.getElementById('devPrecio').value = '';
   document.getElementById('devNota').value = '';
   document.getElementById('devMsg').textContent = '';
   cargarDevolucionesDeHoy();
+}
+
+// Autocompletado real: al escribir, muestra SOLO los productos que coinciden (máx. 15).
+function filtrarDevProductos(){
+  const q = (document.getElementById('devBuscar').value||'').trim().toLowerCase();
+  const cont = document.getElementById('devSugerencias');
+  document.getElementById('devProducto').value = '';       // al reescribir, se borra la elección previa
+  document.getElementById('devElegido').textContent = '';
+  if(q.length < 1){ cont.style.display='none'; cont.innerHTML=''; return; }
+  const matches = (PRODUCTOS||[])
+    .filter(p => (p.nombre||'').toLowerCase().includes(q))
+    .sort((a,b)=>a.nombre.localeCompare(b.nombre))
+    .slice(0, 15);
+  if(!matches.length){ cont.style.display='block'; cont.innerHTML='<div style="padding:10px; color:var(--muted)">Sin coincidencias.</div>'; return; }
+  cont.innerHTML = matches.map(p =>
+    `<div onclick="elegirDevProducto(${p.id})" style="padding:12px 12px; border-bottom:1px solid var(--border); cursor:pointer">${p.nombre}</div>`
+  ).join('');
+  cont.style.display = 'block';
+}
+
+function elegirDevProducto(id){
+  const p = (PRODUCTOS||[]).find(x=>x.id===id);
+  if(!p) return;
+  document.getElementById('devProducto').value = id;
+  document.getElementById('devBuscar').value = p.nombre;
+  document.getElementById('devElegido').textContent = '✓ ' + p.nombre;
+  document.getElementById('devSugerencias').style.display = 'none';
+  document.getElementById('devPrecio').value = p.precio_venta;   // precio por defecto
+  const c = document.getElementById('devCantidad'); if(c && !c.value) c.value = 1;
 }
 
 function devPrecioPorDefecto(){
@@ -7436,6 +7524,16 @@ setInterval(sincronizarPendientes, 30000);
 setInterval(sincronizarPendientesAdmin, 30000);
 
 // ---------- HISTORIAL DE DÍAS (colapsable) ----------
+// Pliega o despliega TODO el historial de días cerrados (para que no ocupe tanto).
+function toggleHistorialDias(){
+  const w=document.getElementById('historialDiasWrap');
+  const f=document.getElementById('histDiasFlecha');
+  if(!w) return;
+  const abierto = w.style.display!=='none';
+  w.style.display = abierto ? 'none' : 'block';
+  if(f) f.textContent = abierto ? '▸' : '▾';
+}
+
 async function cargarHistorialDias(){
   const cont = document.getElementById('historialDias');
   const empty = document.getElementById('historialEmpty');
@@ -9576,6 +9674,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v88</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v92</div>
 </body>
 </html>
