@@ -2349,7 +2349,7 @@ async function aplicarLineaMovimiento(it){
       hecho = true;
     }catch(e){
       const msg=(e && (e.message||e.code||'')+'').toLowerCase();
-      const falta = msg.includes('does not exist')||msg.includes('not find')||msg.includes('42883')||msg.includes('schema cache')||msg.includes('404');
+      const falta = msg.includes('does not exist')||msg.includes('not find')||msg.includes('42883')||msg.includes('schema cache')||msg.includes('404')||msg.includes('duplicate')||msg.includes('23505');
       if(!falta) throw e; // error real (ej. stock insuficiente): no seguir por el otro camino
     }
     if(!hecho){
@@ -2374,7 +2374,7 @@ async function aplicarLineaMovimiento(it){
       usoAtomico = true;
     }catch(e){
       const msg = (e && (e.message||e.code||'')+'' ).toLowerCase();
-      const faltaFuncion = msg.includes('does not exist') || msg.includes('not find') || msg.includes('42883') || msg.includes('schema cache') || msg.includes('404');
+      const faltaFuncion = msg.includes('does not exist') || msg.includes('not find') || msg.includes('42883') || msg.includes('schema cache') || msg.includes('404') || msg.includes('duplicate') || msg.includes('23505');
       if(!faltaFuncion) throw e; // error real (ej. stock insuficiente): no seguir por el otro camino
       // La función no está creada todavía → camino con rollback (todo-o-nada por software).
       const rOrigen = await ajustarInventario(it.origen_id, it.producto_id, -it.cantidad);
@@ -9674,6 +9674,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v92</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v93</div>
 </body>
 </html>
