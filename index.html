@@ -366,6 +366,7 @@
       <button data-tab="estadisticas" id="tabBtnEstadisticas" style="display:none">🗂️ Ventas registradas</button>
       <button data-tab="analizador" id="tabBtnAnalizador" style="display:none">🎛️ Sala de Control</button>
       <button data-tab="analisisprod" id="tabBtnAnalisisProd" style="display:none">📈 Análisis de productos</button>
+      <button data-tab="mayoreo" id="tabBtnMayoreo" style="display:none">🏷️ Mayoreo</button>
       <button data-tab="cobraradmin" id="tabBtnCobrarAdmin" style="display:none">💰 Cobrar</button>
       <button onclick="cerrarSesion()">🚪 Cerrar sesión</button>
     </div>
@@ -894,6 +895,35 @@
     </div>
   </div>
 
+  <div id="tab-mayoreo" class="tab" style="display:none">
+    <div class="card">
+      <h2>🏷️ Mayoreo</h2>
+      <div style="color:var(--muted); font-size:13px; margin-bottom:8px">Venta al por mayor: los mismos productos pero con precio de mayoreo y un almacén aparte (las cantidades no se mezclan con lo normal). Solo lo ven el dueño y Dariel; Tamy solo vende.</div>
+      <div id="mayAviso" class="msg"></div>
+    </div>
+
+    <div class="card">
+      <h2>🧮 Reparto de ganancia</h2>
+      <div style="color:var(--muted); font-size:13px; margin-bottom:8px">Escribe una ganancia para ver cómo se reparte.</div>
+      <div class="row" style="align-items:flex-end">
+        <div class="field"><label>Ganancia $</label><input type="number" id="mayGan" inputmode="decimal" oninput="calcReparto()" placeholder="ej: 200"></div>
+      </div>
+      <div id="mayReparto" style="margin-top:8px"></div>
+    </div>
+
+    <div class="card">
+      <h2>💲 Precios de mayoreo</h2>
+      <div style="color:var(--muted); font-size:13px; margin-bottom:8px">Ponle a cada producto su precio de mayoreo (no cambia el precio normal). Toca ✓ para guardar.</div>
+      <input type="text" id="mayBuscarPrecio" placeholder="🔎 Buscar producto..." oninput="renderPreciosMayoreo()" autocomplete="off">
+      <div id="mayPreciosBody" style="overflow-x:auto; margin-top:8px"></div>
+    </div>
+
+    <div class="card">
+      <h2>📦 Inventario de mayoreo</h2>
+      <div id="mayInvBody" style="overflow-x:auto"></div>
+    </div>
+  </div>
+
   <div id="tab-analisisprod" class="tab" style="display:none">
     <div class="card">
       <h2>📈 Análisis de productos</h2>
@@ -1278,6 +1308,7 @@ document.querySelectorAll('.tabs button').forEach(btn=>{
     if(btn.dataset.tab==='ventasvendedor') prepararVentasPorVendedor();
     if(btn.dataset.tab==='analizador' && usuarioActual.rol==='dueno') cargarAnalizador();
     if(btn.dataset.tab==='analisisprod' && usuarioActual.rol==='dueno') cargarAnalisisProductos();
+    if(btn.dataset.tab==='mayoreo') cargarMayoreo();
     if(btn.dataset.tab==='admin' && usuarioActual.rol==='dueno') cargarHistorialPrecios();
     cerrarMenu();
   });
@@ -1362,13 +1393,26 @@ async function cargarTodo(){
     return;
   }
   try{
-    const [{data:alm, error:e1}, {data:prod, error:e2}, {data:inv, error:e3}] = await Promise.all([
-      sb.from('almacenes').select('*').order('nombre'),
-      sb.from('productos').select('*').order('nombre'),
-      sb.from('inventario').select('*')
+    // Traer TODO paginando (Supabase corta en 1000 filas si no se pagina → se perdía inventario/productos).
+    const traerTablaCompleta = async (tabla, ordenarPor)=>{
+      const PAGE=1000; let desde=0; const acc=[];
+      for(;;){
+        const {data, error} = await sb.from(tabla).select('*').order(ordenarPor,{ascending:true}).range(desde, desde+PAGE-1);
+        if(error) throw error;
+        acc.push(...(data||[]));
+        if(!data || data.length<PAGE) break;
+        desde += PAGE;
+      }
+      return acc;
+    };
+    const [alm, prod, inv] = await Promise.all([
+      traerTablaCompleta('almacenes','id'),
+      traerTablaCompleta('productos','id'),
+      traerTablaCompleta('inventario','id')
     ]);
-    if(e1||e2||e3) throw (e1||e2||e3);
-    ALMACENES = alm||[]; PRODUCTOS = prod||[]; INVENTARIO = inv||[];
+    ALMACENES = (alm||[]).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+    PRODUCTOS = (prod||[]).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+    INVENTARIO = inv||[];
     lsSet('adm_cache_almacenes', ALMACENES);
     lsSet('adm_cache_productos', PRODUCTOS);
     lsSet('adm_cache_inventario', INVENTARIO);
@@ -2578,9 +2622,9 @@ async function comprobarInventario(){
   msgEl.textContent = 'Reconstruyendo el inventario desde los movimientos…'; msgEl.className = 'msg';
   bodyEl.innerHTML = '';
   try{
-    // Inventario actual (de la base, para no depender de la memoria)
-    const {data: invActual, error: eInv} = await sb.from('inventario').select('almacen_id, producto_id, cantidad');
-    if(eInv) throw eInv;
+    // Inventario actual (de la base, para no depender de la memoria). Paginado (evita el tope de 1000).
+    const invActual = [];
+    { const PAGE=1000; let desde=0; for(;;){ const {data, error} = await sb.from('inventario').select('almacen_id, producto_id, cantidad').order('id',{ascending:true}).range(desde, desde+PAGE-1); if(error) throw error; invActual.push(...(data||[])); if(!data||data.length<PAGE) break; desde+=PAGE; } }
 
     // TODOS los movimientos (por tandas para no pasarnos de límite)
     let movs = [], desde = 0, tanda = 1000;
@@ -5496,12 +5540,24 @@ async function cargarCatalogoVentas(){
     return;
   }
   try{
-    const [{data:alm, error:e1}, {data:prod, error:e2}] = await Promise.all([
-      sb.from('almacenes').select('*').order('nombre'),
-      sb.from('productos').select('*').order('nombre')
+    // Traer TODO paginando (sin paginar, Supabase corta en 1000 → faltarían productos al vendedor).
+    const traerTablaCompleta = async (tabla)=>{
+      const PAGE=1000; let desde=0; const acc=[];
+      for(;;){
+        const {data, error} = await sb.from(tabla).select('*').order('id',{ascending:true}).range(desde, desde+PAGE-1);
+        if(error) throw error;
+        acc.push(...(data||[]));
+        if(!data || data.length<PAGE) break;
+        desde += PAGE;
+      }
+      return acc;
+    };
+    const [alm, prod] = await Promise.all([
+      traerTablaCompleta('almacenes'),
+      traerTablaCompleta('productos')
     ]);
-    if(e1||e2) throw (e1||e2);
-    ALMACENES = alm||[]; PRODUCTOS = prod||[];
+    ALMACENES = (alm||[]).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
+    PRODUCTOS = (prod||[]).sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''));
     lsSet('vt_cache_almacenes', ALMACENES);
     lsSet('vt_cache_productos', PRODUCTOS);
     statusEl.textContent = `Conectado · ${ALMACENES.length} puestos · ${PRODUCTOS.length} productos`;
@@ -6031,9 +6087,9 @@ async function cargarMiInventario(){
   let data = null;
   if(navigator.onLine){
     try{
-      const res = await sb.from('inventario').select('*').eq('almacen_id', puestoActual.id);
-      if(res.error) throw res.error;
-      data = res.data;
+      const acc=[]; const PAGE=1000; let desde=0;
+      for(;;){ const res = await sb.from('inventario').select('*').eq('almacen_id', puestoActual.id).order('id',{ascending:true}).range(desde, desde+PAGE-1); if(res.error) throw res.error; acc.push(...(res.data||[])); if(!res.data||res.data.length<PAGE) break; desde+=PAGE; }
+      data = acc;
       lsSet(cacheKey, data);
     }catch(err){ console.error(err); data = lsGet(cacheKey, []); }
   } else {
@@ -7944,6 +8000,100 @@ function fijarRango(tipo){
 // ¿El almacén es un PUNTO DE VENTA? (nombre empieza con "P ")
 function esPuntoVenta(a){ return /^p\s/i.test(((a&&a.nombre)||'').trim()); }
 
+// ---- MAYOREO (funciones de la pestaña) ----
+function cargarMayoreo(){
+  const aviso=document.getElementById('mayAviso');
+  const alm=almacenMayoreo();
+  if(!alm){ aviso.innerHTML='⚠️ Todavía no existe el almacén de mayoreo. Ve a "Almacenes y Productos" y crea un almacén llamado <b>MAYOREO</b>. Luego vuelve aquí.'; aviso.className='msg err'; }
+  else { aviso.textContent='Almacén de mayoreo: '+alm.nombre; aviso.className='msg'; }
+  document.getElementById('mayGan').value='';
+  document.getElementById('mayReparto').innerHTML='';
+  renderPreciosMayoreo();
+  renderInventarioMayoreo();
+}
+
+function calcReparto(){
+  const g=Number(document.getElementById('mayGan').value)||0;
+  const cont=document.getElementById('mayReparto');
+  if(g<=0){ cont.innerHTML=''; return; }
+  const r=repartoMayoreo(g);
+  cont.innerHTML=`<table><tbody>
+    <tr><td>👤 Dariel (administrador)</td><td class="numcell" style="font-weight:700">$${num(r.dariel)}</td></tr>
+    <tr><td>🛒 Vendedor (Tamy)</td><td class="numcell" style="font-weight:700">$${num(r.vendedor)}</td></tr>
+    <tr><td>👥 Admin jk</td><td class="numcell" style="font-weight:700">$${num(r.adminJk)}</td></tr>
+    <tr><td>🤵 Dueño (tú)</td><td class="numcell" style="font-weight:700; color:var(--green)">$${num(r.dueno)}</td></tr>
+  </tbody></table>`;
+}
+
+function renderPreciosMayoreo(){
+  const cont=document.getElementById('mayPreciosBody');
+  const q=(document.getElementById('mayBuscarPrecio').value||'').trim().toLowerCase();
+  let lista=[...(PRODUCTOS||[])];
+  if(q) lista=lista.filter(p=>(p.nombre||'').toLowerCase().includes(q));
+  lista=lista.slice(0,60);
+  if(!lista.length){ cont.innerHTML='<div class="empty">Sin productos.</div>'; return; }
+  cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Normal</th><th class="numcell">Mayoreo</th><th></th></tr></thead><tbody>
+  ${lista.map(p=>`<tr>
+    <td>${p.nombre}</td>
+    <td class="numcell" style="color:var(--muted)">$${num(p.precio_venta)}</td>
+    <td class="numcell"><input type="number" id="maypv-${p.id}" value="${Number(p.precio_mayoreo||0)}" inputmode="decimal" style="width:90px; text-align:right"></td>
+    <td><button class="ghost" onclick="guardarPrecioMayoreo(${p.id})">✓</button></td>
+  </tr>`).join('')}
+  </tbody></table>`;
+}
+
+async function guardarPrecioMayoreo(pid){
+  const val=Number(document.getElementById('maypv-'+pid).value);
+  if(isNaN(val)||val<0){ alert('Precio no válido.'); return; }
+  if(!navigator.onLine){ alert('Necesitas internet para guardar el precio.'); return; }
+  try{
+    const {data,error}=await sb.from('productos').update({precio_mayoreo:val}).eq('id',pid).select();
+    if(error) throw error;
+    if(!data||!data.length){ alert('El servidor no aplicó el cambio (¿corriste el SQL de precio_mayoreo?).'); return; }
+    const p=(PRODUCTOS||[]).find(x=>x.id===pid); if(p) p.precio_mayoreo=val;
+    lsSet('adm_cache_productos', PRODUCTOS);
+    alert('Precio de mayoreo guardado. ✓');
+  }catch(e){ alert('No se pudo: '+(e.message||e)+'. (¿Corriste el SQL de precio_mayoreo?)'); }
+}
+
+function renderInventarioMayoreo(){
+  const cont=document.getElementById('mayInvBody');
+  const alm=almacenMayoreo();
+  if(!alm){ cont.innerHTML='<div class="empty">Crea el almacén MAYOREO para ver su inventario.</div>'; return; }
+  const filas=(PRODUCTOS||[]).map(p=>{
+    const cant=(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id && i.producto_id===p.id).reduce((s,i)=>s+Number(i.cantidad||0),0);
+    return {nombre:p.nombre, cant, pm:Number(p.precio_mayoreo||0)};
+  }).filter(x=>x.cant>0);
+  const total=filas.reduce((s,x)=>s+x.cant,0);
+  if(!filas.length){ cont.innerHTML='<div class="empty">El almacén de mayoreo no tiene stock todavía. Métele mercancía con un ingreso o traslado hacia MAYOREO.</div>'; return; }
+  cont.innerHTML=`<div style="font-weight:700; margin-bottom:6px">${alm.nombre} <span style="color:var(--muted); font-weight:500">— ${num(total)} uds.</span></div>
+  <table style="min-width:420px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">P. Mayoreo</th></tr></thead><tbody>
+  ${filas.sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(x=>`<tr><td>${x.nombre}</td><td class="numcell">${num(x.cant)}</td><td class="numcell">$${num(x.pm)}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+
+// ---- MAYOREO ----
+// El almacén de mayoreo se reconoce por el nombre (empieza con "MAYOREO").
+function esMayoreo(a){ return /^mayoreo/i.test(((a&&a.nombre)||'').trim()); }
+function almacenMayoreo(){ return (ALMACENES||[]).find(esMayoreo) || null; }
+// Quién puede administrar el mayoreo (dueño + Dariel) y quién solo vende (Tamy).
+function puedeMayoreoAdmin(){ return usuarioActual && (usuarioActual.rol==='dueno' || (usuarioActual.nombre||'').trim().toLowerCase()==='dariel'); }
+function puedeMayoreoVenta(){ return usuarioActual && (usuarioActual.nombre||'').trim().toLowerCase()==='tamy'; }
+// Reparto de ganancia del mayoreo (probado): Dariel 50%; del 50% del dueño, vendedor 10% del pool,
+// del restante admin jk 20%, y el dueño se queda el resto.
+function repartoMayoreo(G){
+  G = Number(G)||0;
+  const dariel   = G*0.50;
+  const pool     = G*0.50;
+  const vendedor = pool*0.10;
+  const restante = pool - vendedor;
+  const adminJk  = restante*0.20;
+  const dueno    = restante - adminJk;
+  const r2 = n => Math.round(n*100)/100;
+  return { dariel:r2(dariel), vendedor:r2(vendedor), adminJk:r2(adminJk), dueno:r2(dueno) };
+}
+
+
 function analizarNegocio(d){
   const { dias, items, movimientos, caja, deudas, devoluciones, inventario, productos, almacenes, usuarios } = d;
   const nombreAlm = id => { const a=(almacenes||[]).find(x=>x.id===id); return a?a.nombre:('Puesto '+id); };
@@ -9670,6 +9820,7 @@ function aplicarRestriccionesDeRol(){
   document.getElementById('tabBtnEstadisticas').style.display = esDueno ? 'inline-block' : 'none';
   document.getElementById('tabBtnAnalizador').style.display = esDueno ? 'inline-block' : 'none';
   { const b=document.getElementById('tabBtnAnalisisProd'); if(b) b.style.display = esDueno ? 'inline-block' : 'none'; }
+  { const b=document.getElementById('tabBtnMayoreo'); if(b) b.style.display = puedeMayoreoAdmin() ? 'inline-block' : 'none'; }
   document.getElementById('tabBtnCobrarAdmin').style.display = usuarioActual.rol==='administrador' ? 'inline-block' : 'none';
   const cardComp = document.getElementById('cardComprobarInv');
   if(cardComp) cardComp.style.display = esDueno ? '' : 'none';
@@ -9678,7 +9829,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v93</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v95</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
