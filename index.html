@@ -903,6 +903,7 @@
         <button id="mtab-btn-inventario" onclick="cambiarMTab('inventario')">🏬 Inventario</button>
         <button id="mtab-btn-vender" onclick="cambiarMTab('vender')">🛒 Vender</button>
         <button id="mtab-btn-ganancias" onclick="cambiarMTab('ganancias')">💰 Ganancias</button>
+        <button id="mtab-btn-reservas" onclick="cambiarMTab('reservas')">📋 Reservas</button>
         <button id="mtab-btn-historial" onclick="cambiarMTab('historial')">🕘 Historial</button>
       </div>
       <div id="mayAviso" class="msg"></div>
@@ -975,6 +976,11 @@
         </div>
         <div id="mayGananciasBody" style="margin-top:10px"></div>
       </div>
+    </div>
+
+    <!-- RESERVAS (desde la web) -->
+    <div id="mtab-reservas" class="mtab" style="display:none">
+      <div class="card"><h2>📋 Reservas de clientes (web)</h2><div id="mayReservasBody" style="margin-top:8px"></div></div>
     </div>
 
     <!-- HISTORIAL -->
@@ -8074,7 +8080,7 @@ function cargarMayoreo(){
 }
 
 function cambiarMTab(cual){
-  ['productos','inventario','vender','ganancias','historial'].forEach(t=>{
+  ['productos','inventario','vender','ganancias','historial','reservas'].forEach(t=>{
     const el=document.getElementById('mtab-'+t); if(el) el.style.display = (t===cual)?'block':'none';
     const b=document.getElementById('mtab-btn-'+t); if(b) b.classList.toggle('active', t===cual);
   });
@@ -8083,6 +8089,7 @@ function cambiarMTab(cual){
   if(cual==='vender') prepararVenderMayoreo();
   if(cual==='ganancias'){ const h=fechaHoyLocal(); const d=document.getElementById('mayGanDesde'), ha=document.getElementById('mayGanHasta'); if(d&&!d.value){ const x=new Date(); x.setDate(x.getDate()-30); d.value=x.toISOString().slice(0,10);} if(ha&&!ha.value) ha.value=h; cargarGananciasMayoreo(); }
   if(cual==='historial') cargarHistorialMayoreo();
+  if(cual==='reservas') cargarReservasMayoreo();
 }
 
 // Inventario del almacén MAYOREO
@@ -8388,6 +8395,35 @@ async function cargarGananciasMayoreo(){
       <tr><td>🤵 Dueño (tú)</td><td class="numcell" style="font-weight:700;color:var(--green)">$${num(r.dueno)}</td></tr>
     </tbody></table>`;
   }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
+}
+
+// ----- RESERVAS (desde la web) -----
+async function cargarReservasMayoreo(){
+  const cont=document.getElementById('mayReservasBody');
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
+  cont.textContent='Cargando…';
+  try{
+    const {data,error}=await sb.from('reservas_mayoreo').select('*').order('id',{ascending:false}).limit(100);
+    if(error) throw error;
+    const nuevas=(data||[]).filter(r=>r.estado!=='atendida');
+    if(!nuevas.length){ cont.innerHTML='<div class="empty">No hay reservas nuevas.</div>'; return; }
+    cont.innerHTML=nuevas.map(r=>{
+      const items=Array.isArray(r.items)?r.items:[];
+      const tel=(r.telefono||'').replace(/[^0-9]/g,'');
+      const wa=tel?`<a class="ghost" style="display:inline-block;padding:8px 12px;border:1px solid var(--border);border-radius:8px;text-decoration:none;font-size:13px" href="https://wa.me/${tel}" target="_blank">💬 WhatsApp</a>`:'';
+      return `<div style="border:2px solid var(--amber);border-radius:12px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${r.nombre||'(sin nombre)'}</b><span style="color:var(--muted);font-size:12px">${(r.creado_en||'').slice(0,16).replace('T',' ')}</span></div>
+        <div style="color:var(--muted);font-size:13px;margin:4px 0">📞 ${r.telefono||'—'} · total aprox $${num(r.total)}</div>
+        <div style="font-size:14px;margin:6px 0">${items.map(it=>`${it.nombre} <b>×${num(it.cantidad)}</b>`).join('<br>')}</div>
+        <div style="display:flex;gap:8px;margin-top:8px">${wa}<button class="primary" style="padding:8px 12px;font-size:13px" onclick="marcarReservaAtendida(${r.id})">✓ Marcar atendida</button></div>
+      </div>`;
+    }).join('');
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+' (¿corriste reservas_mayoreo.sql?)</div>'; }
+}
+async function marcarReservaAtendida(id){
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  try{ const {error}=await sb.from('reservas_mayoreo').update({estado:'atendida'}).eq('id',id); if(error) throw error; cargarReservasMayoreo(); }
+  catch(e){ alert('No se pudo: '+(e.message||e)); }
 }
 
 // ----- HISTORIAL -----
@@ -10172,7 +10208,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v100</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v101</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
