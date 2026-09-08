@@ -894,29 +894,91 @@
   <div id="tab-mayoreo" class="tab" style="display:none">
     <div class="card">
       <h2>🏷️ Mayoreo</h2>
-      <div style="color:var(--muted); font-size:13px; margin-bottom:8px">Venta al por mayor: los mismos productos pero con precio de mayoreo y un almacén aparte (las cantidades no se mezclan con lo normal). Solo lo ven el dueño y Dariel; Tamy solo vende.</div>
+      <div class="tabs" style="margin-bottom:0; flex-wrap:wrap">
+        <button id="mtab-btn-productos" class="active" onclick="cambiarMTab('productos')">📦 Productos</button>
+        <button id="mtab-btn-inventario" onclick="cambiarMTab('inventario')">🏬 Inventario</button>
+        <button id="mtab-btn-vender" onclick="cambiarMTab('vender')">🛒 Vender</button>
+        <button id="mtab-btn-ganancias" onclick="cambiarMTab('ganancias')">💰 Ganancias</button>
+        <button id="mtab-btn-historial" onclick="cambiarMTab('historial')">🕘 Historial</button>
+      </div>
       <div id="mayAviso" class="msg"></div>
     </div>
 
-    <div class="card">
-      <h2>🧮 Reparto de ganancia</h2>
-      <div style="color:var(--muted); font-size:13px; margin-bottom:8px">Escribe una ganancia para ver cómo se reparte.</div>
-      <div class="row" style="align-items:flex-end">
-        <div class="field"><label>Ganancia $</label><input type="number" id="mayGan" inputmode="decimal" oninput="calcReparto()" placeholder="ej: 200"></div>
+    <!-- INVENTARIO MAYOREO -->
+    <div id="mtab-inventario" class="mtab" style="display:none">
+      <div class="card">
+        <h2>🏬 Inventario de mayoreo</h2>
+        <input type="text" id="mayInvBuscar" placeholder="🔎 Buscar producto..." oninput="renderInvMayoreo()" autocomplete="off">
+        <div id="mayInvBody" style="overflow-x:auto; margin-top:8px"></div>
       </div>
-      <div id="mayReparto" style="margin-top:8px"></div>
     </div>
 
-    <div class="card">
-      <h2>💲 Precios de mayoreo</h2>
-      <div style="color:var(--muted); font-size:13px; margin-bottom:8px">Ponle a cada producto su precio de mayoreo (no cambia el precio normal). Toca ✓ para guardar.</div>
-      <input type="text" id="mayBuscarPrecio" placeholder="🔎 Buscar producto..." oninput="renderPreciosMayoreo()" autocomplete="off">
-      <div id="mayPreciosBody" style="overflow-x:auto; margin-top:8px"></div>
+    <!-- PRODUCTOS / PRECIOS DE MAYOREO -->
+    <div id="mtab-productos" class="mtab">
+      <div class="card">
+        <h2>📥 Entrada de mercancía (mayoreo)</h2>
+        
+        <div class="field">
+          <label>Producto</label>
+          <input type="text" id="mayEbuscar" placeholder="🔎 Buscar…" oninput="filtrarMayEntrada()" autocomplete="off">
+          <div id="mayEsug" style="display:none; border:1px solid var(--border); border-radius:10px; margin-top:4px; max-height:220px; overflow-y:auto; background:var(--panel)"></div>
+          <input type="hidden" id="mayEprod">
+          <div id="mayEelegido" style="margin-top:6px; font-size:13px; color:var(--green); font-weight:700"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Cantidad que entra</label><input type="number" id="mayEcant" inputmode="numeric" placeholder="0"></div>
+          <div class="field" style="display:flex; align-items:flex-end"><button class="primary" style="width:100%" onclick="entradaMayoreo()">📥 Meter al mayoreo</button></div>
+        </div>
+        <div id="mayEmsg" class="msg"></div>
+      </div>
+      <div class="card">
+        <h2>📦 Productos de mayoreo</h2>
+        <input type="text" id="mayBuscarPrecio" placeholder="🔎 Buscar producto..." oninput="renderPreciosMayoreo()" autocomplete="off">
+        <div id="mayPreciosBody" style="overflow-x:auto; margin-top:8px"></div>
+      </div>
     </div>
 
-    <div class="card">
-      <h2>📦 Inventario de mayoreo</h2>
-      <div id="mayInvBody" style="overflow-x:auto"></div>
+    <!-- VENDER -->
+    <div id="mtab-vender" class="mtab" style="display:none">
+      <div class="card">
+        <h2>🛒 Vender (mayoreo)</h2>
+        <div id="mayVenderAviso" class="msg"></div>
+        <div class="field">
+          <label>Producto</label>
+          <input type="text" id="mayVbuscar" placeholder="🔎 Escribe para buscar…" oninput="filtrarMayVender()" autocomplete="off">
+          <div id="mayVsug" style="display:none; border:1px solid var(--border); border-radius:10px; margin-top:4px; max-height:220px; overflow-y:auto; background:var(--panel)"></div>
+          <input type="hidden" id="mayVprod">
+          <div id="mayVelegido" style="margin-top:6px; font-size:13px; color:var(--green); font-weight:700"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label>Cantidad</label><input type="number" id="mayVcant" inputmode="numeric" placeholder="0"></div>
+          <div class="field"><label>Precio (mayoreo)</label><input type="number" id="mayVprecio" inputmode="decimal" placeholder="0"></div>
+        </div>
+        <button class="primary" style="width:100%" onclick="agregarMayItem()">+ Agregar al carrito</button>
+        <div id="mayCarritoBody" style="overflow-x:auto; margin-top:12px"></div>
+        <button class="primary" id="mayFinalizarBtn" style="width:100%; margin-top:10px; display:none" onclick="finalizarVentaMayoreo()">✅ Cobrar venta de mayoreo</button>
+      </div>
+    </div>
+
+    <!-- GANANCIAS -->
+    <div id="mtab-ganancias" class="mtab" style="display:none">
+      <div class="card">
+        <h2>💰 Ganancias de mayoreo</h2>
+        <div class="row" style="align-items:flex-end">
+          <div class="field"><label>Desde</label><input type="date" id="mayGanDesde"></div>
+          <div class="field"><label>Hasta</label><input type="date" id="mayGanHasta"></div>
+          <div class="field" style="display:flex; align-items:flex-end"><button class="primary" style="width:100%" onclick="cargarGananciasMayoreo()">Ver</button></div>
+        </div>
+        <div id="mayGananciasBody" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+    <!-- HISTORIAL -->
+    <div id="mtab-historial" class="mtab" style="display:none">
+      <div class="card">
+        <h2>🕘 Historial de ventas de mayoreo</h2>
+        <div id="mayHistorialBody" style="overflow-x:auto"></div>
+      </div>
     </div>
   </div>
 
@@ -1629,7 +1691,7 @@ function limpiarFormularioCompra(){
 // Llena el selector de almacenes de la pestaña de compras
 function prepararCompras(){
   const sel = document.getElementById('compraAlmacen');
-  if(sel) sel.innerHTML = ALMACENES.map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
+  if(sel) sel.innerHTML = ALMACENES.filter(a=>!esMayoreo(a)).map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
   previsualizarCompra();
   cargarCompras();
 }
@@ -1881,7 +1943,7 @@ function renderInventario(){
   if(almacenSeleccionado===null || !ALMACENES.find(a=>a.id===almacenSeleccionado)){
     almacenSeleccionado = ALMACENES[0].id;
   }
-  tabsEl.innerHTML = ALMACENES.map(a=>
+  tabsEl.innerHTML = ALMACENES.filter(a=>!esMayoreo(a)).map(a=>
     `<button class="${a.id===almacenSeleccionado?'active':''}" onclick="seleccionarAlmacen(${a.id})">${a.nombre}</button>`
   ).join('');
 
@@ -2226,7 +2288,7 @@ document.addEventListener('click', (e)=>{
 
 // ---------- SELECTS para movimientos (almacenes) ----------
 function renderSelects(){
-  const opAlm = ALMACENES.map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
+  const opAlm = ALMACENES.filter(a=>!esMayoreo(a)).map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
   document.getElementById('movOrigen').innerHTML = opAlm;
   const selCompraAlm = document.getElementById('compraAlmacen');
   if(selCompraAlm) selCompraAlm.innerHTML = opAlm;
@@ -3597,7 +3659,7 @@ function renderResumenCaja(){
 
   // Valor del inventario a costo, en TODOS los almacenes (solo lo ve el dueño)
   if(usuarioActual.rol === 'dueno'){
-    const valorInventario = (INVENTARIO||[]).reduce((s,i)=>{
+    const valorInventario = (INVENTARIO||[]).filter(i=>!esAlmacenMayoreoId(i.almacen_id)).reduce((s,i)=>{
       const p = PRODUCTOS.find(p=>p.id===i.producto_id);
       return s + (p ? Number(i.cantidad)*Number(p.costo) : 0);
     }, 0);
@@ -7996,31 +8058,48 @@ function fijarRango(tipo){
 // ¿El almacén es un PUNTO DE VENTA? (nombre empieza con "P ")
 function esPuntoVenta(a){ return /^p\s/i.test(((a&&a.nombre)||'').trim()); }
 
-// ---- MAYOREO (funciones de la pestaña) ----
+// ---- MAYOREO (mini-app) ----
+let __mayCarrito = [];
+
 function cargarMayoreo(){
   const aviso=document.getElementById('mayAviso');
   const alm=almacenMayoreo();
-  if(!alm){ aviso.innerHTML='⚠️ Todavía no existe el almacén de mayoreo. Ve a "Almacenes y Productos" y crea un almacén llamado <b>MAYOREO</b>. Luego vuelve aquí.'; aviso.className='msg err'; }
-  else { aviso.textContent='Almacén de mayoreo: '+alm.nombre; aviso.className='msg'; }
-  document.getElementById('mayGan').value='';
-  document.getElementById('mayReparto').innerHTML='';
-  renderPreciosMayoreo();
-  renderInventarioMayoreo();
+  if(!alm){ aviso.innerHTML='⚠️ Falta el almacén de mayoreo. Ve a "Almacenes y Productos" y crea uno llamado <b>MAYOREO</b>.'; aviso.className='msg err'; }
+  else { aviso.textContent=''; aviso.className='msg'; }
+  cambiarMTab('productos');
 }
 
-function calcReparto(){
-  const g=Number(document.getElementById('mayGan').value)||0;
-  const cont=document.getElementById('mayReparto');
-  if(g<=0){ cont.innerHTML=''; return; }
-  const r=repartoMayoreo(g);
-  cont.innerHTML=`<table><tbody>
-    <tr><td>👤 Dariel (administrador)</td><td class="numcell" style="font-weight:700">$${num(r.dariel)}</td></tr>
-    <tr><td>🛒 Vendedor (Tamy)</td><td class="numcell" style="font-weight:700">$${num(r.vendedor)}</td></tr>
-    <tr><td>👥 Admin jk</td><td class="numcell" style="font-weight:700">$${num(r.adminJk)}</td></tr>
-    <tr><td>🤵 Dueño (tú)</td><td class="numcell" style="font-weight:700; color:var(--green)">$${num(r.dueno)}</td></tr>
+function cambiarMTab(cual){
+  ['productos','inventario','vender','ganancias','historial'].forEach(t=>{
+    const el=document.getElementById('mtab-'+t); if(el) el.style.display = (t===cual)?'block':'none';
+    const b=document.getElementById('mtab-btn-'+t); if(b) b.classList.toggle('active', t===cual);
+  });
+  if(cual==='productos') renderPreciosMayoreo();
+  if(cual==='inventario') renderInvMayoreo();
+  if(cual==='vender') prepararVenderMayoreo();
+  if(cual==='ganancias'){ const h=fechaHoyLocal(); const d=document.getElementById('mayGanDesde'), ha=document.getElementById('mayGanHasta'); if(d&&!d.value){ const x=new Date(); x.setDate(x.getDate()-30); d.value=x.toISOString().slice(0,10);} if(ha&&!ha.value) ha.value=h; cargarGananciasMayoreo(); }
+  if(cual==='historial') cargarHistorialMayoreo();
+}
+
+// Inventario del almacén MAYOREO
+function renderInvMayoreo(){
+  const cont=document.getElementById('mayInvBody');
+  const alm=almacenMayoreo();
+  if(!alm){ cont.innerHTML='<div class="empty">Falta crear el almacén MAYOREO.</div>'; return; }
+  const q=(document.getElementById('mayInvBuscar').value||'').trim().toLowerCase();
+  let filas=(PRODUCTOS||[]).map(p=>({nombre:p.nombre, pm:Number(p.precio_mayoreo||0),
+    cant:(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===p.id).reduce((s,i)=>s+Number(i.cantidad||0),0)}))
+    .filter(x=>x.cant>0);
+  if(q) filas=filas.filter(x=>x.nombre.toLowerCase().includes(q));
+  const total=filas.reduce((s,x)=>s+x.cant,0);
+  if(!filas.length){ cont.innerHTML='<div class="empty">El almacén de mayoreo no tiene stock todavía. Métele con "📥 Entrada de mercancía".</div>'; return; }
+  cont.innerHTML=`<div style="font-weight:700; margin-bottom:6px">${num(total)} uds.</div>
+  <table style="min-width:420px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">P. Mayoreo</th></tr></thead><tbody>
+  ${filas.sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(x=>`<tr><td>${x.nombre}</td><td class="numcell">${num(x.cant)}</td><td class="numcell">$${num(x.pm)}</td></tr>`).join('')}
   </tbody></table>`;
 }
 
+// ----- PRODUCTOS / PRECIOS -----
 function renderPreciosMayoreo(){
   const cont=document.getElementById('mayPreciosBody');
   const q=(document.getElementById('mayBuscarPrecio').value||'').trim().toLowerCase();
@@ -8028,50 +8107,312 @@ function renderPreciosMayoreo(){
   if(q) lista=lista.filter(p=>(p.nombre||'').toLowerCase().includes(q));
   lista=lista.slice(0,60);
   if(!lista.length){ cont.innerHTML='<div class="empty">Sin productos.</div>'; return; }
-  cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Normal</th><th class="numcell">Mayoreo</th><th></th></tr></thead><tbody>
+  cont.innerHTML=`<table style="min-width:560px"><thead><tr><th>Producto</th><th class="numcell">Costo may.</th><th class="numcell">Precio may.</th><th></th><th></th></tr></thead><tbody>
   ${lista.map(p=>`<tr>
     <td>${p.nombre}</td>
-    <td class="numcell" style="color:var(--muted)">$${num(p.precio_venta)}</td>
-    <td class="numcell"><input type="number" id="maypv-${p.id}" value="${Number(p.precio_mayoreo||0)}" inputmode="decimal" style="width:90px; text-align:right"></td>
+    <td class="numcell"><input type="number" id="mayco-${p.id}" value="${Number(p.costo_mayoreo)>0?Number(p.costo_mayoreo):''}" placeholder="0" inputmode="decimal" style="width:85px; text-align:right"></td>
+    <td class="numcell"><input type="number" id="maypv-${p.id}" value="${Number(p.precio_mayoreo)>0?Number(p.precio_mayoreo):''}" placeholder="0" inputmode="decimal" style="width:85px; text-align:right"></td>
     <td><button class="ghost" onclick="guardarPrecioMayoreo(${p.id})">✓</button></td>
+    <td><button class="ghost" onclick="abrirFotosMayoreo(${p.id})">📷 Fotos</button></td>
   </tr>`).join('')}
-  </tbody></table>`;
+  </tbody></table>
+  <div id="mayFotosPanel" style="margin-top:12px"></div>`;
 }
 
 async function guardarPrecioMayoreo(pid){
-  const val=Number(document.getElementById('maypv-'+pid).value);
-  if(isNaN(val)||val<0){ alert('Precio no válido.'); return; }
-  if(!navigator.onLine){ alert('Necesitas internet para guardar el precio.'); return; }
+  const pv=Number(document.getElementById('maypv-'+pid).value)||0;
+  const co=Number(document.getElementById('mayco-'+pid).value)||0;
+  if(pv<0||co<0){ alert('Precio o costo no válido.'); return; }
+  if(!navigator.onLine){ alert('Necesitas internet para guardar.'); return; }
   try{
-    const {data,error}=await sb.from('productos').update({precio_mayoreo:val}).eq('id',pid).select();
+    let {data,error}=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co}).eq('id',pid).select();
+    if(error && (String(error.message||'').includes('costo_mayoreo'))){
+      // Aún no existe la columna costo_mayoreo: guardamos al menos el precio.
+      const r2=await sb.from('productos').update({precio_mayoreo:pv}).eq('id',pid).select();
+      data=r2.data; error=r2.error;
+      if(!error){ alert('Guardé el precio. El costo de mayoreo necesita correr el SQL "mayoreo_setup.sql".'); }
+    }
     if(error) throw error;
-    if(!data||!data.length){ alert('El servidor no aplicó el cambio (¿corriste el SQL de precio_mayoreo?).'); return; }
-    const p=(PRODUCTOS||[]).find(x=>x.id===pid); if(p) p.precio_mayoreo=val;
+    if(!data||!data.length){ alert('El servidor no aplicó el cambio (permisos).'); return; }
+    const p=(PRODUCTOS||[]).find(x=>x.id===pid); if(p){ p.precio_mayoreo=pv; p.costo_mayoreo=co; }
     lsSet('adm_cache_productos', PRODUCTOS);
-    alert('Precio de mayoreo guardado. ✓');
-  }catch(e){ alert('No se pudo: '+(e.message||e)+'. (¿Corriste el SQL de precio_mayoreo?)'); }
+    const btn=event&&event.target; if(btn){ const t=btn.textContent; btn.textContent='✓'; btn.style.color='var(--green)'; setTimeout(()=>{btn.textContent=t; btn.style.color='';},1200); }
+  }catch(e){ alert('No se pudo: '+(e.message||e)); }
 }
 
-function renderInventarioMayoreo(){
-  const cont=document.getElementById('mayInvBody');
+// ----- ENTRADA DE MERCANCÍA A MAYOREO -----
+function filtrarMayEntrada(){
+  const q=(document.getElementById('mayEbuscar').value||'').trim().toLowerCase();
+  const cont=document.getElementById('mayEsug');
+  document.getElementById('mayEprod').value=''; document.getElementById('mayEelegido').textContent='';
+  if(q.length<1){ cont.style.display='none'; cont.innerHTML=''; return; }
+  const m=(PRODUCTOS||[]).filter(p=>(p.nombre||'').toLowerCase().includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre)).slice(0,15);
+  if(!m.length){ cont.style.display='block'; cont.innerHTML='<div style="padding:10px;color:var(--muted)">Sin coincidencias.</div>'; return; }
+  cont.innerHTML=m.map(p=>`<div onclick="elegirMayEntrada(${p.id})" style="padding:12px;border-bottom:1px solid var(--border);cursor:pointer">${p.nombre}</div>`).join('');
+  cont.style.display='block';
+}
+function elegirMayEntrada(id){
+  const p=(PRODUCTOS||[]).find(x=>x.id===id); if(!p) return;
+  document.getElementById('mayEprod').value=id;
+  document.getElementById('mayEbuscar').value=p.nombre;
+  document.getElementById('mayEelegido').textContent='✓ '+p.nombre;
+  document.getElementById('mayEsug').style.display='none';
+}
+async function entradaMayoreo(){
+  const pid=Number(document.getElementById('mayEprod').value);
+  const cant=Number(document.getElementById('mayEcant').value);
+  const msg=document.getElementById('mayEmsg');
   const alm=almacenMayoreo();
-  if(!alm){ cont.innerHTML='<div class="empty">Crea el almacén MAYOREO para ver su inventario.</div>'; return; }
-  const filas=(PRODUCTOS||[]).map(p=>{
-    const cant=(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id && i.producto_id===p.id).reduce((s,i)=>s+Number(i.cantidad||0),0);
-    return {nombre:p.nombre, cant, pm:Number(p.precio_mayoreo||0)};
-  }).filter(x=>x.cant>0);
-  const total=filas.reduce((s,x)=>s+x.cant,0);
-  if(!filas.length){ cont.innerHTML='<div class="empty">El almacén de mayoreo no tiene stock todavía. Métele mercancía con un ingreso o traslado hacia MAYOREO.</div>'; return; }
-  cont.innerHTML=`<div style="font-weight:700; margin-bottom:6px">${alm.nombre} <span style="color:var(--muted); font-weight:500">— ${num(total)} uds.</span></div>
-  <table style="min-width:420px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">P. Mayoreo</th></tr></thead><tbody>
-  ${filas.sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(x=>`<tr><td>${x.nombre}</td><td class="numcell">${num(x.cant)}</td><td class="numcell">$${num(x.pm)}</td></tr>`).join('')}
-  </tbody></table>`;
+  if(!alm){ msg.textContent='Falta crear el almacén MAYOREO.'; msg.className='msg err'; return; }
+  if(!pid){ msg.textContent='Elige un producto.'; msg.className='msg err'; return; }
+  if(!cant||cant<=0){ msg.textContent='Pon una cantidad.'; msg.className='msg err'; return; }
+  if(!navigator.onLine){ msg.textContent='Necesitas internet.'; msg.className='msg err'; return; }
+  try{
+    await ajustarInventario(alm.id, pid, cant);
+    await cargarTodo();
+    msg.textContent='Entró al mayoreo. ✓'; msg.className='msg ok';
+    document.getElementById('mayEbuscar').value=''; document.getElementById('mayEprod').value='';
+    document.getElementById('mayEelegido').textContent=''; document.getElementById('mayEcant').value='';
+  }catch(e){ msg.textContent='No se pudo: '+(e.message||e); msg.className='msg err'; }
 }
 
-// ---- MAYOREO ----
+// ----- FOTOS DE MAYOREO -----
+const MAY_BUCKET = 'fotos-mayoreo';
+
+async function abrirFotosMayoreo(pid){
+  const p=(PRODUCTOS||[]).find(x=>x.id===pid);
+  const cont=document.getElementById('mayFotosPanel');
+  cont.innerHTML=`<div class="card" style="border:2px solid var(--accent)">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 style="margin:0">📷 Fotos — ${p?p.nombre:('#'+pid)}</h3>
+      <button class="ghost" onclick="document.getElementById('mayFotosPanel').innerHTML=''">Cerrar ✕</button>
+    </div>
+    
+    <button class="primary" style="width:100%" onclick="document.getElementById('mayFotoInput-${pid}').click()">+ Subir foto</button>
+    <input type="file" id="mayFotoInput-${pid}" accept="image/*" style="position:absolute;left:-9999px" onchange="subirFotoMayoreo(${pid}, this)">
+    <div id="mayFotosLista" style="margin-top:10px">Cargando…</div>
+  </div>`;
+  await listarFotosMayoreo(pid);
+}
+
+async function listarFotosMayoreo(pid){
+  const cont=document.getElementById('mayFotosLista');
+  if(!cont) return;
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet para ver/subir fotos.</div>'; return; }
+  try{
+    const {data,error}=await sb.from('fotos_mayoreo').select('*').eq('producto_id',pid).order('id',{ascending:true});
+    if(error) throw error;
+    if(!data||!data.length){ cont.innerHTML='<div class="empty">Sin fotos. (Puedes dejarlo así, "sin foto".)</div>'; return; }
+    cont.innerHTML=`<div style="display:flex;flex-wrap:wrap;gap:10px">${data.map(f=>`
+      <div style="border:1px solid var(--border);border-radius:10px;padding:6px;width:120px">
+        <img src="${f.url}" style="width:108px;height:108px;object-fit:cover;border-radius:8px" onerror="this.style.opacity=.3">
+        <button class="ghost" style="width:100%;margin-top:4px;font-size:12px;padding:5px" onclick="toggleFotoWeb(${f.id}, ${f.mostrar_web}, ${pid})">${f.mostrar_web?'🌐 Web':'📄 Legal'}</button>
+        <button class="ghost" style="width:100%;margin-top:4px;font-size:12px;padding:5px;color:var(--red)" onclick="borrarFotoMayoreo(${f.id}, ${JSON.stringify(f.path||'')}, ${pid})">Borrar</button>
+      </div>`).join('')}</div>`;
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
+}
+
+// Achica la imagen antes de subir (importante para no gastar muchos datos en Cuba).
+function comprimirImagen(file, maxLado=1000, calidad=0.7){
+  return new Promise((resolve,reject)=>{
+    const img=new Image(); const rd=new FileReader();
+    rd.onload=()=>{ img.onload=()=>{
+      let {width:w,height:h}=img;
+      if(w>h && w>maxLado){ h=Math.round(h*maxLado/w); w=maxLado; }
+      else if(h>maxLado){ w=Math.round(w*maxLado/h); h=maxLado; }
+      const c=document.createElement('canvas'); c.width=w; c.height=h;
+      c.getContext('2d').drawImage(img,0,0,w,h);
+      c.toBlob(b=> b?resolve(b):reject(new Error('No se pudo procesar la imagen')), 'image/jpeg', calidad);
+    }; img.onerror=()=>reject(new Error('Imagen no válida')); img.src=rd.result; };
+    rd.onerror=()=>reject(new Error('No se pudo leer el archivo')); rd.readAsDataURL(file);
+  });
+}
+
+async function subirFotoMayoreo(pid, input){
+  const file=input.files&&input.files[0]; if(!file) return;
+  if(!navigator.onLine){ alert('Necesitas internet para subir fotos.'); input.value=''; return; }
+  const lista=document.getElementById('mayFotosLista'); const antes=lista?lista.innerHTML:''; if(lista) lista.innerHTML='Subiendo foto…';
+  try{
+    const blob=await comprimirImagen(file);
+    const path=pid+'/'+Date.now()+'.jpg';
+    const up=await sb.storage.from(MAY_BUCKET).upload(path, blob, {contentType:'image/jpeg', upsert:true});
+    if(up.error) throw up.error;
+    const {data:pub}=sb.storage.from(MAY_BUCKET).getPublicUrl(path);
+    const ins=await sb.from('fotos_mayoreo').insert({producto_id:pid, url:pub.publicUrl, path, mostrar_web:true});
+    if(ins.error) throw ins.error;
+    await listarFotosMayoreo(pid);
+  }catch(e){
+    if(lista) lista.innerHTML=antes;
+    alert('No se pudo subir: '+(e.message||e)+'\n\n(¿Creaste el bucket público "fotos-mayoreo" en Storage y corriste fotos_mayoreo.sql?)');
+  }
+  input.value='';
+}
+
+async function toggleFotoWeb(fid, actual, pid){
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  try{ const {error}=await sb.from('fotos_mayoreo').update({mostrar_web:!actual}).eq('id',fid); if(error) throw error; await listarFotosMayoreo(pid); }
+  catch(e){ alert('No se pudo: '+(e.message||e)); }
+}
+
+async function borrarFotoMayoreo(fid, path, pid){
+  if(!confirm('¿Borrar esta foto?')) return;
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  try{
+    if(path){ try{ await sb.storage.from(MAY_BUCKET).remove([path]); }catch(_){} }
+    const {error}=await sb.from('fotos_mayoreo').delete().eq('id',fid); if(error) throw error;
+    await listarFotosMayoreo(pid);
+  }catch(e){ alert('No se pudo: '+(e.message||e)); }
+}
+
+// ----- VENDER -----
+function prepararVenderMayoreo(){
+  const av=document.getElementById('mayVenderAviso');
+  if(!almacenMayoreo()){ av.innerHTML='⚠️ Falta crear el almacén <b>MAYOREO</b>.'; av.className='msg err'; }
+  else { av.textContent=''; av.className='msg'; }
+  document.getElementById('mayVbuscar').value=''; document.getElementById('mayVprod').value='';
+  document.getElementById('mayVelegido').textContent=''; document.getElementById('mayVsug').style.display='none';
+  document.getElementById('mayVcant').value=''; document.getElementById('mayVprecio').value='';
+  renderMayCarrito();
+}
+
+function filtrarMayVender(){
+  const q=(document.getElementById('mayVbuscar').value||'').trim().toLowerCase();
+  const cont=document.getElementById('mayVsug');
+  document.getElementById('mayVprod').value=''; document.getElementById('mayVelegido').textContent='';
+  const alm=almacenMayoreo();
+  if(q.length<1||!alm){ cont.style.display='none'; cont.innerHTML=''; return; }
+  const stockDe=pid=>(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
+  const matches=(PRODUCTOS||[]).filter(p=>(p.nombre||'').toLowerCase().includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre)).slice(0,15);
+  if(!matches.length){ cont.style.display='block'; cont.innerHTML='<div style="padding:10px;color:var(--muted)">Sin coincidencias.</div>'; return; }
+  cont.innerHTML=matches.map(p=>{ const h=stockDe(p.id); return `<div onclick="elegirMayProducto(${p.id})" style="padding:12px;border-bottom:1px solid var(--border);cursor:pointer">${p.nombre} <span style="color:${h>0?'var(--green)':'var(--muted)'};font-size:13px">· hay ${num(h)}</span></div>`; }).join('');
+  cont.style.display='block';
+}
+
+function elegirMayProducto(id){
+  const p=(PRODUCTOS||[]).find(x=>x.id===id); if(!p) return;
+  document.getElementById('mayVprod').value=id;
+  document.getElementById('mayVbuscar').value=p.nombre;
+  document.getElementById('mayVelegido').textContent='✓ '+p.nombre;
+  document.getElementById('mayVsug').style.display='none';
+  document.getElementById('mayVprecio').value=Number(p.precio_mayoreo||0);
+  const c=document.getElementById('mayVcant'); if(c&&!c.value) c.value=1;
+}
+
+function agregarMayItem(){
+  const pid=Number(document.getElementById('mayVprod').value);
+  const cant=Number(document.getElementById('mayVcant').value);
+  const precio=Number(document.getElementById('mayVprecio').value);
+  const p=(PRODUCTOS||[]).find(x=>x.id===pid);
+  if(!p){ alert('Elige un producto.'); return; }
+  if(!cant||cant<=0){ alert('Pon una cantidad.'); return; }
+  if(isNaN(precio)||precio<0){ alert('Precio no válido.'); return; }
+  const alm=almacenMayoreo();
+  const stock=(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
+  const yaEnCarrito=__mayCarrito.filter(x=>x.producto_id===pid).reduce((s,x)=>s+x.cantidad,0);
+  if(cant+yaEnCarrito>stock){ alert(`No hay tanto en mayoreo. Hay ${num(stock)} y ya llevas ${num(yaEnCarrito)}.`); return; }
+  __mayCarrito.push({producto_id:pid, nombre:p.nombre, cantidad:cant, precio, costo:Number(p.costo_mayoreo||0)});
+  document.getElementById('mayVbuscar').value=''; document.getElementById('mayVprod').value='';
+  document.getElementById('mayVelegido').textContent=''; document.getElementById('mayVcant').value=''; document.getElementById('mayVprecio').value='';
+  renderMayCarrito();
+}
+
+function quitarMayItem(i){ __mayCarrito.splice(i,1); renderMayCarrito(); }
+
+function renderMayCarrito(){
+  const cont=document.getElementById('mayCarritoBody');
+  const btn=document.getElementById('mayFinalizarBtn');
+  if(!__mayCarrito.length){ cont.innerHTML='<div class="empty">Carrito vacío.</div>'; btn.style.display='none'; return; }
+  const total=__mayCarrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
+  cont.innerHTML=`<table style="min-width:480px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th><th></th></tr></thead><tbody>
+  ${__mayCarrito.map((x,i)=>`<tr><td>${x.nombre}</td><td class="numcell">${num(x.cantidad)}</td><td class="numcell">$${num(x.precio)}</td><td class="numcell">$${num(x.cantidad*x.precio)}</td><td><button class="ghost" onclick="quitarMayItem(${i})">✕</button></td></tr>`).join('')}
+  </tbody><tfoot><tr><td colspan="3" style="text-align:right;font-weight:700">TOTAL</td><td class="numcell" style="font-weight:800;color:var(--green)">$${num(total)}</td><td></td></tr></tfoot></table>`;
+  btn.style.display='block';
+}
+
+async function finalizarVentaMayoreo(){
+  if(!__mayCarrito.length) return;
+  if(!navigator.onLine){ alert('Necesitas internet para cobrar la venta de mayoreo.'); return; }
+  const alm=almacenMayoreo(); if(!alm){ alert('Falta el almacén MAYOREO.'); return; }
+  const total=__mayCarrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
+  const ganancia=__mayCarrito.reduce((s,x)=>s+x.cantidad*(x.precio-x.costo),0);
+  const r=repartoMayoreo(ganancia);
+  if(!confirm(`Cobrar venta de mayoreo por $${num(total)} (ganancia $${num(ganancia)}).\n\nReparto: Dariel $${num(r.dariel)} · Tamy $${num(r.vendedor)} · Admin jk $${num(r.adminJk)} · Dueño $${num(r.dueno)}\n\n¿Confirmar?`)) return;
+  const btn=document.getElementById('mayFinalizarBtn'); btn.disabled=true; btn.textContent='Cobrando…';
+  const clave='may_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+  try{
+    // 1) Descontar stock del almacén MAYOREO (sin registrar en movimientos normales, para que
+    //    el mayoreo no aparezca en el inventario/extracciones normales; su historial va en ventas_mayoreo).
+    for(const it of __mayCarrito){ await ajustarInventario(alm.id, it.producto_id, -it.cantidad); }
+    // 2) Registrar la venta de mayoreo
+    await sb.from('ventas_mayoreo').insert({ items:__mayCarrito, total, ganancia, usuario:(usuarioActual&&usuarioActual.nombre)||'', clave_local:clave, fecha:fechaHoyLocal() });
+    // 3) Reparto como deudas (dueño se queda el resto, sin deuda)
+    if(ganancia>0){
+      const filas=[
+        {persona:'Dariel', monto:r.dariel, nota:'Mayoreo 50% administración - venta del '+fechaHoyLocal()},
+        {persona:'Tamy',   monto:r.vendedor, nota:'Mayoreo 10% vendedor - venta del '+fechaHoyLocal()},
+        {persona:'admin jk', monto:r.adminJk, nota:'Mayoreo 20% admin jk - venta del '+fechaHoyLocal()},
+      ].filter(x=>x.monto>0);
+      for(const f of filas){ await sb.from('deudas').insert({tipo:'debo', tipo_deuda:'dinero', persona:f.persona, monto:f.monto, pagada:false, nota:f.nota, clave_comision:'may-'+clave+'-'+f.persona}); }
+    }
+    __mayCarrito=[]; renderMayCarrito();
+    await cargarTodo();
+    alert('Venta de mayoreo cobrada. ✓');
+    cambiarMTab('historial');
+  }catch(e){ alert('No se pudo completar: '+(e.message||e)); }
+  finally{ btn.disabled=false; btn.textContent='✅ Cobrar venta de mayoreo'; }
+}
+
+// ----- GANANCIAS -----
+async function cargarGananciasMayoreo(){
+  const cont=document.getElementById('mayGananciasBody');
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
+  const desde=document.getElementById('mayGanDesde').value, hasta=document.getElementById('mayGanHasta').value;
+  cont.textContent='Cargando…';
+  try{
+    let q=sb.from('ventas_mayoreo').select('total,ganancia,fecha').order('id',{ascending:true});
+    if(desde) q=q.gte('fecha',desde);
+    if(hasta) q=q.lte('fecha',hasta);
+    const {data,error}=await q; if(error) throw error;
+    const vendido=(data||[]).reduce((s,v)=>s+Number(v.total||0),0);
+    const gan=(data||[]).reduce((s,v)=>s+Number(v.ganancia||0),0);
+    const r=repartoMayoreo(gan);
+    cont.innerHTML=`<div style="color:var(--muted);font-size:13px;margin-bottom:8px">${(data||[]).length} venta(s) · vendido $${num(vendido)} · ganancia <b style="color:var(--green)">$${num(gan)}</b></div>
+    <table><tbody>
+      <tr><td>👤 Dariel (administrador)</td><td class="numcell" style="font-weight:700">$${num(r.dariel)}</td></tr>
+      <tr><td>🛒 Vendedor (Tamy)</td><td class="numcell" style="font-weight:700">$${num(r.vendedor)}</td></tr>
+      <tr><td>👥 Admin jk</td><td class="numcell" style="font-weight:700">$${num(r.adminJk)}</td></tr>
+      <tr><td>🤵 Dueño (tú)</td><td class="numcell" style="font-weight:700;color:var(--green)">$${num(r.dueno)}</td></tr>
+    </tbody></table>`;
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
+}
+
+// ----- HISTORIAL -----
+async function cargarHistorialMayoreo(){
+  const cont=document.getElementById('mayHistorialBody');
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
+  cont.textContent='Cargando…';
+  try{
+    const {data,error}=await sb.from('ventas_mayoreo').select('*').order('id',{ascending:false}).limit(100);
+    if(error) throw error;
+    if(!data||!data.length){ cont.innerHTML='<div class="empty">Sin ventas de mayoreo todavía.</div>'; return; }
+    cont.innerHTML=data.map(v=>{
+      const items=Array.isArray(v.items)?v.items:[];
+      return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between"><b>${v.fecha}</b><span style="color:var(--green);font-weight:700">$${num(v.total)}</span></div>
+        <div style="color:var(--muted);font-size:12px;margin:4px 0">${items.length} artículo(s) · ganancia $${num(v.ganancia)} · ${v.usuario||''}</div>
+        <div style="font-size:13px">${items.map(it=>`${it.nombre} ×${num(it.cantidad)} @ $${num(it.precio)}`).join('<br>')}</div>
+      </div>`;
+    }).join('');
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
+}
+
+// ---- MAYOREO ----// ---- MAYOREO ----
 // El almacén de mayoreo se reconoce por el nombre (empieza con "MAYOREO").
 function esMayoreo(a){ return /^mayoreo/i.test(((a&&a.nombre)||'').trim()); }
 function almacenMayoreo(){ return (ALMACENES||[]).find(esMayoreo) || null; }
+// Conjunto de ids de almacenes de mayoreo — para EXCLUIRLOS de todo lo normal.
+function idsMayoreo(){ return new Set((ALMACENES||[]).filter(esMayoreo).map(a=>a.id)); }
+function esAlmacenMayoreoId(id){ return idsMayoreo().has(Number(id)); }
 // Quién puede administrar el mayoreo (dueño + Dariel) y quién solo vende (Tamy).
 function puedeMayoreoAdmin(){ return usuarioActual && (usuarioActual.rol==='dueno' || (usuarioActual.nombre||'').trim().toLowerCase()==='dariel'); }
 function puedeMayoreoVenta(){ return usuarioActual && (usuarioActual.nombre||'').trim().toLowerCase()==='tamy'; }
@@ -8407,9 +8748,11 @@ async function cargarAnalizador(){
       prev = { dias: pDias, items: pItems };
     }catch(e){ prev = null; }
 
+    const invSinMay = (inventario||[]).filter(i=>!esAlmacenMayoreoId(i.almacen_id));
+    const almSinMay = (almacenes||[]).filter(a=>!esMayoreo(a));
     const { m, alertas, tablas } = analizarNegocio({
       dias, items, movimientos, caja, deudas, devoluciones, descontados, prev,
-      inventario, productos, almacenes, usuarios
+      inventario: invSinMay, productos, almacenes: almSinMay, usuarios
     });
 
     // ---------- PANEL ----------
@@ -9470,7 +9813,7 @@ async function cargarEstadisticas(){
     // ---------- Patrimonio ----------
     const efectivo = (cajaTodos||[]).filter(c=>c.metodo==='efectivo').reduce((s,c)=>s+(c.tipo==='ingreso'?c.monto:-c.monto),0);
     const tarjeta = (cajaTodos||[]).filter(c=>c.metodo==='tarjeta').reduce((s,c)=>s+(c.tipo==='ingreso'?c.monto:-c.monto),0);
-    const valorInventario = (INVENTARIO||[]).reduce((s,i)=>{
+    const valorInventario = (INVENTARIO||[]).filter(i=>!esAlmacenMayoreoId(i.almacen_id)).reduce((s,i)=>{
       const p = PRODUCTOS.find(p=>p.id===i.producto_id);
       return s + (p ? Number(i.cantidad)*Number(p.costo) : 0);
     }, 0);
@@ -9680,7 +10023,7 @@ async function cargarAnalisisProductos(){
     });
 
     // Inventario para "capital parado" (con stock pero sin ventas).
-    const stockPorProd={}; (INVENTARIO||[]).forEach(r=>{ stockPorProd[r.producto_id]=(stockPorProd[r.producto_id]||0)+Number(r.cantidad||0); });
+    const stockPorProd={}; (INVENTARIO||[]).filter(r=>!esAlmacenMayoreoId(r.almacen_id)).forEach(r=>{ stockPorProd[r.producto_id]=(stockPorProd[r.producto_id]||0)+Number(r.cantidad||0); });
 
     const fmt = n => '$'+num(n);
     const pct = n => (n===999?'nuevo':(n>0?'+':'')+Math.round(n)+'%');
@@ -9825,6 +10168,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v95</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v100</div>
 </body>
 </html>

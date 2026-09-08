@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Catálogo — Mayoreo</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#f6f7f9; --surface:#ffffff; --ink:#1a1d24; --muted:#6b7280; --line:#e7e9ee;
+    --brand:#0f62fe; --brand-dark:#0949c6; --price:#0a8f57; --shadow:0 2px 10px rgba(20,24,40,.06);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{ font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; background:var(--bg); color:var(--ink); -webkit-font-smoothing:antialiased; }
+
+  header.top{ background:var(--surface); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:10; }
+  .top-in{ max-width:1080px; margin:0 auto; padding:16px 18px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .brand{ display:flex; align-items:center; gap:10px; }
+  .brand .logo{ width:40px; height:40px; border-radius:11px; background:linear-gradient(135deg,var(--brand),#3b82f6); color:#fff; display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:800; }
+  .brand h1{ font-size:18px; margin:0; letter-spacing:-.2px; }
+  .brand p{ margin:0; font-size:12px; color:var(--muted); }
+  .search{ flex:1; min-width:180px; }
+  .search input{ width:100%; padding:12px 14px; border:1px solid var(--line); border-radius:12px; font-size:15px; background:#fbfbfd; }
+  .search input:focus{ outline:none; border-color:var(--brand); background:#fff; }
+
+  .hero{ max-width:1080px; margin:18px auto 0; padding:0 18px; }
+  .hero-card{ background:linear-gradient(135deg,#0f62fe,#4f8cff); color:#fff; border-radius:18px; padding:22px 20px; box-shadow:var(--shadow); }
+  .hero-card h2{ margin:0 0 4px; font-size:22px; }
+  .hero-card p{ margin:0; opacity:.9; font-size:14px; }
+
+  .count{ max-width:1080px; margin:16px auto 0; padding:0 18px; color:var(--muted); font-size:13px; }
+
+  .grid{ max-width:1080px; margin:10px auto 30px; padding:14px 14px 0; display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:14px; }
+  .card{ background:var(--surface); border:1px solid var(--line); border-radius:16px; overflow:hidden; box-shadow:var(--shadow); display:flex; flex-direction:column; transition:transform .12s ease, box-shadow .12s ease; }
+  .card:active{ transform:scale(.99); }
+  .thumb{ position:relative; width:100%; aspect-ratio:1/1; background:#f0f2f5; overflow:hidden; }
+  .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .thumb .nofoto{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#aeb4bf; font-size:34px; }
+  .thumb .badge{ position:absolute; top:8px; left:8px; background:rgba(0,0,0,.55); color:#fff; font-size:11px; padding:3px 8px; border-radius:20px; }
+  .body{ padding:11px 12px 13px; display:flex; flex-direction:column; gap:6px; flex:1; }
+  .name{ font-size:14px; font-weight:600; line-height:1.3; }
+  .price{ margin-top:auto; color:var(--price); font-weight:800; font-size:19px; }
+  .price small{ color:var(--muted); font-weight:600; font-size:11px; display:block; }
+  .wa{ display:inline-flex; align-items:center; justify-content:center; gap:6px; margin-top:4px; background:#25d366; color:#fff; text-decoration:none; font-weight:700; font-size:13px; padding:9px; border-radius:10px; }
+
+  .estado{ text-align:center; color:var(--muted); padding:60px 20px; font-size:15px; }
+  footer{ text-align:center; color:var(--muted); font-size:12px; padding:26px 16px 40px; }
+
+  /* Visor */
+  .visor{ position:fixed; inset:0; background:rgba(10,12,18,.92); display:none; align-items:center; justify-content:center; z-index:50; flex-direction:column; padding:18px; }
+  .visor img{ max-width:94vw; max-height:74vh; border-radius:12px; box-shadow:0 10px 40px rgba(0,0,0,.5); }
+  .visor .cap{ color:#fff; margin-top:12px; font-weight:600; text-align:center; }
+  .visor .row{ display:flex; gap:14px; margin-top:14px; }
+  .visor button{ color:#fff; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.3); border-radius:12px; padding:10px 20px; font-size:16px; }
+  .visor .dots{ color:#fff; opacity:.7; font-size:12px; margin-top:8px; }
+</style>
+</head>
+<body>
+  <header class="top">
+    <div class="top-in">
+      <div class="brand">
+        <div class="logo">L</div>
+        <div><h1 id="tiendaNombre">Catálogo</h1><p>Precios al por mayor</p></div>
+      </div>
+      <div class="search"><input type="text" id="buscar" placeholder="🔎 Buscar producto…" oninput="render()"></div>
+    </div>
+  </header>
+
+  <div class="hero"><div class="hero-card">
+    <h2>Venta al por mayor 🛒</h2>
+    <p>Explora nuestros productos y sus precios. Toca una foto para verla en grande.</p>
+  </div></div>
+
+  <div class="count" id="count"></div>
+  <div id="grid" class="grid"></div>
+  <div id="estado" class="estado">Cargando catálogo…</div>
+  <footer>Catálogo en línea · se actualiza automáticamente</footer>
+
+  <div class="visor" id="visor">
+    <img id="visorImg" src="" alt="">
+    <div class="cap" id="visorCap"></div>
+    <div class="dots" id="visorDots"></div>
+    <div class="row">
+      <button onclick="visorMover(-1)">‹ Anterior</button>
+      <button onclick="visorMover(1)">Siguiente ›</button>
+    </div>
+    <div class="row"><button onclick="cerrarVisor()">Cerrar ✕</button></div>
+  </div>
+
+<script>
+const SUPABASE_URL = "https://dkkrbiyidfgsxasdbxjt.supabase.co";
+const SUPABASE_KEY = "sb_publishable_gVKtXTwNjGThLtVSMowK1Q_68AmhtgE";
+// --- Personalización opcional ---
+const WHATSAPP = "";        // pon tu número con código, ej "5350000000", para botón de pedido. Vacío = sin botón.
+const NOMBRE_TIENDA = "Catálogo";
+// --------------------------------
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let PRODUCTOS = [], visorFotos = [], visorIdx = 0, visorNombre = "";
+
+document.getElementById('tiendaNombre').textContent = NOMBRE_TIENDA;
+
+async function cargar(){
+  try{
+    const prods = [];
+    { let d=0; for(;;){ const r=await sb.from('productos').select('id,nombre,precio_mayoreo').gt('precio_mayoreo',0).order('nombre',{ascending:true}).range(d,d+999); if(r.error) throw r.error; prods.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
+    const fotos = [];
+    { let d=0; for(;;){ const r=await sb.from('fotos_mayoreo').select('producto_id,url,mostrar_web,orden').eq('mostrar_web',true).order('orden',{ascending:true}).range(d,d+999); if(r.error) throw r.error; fotos.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
+    const porProd = {};
+    fotos.forEach(f=>{ (porProd[f.producto_id]=porProd[f.producto_id]||[]).push(f.url); });
+    PRODUCTOS = prods.map(p=>({ id:p.id, nombre:p.nombre, precio:Number(p.precio_mayoreo||0), fotos:porProd[p.id]||[] }));
+    render();
+  }catch(e){ document.getElementById('estado').textContent='No se pudo cargar el catálogo. Revisa la conexión.'; console.error(e); }
+}
+
+function money(n){ return '$'+(Number(n)||0).toLocaleString('es'); }
+
+function render(){
+  const q=(document.getElementById('buscar').value||'').trim().toLowerCase();
+  let lista=PRODUCTOS; if(q) lista=lista.filter(p=>p.nombre.toLowerCase().includes(q));
+  const grid=document.getElementById('grid'), estado=document.getElementById('estado'), count=document.getElementById('count');
+  if(!PRODUCTOS.length){ estado.textContent='Todavía no hay productos en el catálogo.'; grid.innerHTML=''; count.textContent=''; return; }
+  if(!lista.length){ estado.textContent='Sin resultados para "'+q+'".'; grid.innerHTML=''; count.textContent=''; return; }
+  estado.textContent=''; count.textContent=lista.length+' producto(s)';
+  grid.innerHTML=lista.map(p=>{
+    const foto=p.fotos[0];
+    const extra=p.fotos.length>1?`<span class="badge">📷 ${p.fotos.length}</span>`:'';
+    const img=foto?`<div class="thumb">${extra}<img src="${foto}" loading="lazy" onclick='abrirVisor(${JSON.stringify(p.fotos)},0,${JSON.stringify(p.nombre)})'></div>`
+                  :`<div class="thumb"><div class="nofoto">📦</div></div>`;
+    let wa='';
+    if(WHATSAPP){ const msg=encodeURIComponent('Hola, me interesa: '+p.nombre+' ('+money(p.precio)+')'); wa=`<a class="wa" href="https://wa.me/${WHATSAPP}?text=${msg}" target="_blank">💬 Pedir</a>`; }
+    return `<div class="card">${img}<div class="body"><div class="name">${p.nombre}</div><div class="price"><small>Precio mayoreo</small>${money(p.precio)}</div>${wa}</div></div>`;
+  }).join('');
+}
+
+function abrirVisor(fotos,idx,nombre){ visorFotos=fotos||[]; visorIdx=idx||0; visorNombre=nombre||''; pintarVisor(); document.getElementById('visor').style.display='flex'; }
+function pintarVisor(){ document.getElementById('visorImg').src=visorFotos[visorIdx]; document.getElementById('visorCap').textContent=visorNombre; document.getElementById('visorDots').textContent=visorFotos.length>1?(visorIdx+1)+' / '+visorFotos.length:''; }
+function visorMover(d){ if(!visorFotos.length) return; visorIdx=(visorIdx+d+visorFotos.length)%visorFotos.length; pintarVisor(); }
+function cerrarVisor(){ document.getElementById('visor').style.display='none'; }
+
+cargar();
+</script>
+</body>
+</html>
