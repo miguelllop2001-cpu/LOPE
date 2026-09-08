@@ -8350,12 +8350,13 @@ async function finalizarVentaMayoreo(){
   if(!confirm(`Cobrar venta de mayoreo por $${num(total)} (ganancia $${num(ganancia)}).\n\nReparto: Dariel $${num(r.dariel)} · Tamy $${num(r.vendedor)} · Admin jk $${num(r.adminJk)} · Dueño $${num(r.dueno)}\n\n¿Confirmar?`)) return;
   const btn=document.getElementById('mayFinalizarBtn'); btn.disabled=true; btn.textContent='Cobrando…';
   const clave='may_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+  const descontados=[];
   try{
-    // 1) Descontar stock del almacén MAYOREO (sin registrar en movimientos normales, para que
-    //    el mayoreo no aparezca en el inventario/extracciones normales; su historial va en ventas_mayoreo).
-    for(const it of __mayCarrito){ await ajustarInventario(alm.id, it.producto_id, -it.cantidad); }
-    // 2) Registrar la venta de mayoreo
-    await sb.from('ventas_mayoreo').insert({ items:__mayCarrito, total, ganancia, usuario:(usuarioActual&&usuarioActual.nombre)||'', clave_local:clave, fecha:fechaHoyLocal() });
+    // 1) Descontar stock del almacén MAYOREO (guardando lo hecho para poder revertir si algo falla).
+    for(const it of __mayCarrito){ await ajustarInventario(alm.id, it.producto_id, -it.cantidad); descontados.push(it); }
+    // 2) Registrar la venta de mayoreo (su historial va aquí, no en movimientos normales).
+    const vRes=await sb.from('ventas_mayoreo').insert({ items:__mayCarrito, total, ganancia, usuario:(usuarioActual&&usuarioActual.nombre)||'', clave_local:clave, fecha:fechaHoyLocal() });
+    if(vRes.error) throw vRes.error;
     // 3) Reparto como deudas (dueño se queda el resto, sin deuda)
     if(ganancia>0){
       const filas=[
@@ -8363,13 +8364,17 @@ async function finalizarVentaMayoreo(){
         {persona:'Tamy',   monto:r.vendedor, nota:'Mayoreo 10% vendedor - venta del '+fechaHoyLocal()},
         {persona:'admin jk', monto:r.adminJk, nota:'Mayoreo 20% admin jk - venta del '+fechaHoyLocal()},
       ].filter(x=>x.monto>0);
-      for(const f of filas){ await sb.from('deudas').insert({tipo:'debo', tipo_deuda:'dinero', persona:f.persona, monto:f.monto, pagada:false, nota:f.nota, clave_comision:'may-'+clave+'-'+f.persona}); }
+      for(const f of filas){ const dRes=await sb.from('deudas').insert({tipo:'debo', tipo_deuda:'dinero', persona:f.persona, monto:f.monto, pagada:false, nota:f.nota, clave_comision:'may-'+clave+'-'+f.persona}); if(dRes.error) throw dRes.error; }
     }
     __mayCarrito=[]; renderMayCarrito();
     await cargarTodo();
     alert('Venta de mayoreo cobrada. ✓');
     cambiarMTab('historial');
-  }catch(e){ alert('No se pudo completar: '+(e.message||e)); }
+  }catch(e){
+    // Revertir el stock que ya se había descontado, para no perder mercancía.
+    for(const it of descontados){ try{ await ajustarInventario(alm.id, it.producto_id, it.cantidad); }catch(_){} }
+    alert('No se pudo completar la venta (se revirtió el stock). '+(e.message||e));
+  }
   finally{ btn.disabled=false; btn.textContent='✅ Cobrar venta de mayoreo'; }
 }
 
@@ -8460,14 +8465,12 @@ function puedeMayoreoVenta(){ return usuarioActual && (usuarioActual.nombre||'')
 // del restante admin jk 20%, y el dueño se queda el resto.
 function repartoMayoreo(G){
   G = Number(G)||0;
-  const dariel   = G*0.50;
-  const pool     = G*0.50;
-  const vendedor = pool*0.10;
-  const restante = pool - vendedor;
-  const adminJk  = restante*0.20;
-  const dueno    = restante - adminJk;
   const r2 = n => Math.round(n*100)/100;
-  return { dariel:r2(dariel), vendedor:r2(vendedor), adminJk:r2(adminJk), dueno:r2(dueno) };
+  const dariel   = r2(G*0.50);
+  const vendedor = r2(G*0.50*0.10);
+  const adminJk  = r2((G*0.50 - G*0.50*0.10)*0.20);
+  const dueno    = r2(G - dariel - vendedor - adminJk); // absorbe el redondeo → siempre suma G
+  return { dariel, vendedor, adminJk, dueno };
 }
 
 
@@ -10208,7 +10211,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v101</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v102</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>

@@ -234,17 +234,41 @@ const SUPABASE_URL="https://dkkrbiyidfgsxasdbxjt.supabase.co";
 const SUPABASE_KEY="sb_publishable_gVKtXTwNjGThLtVSMowK1Q_68AmhtgE";
 const WHATSAPP="17865374147";
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
-let PRODUCTOS=[],RESERVA={},visorFotos=[],visorIdx=0,visorNombre="";
+let PRODUCTOS=[],RESERVA={},MAY_ALM=null,visorFotos=[],visorIdx=0,visorNombre="";
 function money(n){return '$'+(Number(n)||0).toLocaleString('es');}
+function dispDe(p){ return Math.max(0, Number(p.stock||0) - Number(p.reservado||0)); }
+
+async function traerReservadoPendiente(){
+  const map={};
+  try{
+    let d=0;
+    for(;;){ const r=await sb.from('reservas_mayoreo').select('items,estado').neq('estado','atendida').range(d,d+999); if(r.error) throw r.error;
+      (r.data||[]).forEach(rr=>{ (Array.isArray(rr.items)?rr.items:[]).forEach(it=>{ map[it.producto_id]=(map[it.producto_id]||0)+Number(it.cantidad||0); }); });
+      if(!r.data||r.data.length<1000)break; d+=1000; }
+  }catch(e){ console.error(e); }
+  return map;
+}
+
 async function cargar(){
   try{
+    // Almacén de mayoreo
+    const alm=await sb.from('almacenes').select('id,nombre').ilike('nombre','mayoreo%').limit(1);
+    MAY_ALM = (alm.data&&alm.data[0])||null;
+    // Productos con precio de mayoreo
     const prods=[]; {let d=0;for(;;){const r=await sb.from('productos').select('id,nombre,precio_mayoreo').gt('precio_mayoreo',0).order('nombre').range(d,d+999);if(r.error)throw r.error;prods.push(...(r.data||[]));if(!r.data||r.data.length<1000)break;d+=1000;}}
+    // Fotos web
     const fotos=[]; {let d=0;for(;;){const r=await sb.from('fotos_mayoreo').select('producto_id,url,mostrar_web,orden').eq('mostrar_web',true).order('orden').range(d,d+999);if(r.error)throw r.error;fotos.push(...(r.data||[]));if(!r.data||r.data.length<1000)break;d+=1000;}}
     const pp={};fotos.forEach(f=>{(pp[f.producto_id]=pp[f.producto_id]||[]).push(f.url);});
-    PRODUCTOS=prods.map(p=>({id:p.id,nombre:p.nombre,precio:Number(p.precio_mayoreo||0),fotos:pp[p.id]||[]}));
+    // Stock del almacén MAYOREO
+    const stock={};
+    if(MAY_ALM){ let d=0; for(;;){ const r=await sb.from('inventario').select('producto_id,cantidad').eq('almacen_id',MAY_ALM.id).range(d,d+999); if(r.error)throw r.error; (r.data||[]).forEach(i=>{ stock[i.producto_id]=(stock[i.producto_id]||0)+Number(i.cantidad||0); }); if(!r.data||r.data.length<1000)break; d+=1000; } }
+    // Ya reservado (pendiente)
+    const reservado=await traerReservadoPendiente();
+    PRODUCTOS=prods.map(p=>({id:p.id,nombre:p.nombre,precio:Number(p.precio_mayoreo||0),fotos:pp[p.id]||[],stock:Number(stock[p.id]||0),reservado:Number(reservado[p.id]||0)}));
     render();
   }catch(e){document.getElementById('estado').textContent='No se pudo cargar el catálogo. Revisa la conexión.';console.error(e);}
 }
+
 function render(){
   const q=(document.getElementById('buscar').value||'').trim().toLowerCase();
   let lista=PRODUCTOS;if(q)lista=lista.filter(p=>p.nombre.toLowerCase().includes(q));
@@ -256,12 +280,34 @@ function render(){
     const f=p.fotos[0];
     const cnt=p.fotos.length>1?`<span class="cnt">${p.fotos.length} fotos</span>`:'';
     const ph=f?`<div class="ph">${cnt}<img src="${f}" loading="lazy" onclick='abrirVisor(${JSON.stringify(p.fotos)},0,${JSON.stringify(p.nombre)})'></div>`:`<div class="ph"><div class="none">L.</div></div>`;
-    const en=RESERVA[p.id];
-    return `<div class="prod">${ph}<div class="pb"><div class="nm">${p.nombre}</div><div class="pr"><small>Precio mayoreo</small>${money(p.precio)}</div><button class="add ${en?'in':''}" onclick="agregar(${p.id})">${en?('En tu reserva · '+en.cantidad):'Agregar'}</button></div></div>`;
+    const disp=dispDe(p);
+    const enCarrito=RESERVA[p.id]?RESERVA[p.id].cantidad:0;
+    const restan=disp-enCarrito;
+    let stockLine, boton;
+    if(disp<=0){ stockLine=`<div class="pr" style="color:var(--ink-faint);font-size:14px"><small>Precio mayoreo</small>${money(p.precio)}</div><div style="color:#b42318;font-weight:600;font-size:13px;margin-top:2px">Agotado</div>`;
+      boton=`<button class="add" disabled style="opacity:.5;cursor:not-allowed">Agotado</button>`;
+    } else {
+      stockLine=`<div class="pr"><small>Precio mayoreo</small>${money(p.precio)}</div><div style="color:var(--ink-faint);font-size:12px;margin-top:2px">Quedan ${restan} de ${disp}</div>`;
+      boton=`<button class="add ${enCarrito?'in':''}" onclick="agregar(${p.id})">${enCarrito?('En tu reserva · '+enCarrito):'Agregar'}</button>`;
+    }
+    return `<div class="prod">${ph}<div class="pb"><div class="nm">${p.nombre}</div>${stockLine}${boton}</div></div>`;
   }).join('');
 }
-function agregar(id){const p=PRODUCTOS.find(x=>x.id===id);if(!p)return;if(RESERVA[id])RESERVA[id].cantidad++;else RESERVA[id]={id,nombre:p.nombre,precio:p.precio,cantidad:1};cont();render();}
-function setCantidad(id,c){if(!RESERVA[id])return;c=Math.max(0,c);if(c===0)delete RESERVA[id];else RESERVA[id].cantidad=c;cont();render();pintarPanel();}
+
+function agregar(id){
+  const p=PRODUCTOS.find(x=>x.id===id);if(!p)return;
+  const disp=dispDe(p); const en=RESERVA[id]?RESERVA[id].cantidad:0;
+  if(en+1>disp){ alert('Solo quedan '+ (disp-en) +' de "'+p.nombre+'".'); return; }
+  if(RESERVA[id])RESERVA[id].cantidad++;else RESERVA[id]={id,nombre:p.nombre,precio:p.precio,cantidad:1};
+  cont();render();
+}
+function setCantidad(id,c){
+  const p=PRODUCTOS.find(x=>x.id===id); if(!RESERVA[id]||!p)return;
+  c=Math.max(0,c); const disp=dispDe(p);
+  if(c>disp){ alert('Solo quedan '+disp+' de "'+p.nombre+'".'); c=disp; }
+  if(c===0)delete RESERVA[id];else RESERVA[id].cantidad=c;
+  cont();render();pintarPanel();
+}
 function totalItems(){return Object.values(RESERVA).reduce((s,x)=>s+x.cantidad,0);}
 function totalDinero(){return Object.values(RESERVA).reduce((s,x)=>s+x.cantidad*x.precio,0);}
 function cont(){const n=totalItems();document.getElementById('navN').textContent=n;document.getElementById('floatN').textContent=n;}
@@ -280,7 +326,15 @@ async function enviarReserva(){
   const tel=(document.getElementById('rTel').value||'').trim();
   if(!nombre){alert('Escribe tu nombre.');return;}
   if(!tel){alert('Escribe tu WhatsApp para poder darte la hora.');return;}
-  const btn=document.querySelector('#panelFoot .btn');btn.textContent='Enviando…';btn.disabled=true;
+  const btn=document.querySelector('#panelFoot .btn');btn.textContent='Revisando existencias…';btn.disabled=true;
+  // Revalidar contra existencias FRESCAS (por si alguien reservó mientras tanto)
+  try{
+    const reservado=await traerReservadoPendiente();
+    let problema=null;
+    for(const x of arr){ const p=PRODUCTOS.find(y=>y.id===x.id); const disp=Math.max(0, Number(p.stock||0)-Number(reservado[x.id]||0)); if(x.cantidad>disp){ p.reservado=Number(reservado[x.id]||0); problema=(disp<=0)?('"'+p.nombre+'" se agotó.'):('De "'+p.nombre+'" solo quedan '+disp+'.'); if(disp<=0) delete RESERVA[x.id]; else RESERVA[x.id].cantidad=disp; } else { p.reservado=Number(reservado[x.id]||0); } }
+    if(problema){ btn.textContent='Enviar reserva';btn.disabled=false; alert('Actualicé tu reserva por existencias:\n'+problema); cont();render();pintarPanel(); return; }
+  }catch(e){ /* si falla la revalidación, seguimos con lo que hay */ }
+  btn.textContent='Enviando…';
   const items=arr.map(x=>({producto_id:x.id,nombre:x.nombre,cantidad:x.cantidad,precio:x.precio}));
   const total=totalDinero();
   try{
@@ -290,7 +344,9 @@ async function enviarReserva(){
     const waMsg=`Hola LOPE, hice una reserva a nombre de ${encodeURIComponent(nombre)}:%0A${resumen}%0ATotal aprox: ${money(total)}`;
     document.getElementById('panelItems').innerHTML=`<div class="ok-msg"><div class="big">✓ Reserva enviada</div><p class="muted">Gracias, ${nombre.split(' ')[0]}. Te escribimos por WhatsApp con la hora para recoger y pagar.</p><a class="btn btn-primary" style="margin-top:14px;justify-content:center" href="https://wa.me/${WHATSAPP}?text=${waMsg}" target="_blank">Avisar por WhatsApp ahora</a></div>`;
     document.getElementById('panelFoot').innerHTML='';
-    RESERVA={};cont();render();
+    RESERVA={};cont();
+    // Recargar existencias para reflejar lo recién reservado
+    cargar();
   }catch(e){btn.textContent='Enviar reserva';btn.disabled=false;alert('No se pudo enviar: '+(e.message||e)+'\n\n(¿Se corrió el SQL reservas_mayoreo.sql?)');}
 }
 function scrollCat(){document.getElementById('catalogo').scrollIntoView({behavior:'smooth'});}
