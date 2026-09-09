@@ -918,7 +918,7 @@
     <!-- PRODUCTOS / PRECIOS DE MAYOREO -->
     <div id="mtab-productos" class="mtab">
       <div class="card">
-        <h2>📥 Entrada / Salida de mercancía (mayoreo)</h2>
+        <h2>📥 Ingresar / Extraer mercancía (mayoreo)</h2>
         
         <div class="field">
           <label>Producto</label>
@@ -931,8 +931,8 @@
           <div class="field"><label>Cantidad</label><input type="number" id="mayEcant" inputmode="numeric" placeholder="0"></div>
         </div>
         <div class="row">
-          <div class="field" style="display:flex; align-items:flex-end"><button class="primary" style="width:100%" onclick="entradaMayoreo(1)">📥 Meter</button></div>
-          <div class="field" style="display:flex; align-items:flex-end"><button class="ghost" style="width:100%" onclick="entradaMayoreo(-1)">📤 Sacar</button></div>
+          <div class="field" style="display:flex; align-items:flex-end"><button class="primary" style="width:100%" onclick="entradaMayoreo(1)">📥 Ingresar</button></div>
+          <div class="field" style="display:flex; align-items:flex-end"><button class="ghost" style="width:100%" onclick="entradaMayoreo(-1)">📤 Extraer</button></div>
         </div>
         <div id="mayEmsg" class="msg"></div>
       </div>
@@ -8192,9 +8192,11 @@ async function entradaMayoreo(signo){
   if(!cant||cant<=0){ msg.textContent='Pon una cantidad.'; msg.className='msg err'; return; }
   if(!navigator.onLine){ msg.textContent='Necesitas internet.'; msg.className='msg err'; return; }
   try{
-    await ajustarInventario(alm.id, pid, signo*cant);
+    const rr=await ajustarInventario(alm.id, pid, signo*cant);
+    const pr=(PRODUCTOS||[]).find(x=>x.id===pid);
+    try{ await sb.from('mayoreo_movimientos').insert({tipo: signo>0?'ingreso':'extraccion', producto_id:pid, nombre:(pr&&pr.nombre)||('#'+pid), cantidad:cant, cant_antes:rr.antes, cant_despues:rr.despues}); }catch(_){}
     await cargarTodo();
-    msg.textContent = signo>0 ? 'Entró al mayoreo. ✓' : 'Salió del mayoreo. ✓'; msg.className='msg ok';
+    msg.textContent = signo>0 ? 'Ingresó al mayoreo. ✓' : 'Se extrajo del mayoreo. ✓'; msg.className='msg ok';
     document.getElementById('mayEbuscar').value=''; document.getElementById('mayEprod').value='';
     document.getElementById('mayEelegido').textContent=''; document.getElementById('mayEcant').value='';
   }catch(e){ msg.textContent='No se pudo: '+(e.message||e); msg.className='msg err'; }
@@ -8367,7 +8369,7 @@ async function finalizarVentaMayoreo(){
   const descontados=[];
   try{
     // 1) Descontar stock del almacén MAYOREO (guardando lo hecho para poder revertir si algo falla).
-    for(const it of __mayCarrito){ await ajustarInventario(alm.id, it.producto_id, -it.cantidad); descontados.push(it); }
+    for(const it of __mayCarrito){ const rr=await ajustarInventario(alm.id, it.producto_id, -it.cantidad); descontados.push(it); try{ await sb.from('mayoreo_movimientos').insert({tipo:'venta', producto_id:it.producto_id, nombre:it.nombre, cantidad:it.cantidad, cant_antes:rr.antes, cant_despues:rr.despues, nota:'Venta mayoreo'}); }catch(_){} }
     // 2) Registrar la venta de mayoreo (su historial va aquí, no en movimientos normales).
     const vRes=await sb.from('ventas_mayoreo').insert({ items:__mayCarrito, total, ganancia, usuario:(usuarioActual&&usuarioActual.nombre)||'', clave_local:clave, fecha:fechaHoyLocal() });
     if(vRes.error) throw vRes.error;
@@ -8456,13 +8458,6 @@ async function cargarDineroMayoreo(){
       <div><div style="color:var(--muted);font-size:12px">Efectivo en caja (mayoreo)</div><div style="font-weight:800;font-size:24px;color:var(--green)">$${num(a.efectivo)}</div></div>
       <div><div style="color:var(--muted);font-size:12px">Neto del inventario (a costo)</div><div style="font-weight:800;font-size:24px">$${num(netoInv)}</div></div>
     </div>
-    <div style="color:var(--muted);font-size:12px;margin-bottom:6px">Pendiente de cobrar por persona:</div>
-    <table style="margin-bottom:14px"><tbody>
-      <tr><td>👤 Dariel</td><td class="numcell" style="font-weight:700">$${num(a.pend.Dariel)}</td></tr>
-      <tr><td>🤵 Dueño (tú)</td><td class="numcell" style="font-weight:700">$${num(a.pend['Dueño'])}</td></tr>
-      <tr><td>👥 Admin jk</td><td class="numcell" style="font-weight:700">$${num(a.pend.jk)}</td></tr>
-      <tr><td>🛒 Tamy</td><td class="numcell" style="font-weight:700">$${num(a.pend.Tamy)}</td></tr>
-    </tbody></table>
     <div class="row">
       <div class="field"><label>Monto</label><input type="number" id="mayCajaMonto" inputmode="decimal" placeholder="0"></div>
       <div class="field"><label>Concepto (opcional)</label><input type="text" id="mayCajaConcepto" placeholder="ej: ajuste"></div>
@@ -8580,15 +8575,19 @@ async function cargarHistProdMayoreo(){
   if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
   cont.textContent='Cargando…';
   try{
-    const ventas=[]; { let d=0; for(;;){ const r=await sb.from('ventas_mayoreo').select('items').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; ventas.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
-    const acc={};
-    ventas.forEach(v=>{ (Array.isArray(v.items)?v.items:[]).forEach(it=>{ const k=it.producto_id; if(!acc[k]) acc[k]={nombre:it.nombre, uds:0, total:0}; acc[k].uds+=Number(it.cantidad||0); acc[k].total+=Number(it.cantidad||0)*Number(it.precio||0); }); });
-    const filas=Object.values(acc).sort((a,b)=>b.uds-a.uds);
-    if(!filas.length){ cont.innerHTML='<div class="empty">Aún no se ha vendido nada en mayoreo.</div>'; return; }
-    cont.innerHTML=`<table style="min-width:420px"><thead><tr><th>Producto</th><th class="numcell">Uds vendidas</th><th class="numcell">Vendido</th></tr></thead><tbody>
-    ${filas.map(f=>`<tr><td>${f.nombre}</td><td class="numcell">${num(f.uds)}</td><td class="numcell" style="font-weight:700">$${num(f.total)}</td></tr>`).join('')}
+    const movs=[]; { let d=0; for(;;){ const r=await sb.from('mayoreo_movimientos').select('*').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; movs.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; if(d>=4000) break; } }
+    if(!movs.length){ cont.innerHTML='<div class="empty">Sin movimientos de mercancía todavía. (Ingresa/extrae en Productos o vende, y correr mayoreo_movimientos.sql.)</div>'; return; }
+    const etiqueta=t=> t==='ingreso'?'<span class="badge ingreso">ingreso</span>' : t==='venta'?'<span class="badge traslado">venta</span>' : '<span class="badge extraccion">extracción</span>';
+    cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Fecha</th><th>Tipo</th><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Antes→Después</th></tr></thead><tbody>
+    ${movs.slice(0,300).map(m=>{ const signo=m.tipo==='ingreso'?'+':'−'; return `<tr>
+      <td style="font-size:12px">${(m.creado_en||'').slice(0,16).replace('T',' ')}</td>
+      <td>${etiqueta(m.tipo)}</td>
+      <td>${m.nombre||('#'+m.producto_id)}</td>
+      <td class="numcell" style="font-weight:700">${signo}${num(m.cantidad)}</td>
+      <td class="numcell" style="color:var(--muted)">${m.cant_antes!=null?num(m.cant_antes):'—'} → ${m.cant_despues!=null?num(m.cant_despues):'—'}</td>
+    </tr>`; }).join('')}
     </tbody></table>`;
-  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+' (¿corriste mayoreo_movimientos.sql?)</div>'; }
 }
 
 async function cargarHistorialMayoreo(){
@@ -10390,6 +10389,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v106</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v107</div>
 </body>
 </html>
