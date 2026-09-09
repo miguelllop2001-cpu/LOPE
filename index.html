@@ -993,8 +993,15 @@
     <!-- HISTORIAL -->
     <div id="mtab-historial" class="mtab" style="display:none">
       <div class="card">
-        <h2>🕘 Historial de ventas de mayoreo</h2>
-        <div id="mayHistorialBody" style="overflow-x:auto"></div>
+        <h2>🕘 Historial</h2>
+        <div class="tabs" style="margin-bottom:6px; flex-wrap:wrap">
+          <button id="htab-btn-dinero" class="active" onclick="cambiarHTab('dinero')">💵 Dinero</button>
+          <button id="htab-btn-ventas" onclick="cambiarHTab('ventas')">🛒 Ventas</button>
+          <button id="htab-btn-productos" onclick="cambiarHTab('productos')">📦 Productos</button>
+        </div>
+        <div id="htab-dinero"><div id="mayHistDineroBody" style="overflow-x:auto"></div></div>
+        <div id="htab-ventas" style="display:none"><div id="mayHistorialBody" style="overflow-x:auto"></div></div>
+        <div id="htab-productos" style="display:none"><div id="mayHistProdBody" style="overflow-x:auto"></div></div>
       </div>
     </div>
   </div>
@@ -8097,7 +8104,7 @@ function cambiarMTab(cual){
   if(cual==='vender') prepararVenderMayoreo();
   if(cual==='ganancias') cargarGananciasMayoreo();
   if(cual==='dinero') cargarDineroMayoreo();
-  if(cual==='historial') cargarHistorialMayoreo();
+  if(cual==='historial') cambiarHTab('dinero');
   if(cual==='reservas') cargarReservasMayoreo();
 }
 
@@ -8368,16 +8375,7 @@ async function finalizarVentaMayoreo(){
     // 2) Registrar la venta de mayoreo (su historial va aquí, no en movimientos normales).
     const vRes=await sb.from('ventas_mayoreo').insert({ items:__mayCarrito, total, ganancia, usuario:(usuarioActual&&usuarioActual.nombre)||'', clave_local:clave, fecha:fechaHoyLocal() });
     if(vRes.error) throw vRes.error;
-    // 3) Reparto como deudas. Dariel recupera la INVERSIÓN (costo) + su 50% de ganancia.
-    //    Tamy/adminJk reciben del otro 50%. El dueño se queda su parte (sin deuda).
-    const costoTotal=__mayCarrito.reduce((s,x)=>s+x.cantidad*(Number(x.costo)||0),0);
-    const rf=repartoMayoreoFull(costoTotal, ganancia);
-    const filas=[
-      {persona:'Dariel', monto:rf.darielTotal, nota:'Mayoreo: inversión $'+num(rf.inversion)+' + 50% ganancia $'+num(rf.darielGan)+' - venta del '+fechaHoyLocal()},
-      {persona:'Tamy',   monto:rf.vendedor, nota:'Mayoreo 10% vendedor - venta del '+fechaHoyLocal()},
-      {persona:'admin jk', monto:rf.adminJk, nota:'Mayoreo 20% admin jk - venta del '+fechaHoyLocal()},
-    ].filter(x=>x.monto>0);
-    for(const f of filas){ const dRes=await sb.from('deudas').insert({tipo:'debo', tipo_deuda:'dinero', persona:f.persona, monto:f.monto, pagada:false, nota:f.nota, clave_comision:'may-'+clave+'-'+f.persona}); if(dRes.error) throw dRes.error; }
+    // El reparto NO crea deudas por venta: se acumula por persona y se paga desde Ganancias (Cobrar).
     __mayCarrito=[]; renderMayCarrito();
     if(__reservaEnVenta){ try{ await sb.from('reservas_mayoreo').update({estado:'atendida'}).eq('id',__reservaEnVenta); }catch(_){} __reservaEnVenta=null; }
     await cargarTodo();
@@ -8392,74 +8390,105 @@ async function finalizarVentaMayoreo(){
 }
 
 // ----- GANANCIAS -----
+async function acumuladoMayoreo(){
+  const ventas=[]; { let d=0; for(;;){ const r=await sb.from('ventas_mayoreo').select('total,ganancia').order('id',{ascending:true}).range(d,d+999); if(r.error) throw r.error; ventas.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
+  let vendido=0, gan=0, acc={Dariel:0,Tamy:0,jk:0,'Dueño':0};
+  ventas.forEach(v=>{ const t=Number(v.total||0), g=Number(v.ganancia||0); const c=t-g; const rf=repartoMayoreoFull(c,g); vendido+=t; gan+=g; acc.Dariel+=rf.darielTotal; acc.Tamy+=rf.vendedor; acc.jk+=rf.adminJk; acc['Dueño']+=rf.dueno; });
+  let movs=[]; try{ let d=0; for(;;){ const r=await sb.from('mayoreo_caja').select('*').order('id',{ascending:true}).range(d,d+999); if(r.error) throw r.error; movs.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }catch(e){ movs=[]; }
+  const cobrado={Dariel:0,Tamy:0,jk:0,'Dueño':0}; let ingManual=0, egrManual=0;
+  movs.forEach(m=>{ if(m.tipo==='cobro'){ if(cobrado[m.persona]!=null) cobrado[m.persona]+=Number(m.monto||0); } else if(m.tipo==='ingreso'){ ingManual+=Number(m.monto||0); } else if(m.tipo==='egreso'){ egrManual+=Number(m.monto||0); } });
+  const pend={}; Object.keys(acc).forEach(k=>pend[k]=Math.round((acc[k]-cobrado[k])*100)/100);
+  const totalCobrado=Object.values(cobrado).reduce((a,b)=>a+b,0);
+  const efectivo=Math.round((vendido + ingManual - egrManual - totalCobrado)*100)/100;
+  return { vendido, gan, acc, cobrado, pend, efectivo };
+}
+
 async function cargarGananciasMayoreo(){
   const cont=document.getElementById('mayGananciasBody');
   if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
   cont.textContent='Cargando…';
   try{
-    const data=[]; { let d=0; for(;;){ const r=await sb.from('ventas_mayoreo').select('id,total,ganancia,fecha,items,usuario').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; data.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
-    const vendido=data.reduce((s,v)=>s+Number(v.total||0),0);
-    const gan=data.reduce((s,v)=>s+Number(v.ganancia||0),0);
-    const r=repartoMayoreo(gan);
-    let html=`<div style="display:flex; gap:22px; flex-wrap:wrap; margin-bottom:12px">
-      <div><div style="font-family:inherit;color:var(--muted);font-size:12px">Vendido</div><div style="font-weight:800;font-size:20px">$${num(vendido)}</div></div>
-      <div><div style="color:var(--muted);font-size:12px">Ganancia</div><div style="font-weight:800;font-size:20px;color:var(--green)">$${num(gan)}</div></div>
-      <div><div style="color:var(--muted);font-size:12px">Ventas</div><div style="font-weight:800;font-size:20px">${data.length}</div></div>
-    </div>
-    <div style="color:var(--muted);font-size:12px;margin-bottom:4px">Reparto de la ganancia:</div>
-    <table><tbody>
-      <tr><td>👤 Dariel</td><td class="numcell" style="font-weight:700">$${num(r.dariel)}</td></tr>
-      <tr><td>🛒 Tamy</td><td class="numcell" style="font-weight:700">$${num(r.vendedor)}</td></tr>
-      <tr><td>👥 Admin jk</td><td class="numcell" style="font-weight:700">$${num(r.adminJk)}</td></tr>
-      <tr><td>🤵 Dueño</td><td class="numcell" style="font-weight:700;color:var(--green)">$${num(r.dueno)}</td></tr>
-    </tbody></table>`;
-    // Lista de ventas (como ventas, sin buscar por día)
-    if(data.length){
-      html+='<div style="color:var(--muted);font-size:12px;margin:16px 0 4px">Ventas registradas:</div>';
-      html+=data.slice(0,60).map(v=>{ const items=Array.isArray(v.items)?v.items:[]; return `<div style="border-top:1px solid var(--border);padding:8px 0;font-size:13px"><div style="display:flex;justify-content:space-between"><b>${v.fecha}</b><span style="color:var(--green);font-weight:700">$${num(v.total)}</span></div><div style="color:var(--muted)">${items.length} artículo(s) · ganancia $${num(v.ganancia)}</div></div>`; }).join('');
-    }
-    cont.innerHTML=html;
-  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
+    const a=await acumuladoMayoreo();
+    const fila=(clave,etq,desc)=>{
+      const p=a.pend[clave]||0;
+      const btn=p>0.004?`<button class="primary" style="padding:8px 14px;font-size:13px" onclick="cobrarMayoreo('${clave}')">Cobrar $${num(p)}</button>`:'<span style="color:var(--muted);font-size:13px">Nada por cobrar</span>';
+      return `<div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div><b>${etq}</b><div style="color:var(--muted);font-size:12px">${desc}</div></div>
+          <div style="text-align:right"><div style="font-weight:800;font-size:18px;color:var(--green)">$${num(p)}</div>${btn}</div>
+        </div>
+      </div>`;
+    };
+    cont.innerHTML=`<div style="color:var(--muted);font-size:12px;margin-bottom:10px">Vendido $${num(a.vendido)} · Ganancia $${num(a.gan)}. Cada uno cobra TODO lo acumulado; luego vuelve a subir con nuevas ventas.</div>`
+      + fila('Dariel','👤 Dariel','Inversión + su parte de ganancia. Al cobrar solo sale el dinero.')
+      + fila('Dueño','🤵 Dueño (tú)','Al cobrar entra a la caja normal de LOPE.')
+      + fila('jk','👥 Admin jk','Al cobrar se le pone en su cobro (Deudas).')
+      + fila('Tamy','🛒 Tamy','Al cobrar se le pone en su cobro (Deudas).');
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+' (¿corriste mayoreo_caja.sql?)</div>'; }
 }
 
-// 💵 DINERO del mayoreo — reparto COMPLETO: Dariel recupera su inversión (costo) + 50% de ganancia.
+async function cobrarMayoreo(clave){
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  try{
+    const a=await acumuladoMayoreo();
+    const monto=Math.round((a.pend[clave]||0)*100)/100;
+    if(monto<=0.004){ alert('No hay nada por cobrar.'); return; }
+    const etq={Dariel:'Dariel', 'Dueño':'el dueño', jk:'Admin jk', Tamy:'Tamy'}[clave]||clave;
+    let destino = clave==='Dueño' ? 'Entra a la caja normal de LOPE.' : (clave==='jk'||clave==='Tamy') ? 'Se le pone en su cobro (Deudas).' : 'Solo sale del mayoreo.';
+    if(!confirm(`Cobrar $${num(monto)} para ${etq}.\n${destino}\n\n¿Confirmar?`)) return;
+    const c=await sb.from('mayoreo_caja').insert({tipo:'cobro', persona:clave, monto, concepto:'Cobro mayoreo '+etq});
+    if(c.error) throw c.error;
+    if(clave==='Dueño'){ await sb.from('caja_movimientos').insert({tipo:'ingreso', metodo:'efectivo', categoria:'otro', monto, concepto:'Cobro dueño (mayoreo)'}); }
+    else if(clave==='jk'){ await sb.from('deudas').insert({tipo:'debo', tipo_deuda:'dinero', persona:'admin jk', monto, pagada:false, nota:'Cobro mayoreo del '+fechaHoyLocal()}); }
+    else if(clave==='Tamy'){ await sb.from('deudas').insert({tipo:'debo', tipo_deuda:'dinero', persona:'Tamy', monto, pagada:false, nota:'Cobro mayoreo del '+fechaHoyLocal()}); }
+    alert('Cobrado. ✓');
+    cargarGananciasMayoreo();
+  }catch(e){ alert('No se pudo: '+(e.message||e)); }
+}
+
 async function cargarDineroMayoreo(){
   const cont=document.getElementById('mayDineroBody');
   if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
   cont.textContent='Cargando…';
   try{
-    const data=[]; { let d=0; for(;;){ const r=await sb.from('ventas_mayoreo').select('total,ganancia').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; data.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
-    const vendido=data.reduce((s,v)=>s+Number(v.total||0),0);
-    const gan=data.reduce((s,v)=>s+Number(v.ganancia||0),0);
-    const costo=vendido-gan; // inversión ya vendida
-    const rf=repartoMayoreoFull(costo, gan);
-    // Neto del inventario que queda en MAYOREO, valorado a COSTO (no a precio de venta)
+    const a=await acumuladoMayoreo();
     const alm=almacenMayoreo();
     let netoInv=0;
     if(alm){ (INVENTARIO||[]).filter(i=>i.almacen_id===alm.id).forEach(i=>{ const p=(PRODUCTOS||[]).find(x=>x.id===i.producto_id); netoInv += Number(i.cantidad||0)*Number((p&&p.costo_mayoreo)||0); }); }
     cont.innerHTML=`
     <div style="display:flex; gap:22px; flex-wrap:wrap; margin-bottom:14px">
-      <div><div style="color:var(--muted);font-size:12px">Neto del inventario (a costo)</div><div style="font-weight:800;font-size:22px">$${num(netoInv)}</div></div>
-      <div><div style="color:var(--muted);font-size:12px">Total vendido</div><div style="font-weight:800;font-size:22px">$${num(vendido)}</div></div>
-      <div><div style="color:var(--muted);font-size:12px">Inversión (costo)</div><div style="font-weight:800;font-size:22px;color:var(--amber)">$${num(costo)}</div></div>
-      <div><div style="color:var(--muted);font-size:12px">Ganancia</div><div style="font-weight:800;font-size:22px;color:var(--green)">$${num(gan)}</div></div>
+      <div><div style="color:var(--muted);font-size:12px">Efectivo en caja (mayoreo)</div><div style="font-weight:800;font-size:24px;color:var(--green)">$${num(a.efectivo)}</div></div>
+      <div><div style="color:var(--muted);font-size:12px">Neto del inventario (a costo)</div><div style="font-weight:800;font-size:24px">$${num(netoInv)}</div></div>
     </div>
-    <div style="border:2px solid var(--amber);border-radius:12px;padding:14px;margin-bottom:12px">
-      <div style="font-weight:800;font-size:16px;margin-bottom:6px">👤 Dariel</div>
-      <table><tbody>
-        <tr><td>Recupera su inversión</td><td class="numcell">$${num(rf.inversion)}</td></tr>
-        <tr><td>+ su parte de la ganancia</td><td class="numcell">$${num(rf.darielGan)}</td></tr>
-        <tr><td style="font-weight:800">Total para Dariel</td><td class="numcell" style="font-weight:800;color:var(--green)">$${num(rf.darielTotal)}</td></tr>
-      </tbody></table>
-    </div>
-    <div style="color:var(--muted);font-size:12px;margin-bottom:4px">Reparto:</div>
-    <table><tbody>
-      <tr><td>🛒 Tamy</td><td class="numcell" style="font-weight:700">$${num(rf.vendedor)}</td></tr>
-      <tr><td>👥 Admin jk</td><td class="numcell" style="font-weight:700">$${num(rf.adminJk)}</td></tr>
-      <tr><td>🤵 Dueño</td><td class="numcell" style="font-weight:700;color:var(--green)">$${num(rf.dueno)}</td></tr>
+    <div style="color:var(--muted);font-size:12px;margin-bottom:6px">Pendiente de cobrar por persona:</div>
+    <table style="margin-bottom:14px"><tbody>
+      <tr><td>👤 Dariel</td><td class="numcell" style="font-weight:700">$${num(a.pend.Dariel)}</td></tr>
+      <tr><td>🤵 Dueño (tú)</td><td class="numcell" style="font-weight:700">$${num(a.pend['Dueño'])}</td></tr>
+      <tr><td>👥 Admin jk</td><td class="numcell" style="font-weight:700">$${num(a.pend.jk)}</td></tr>
+      <tr><td>🛒 Tamy</td><td class="numcell" style="font-weight:700">$${num(a.pend.Tamy)}</td></tr>
     </tbody></table>
-    <div style="color:var(--muted);font-size:12px;margin-top:12px">Estos montos también se generan como deudas pagables en cada venta (pestaña Deudas).</div>`;
-  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
+    <div class="row">
+      <div class="field"><label>Monto</label><input type="number" id="mayCajaMonto" inputmode="decimal" placeholder="0"></div>
+      <div class="field"><label>Concepto (opcional)</label><input type="text" id="mayCajaConcepto" placeholder="ej: ajuste"></div>
+    </div>
+    <div class="row">
+      <div class="field" style="display:flex;align-items:flex-end"><button class="primary" style="width:100%" onclick="movCajaMayoreo('ingreso')">➕ Agregar dinero</button></div>
+      <div class="field" style="display:flex;align-items:flex-end"><button class="ghost" style="width:100%" onclick="movCajaMayoreo('egreso')">➖ Sacar dinero</button></div>
+    </div>
+    <div id="mayCajaMsg" class="msg"></div>`;
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+' (¿corriste mayoreo_caja.sql?)</div>'; }
+}
+async function movCajaMayoreo(tipo){
+  const monto=Number(document.getElementById('mayCajaMonto').value);
+  const concepto=(document.getElementById('mayCajaConcepto').value||'').trim();
+  const msg=document.getElementById('mayCajaMsg');
+  if(!monto||monto<=0){ msg.textContent='Pon un monto.'; msg.className='msg err'; return; }
+  if(!navigator.onLine){ msg.textContent='Necesitas internet.'; msg.className='msg err'; return; }
+  try{
+    const r=await sb.from('mayoreo_caja').insert({tipo, monto, concepto: concepto||(tipo==='ingreso'?'Agregado a mano':'Sacado a mano')});
+    if(r.error) throw r.error;
+    cargarDineroMayoreo();
+  }catch(e){ msg.textContent='No se pudo: '+(e.message||e); msg.className='msg err'; }
 }
 
 async function cargarReservasMayoreo(){
@@ -8520,6 +8549,52 @@ async function marcarReservaAtendida(id){
 }
 
 // ----- HISTORIAL -----
+function cambiarHTab(cual){
+  ['dinero','ventas','productos'].forEach(t=>{
+    const el=document.getElementById('htab-'+t); if(el) el.style.display=(t===cual)?'block':'none';
+    const b=document.getElementById('htab-btn-'+t); if(b) b.classList.toggle('active', t===cual);
+  });
+  if(cual==='dinero') cargarHistDineroMayoreo();
+  if(cual==='ventas') cargarHistorialMayoreo();
+  if(cual==='productos') cargarHistProdMayoreo();
+}
+
+// Historial de DINERO del mayoreo: entradas por ventas + (más adelante) cobros/agregar/sacar.
+async function cargarHistDineroMayoreo(){
+  const cont=document.getElementById('mayHistDineroBody');
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
+  cont.textContent='Cargando…';
+  try{
+    const ventas=[]; { let d=0; for(;;){ const r=await sb.from('ventas_mayoreo').select('fecha,total,creado_en').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; ventas.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
+    let movs=[]; try{ let d=0; for(;;){ const r=await sb.from('mayoreo_caja').select('*').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; movs.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }catch(e){ movs=[]; }
+    const filas=[];
+    ventas.forEach(v=>filas.push({fecha:(v.creado_en||v.fecha||'').slice(0,16).replace('T',' '), concepto:'Venta', signo:1, monto:Number(v.total||0)}));
+    movs.forEach(m=>filas.push({fecha:(m.creado_en||'').slice(0,16).replace('T',' '), concepto:m.concepto||m.tipo, signo:(m.tipo==='ingreso'?1:-1), monto:Number(m.monto||0)}));
+    filas.sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
+    if(!filas.length){ cont.innerHTML='<div class="empty">Sin movimientos de dinero todavía.</div>'; return; }
+    cont.innerHTML=`<table style="min-width:420px"><thead><tr><th>Fecha</th><th>Concepto</th><th class="numcell">Monto</th></tr></thead><tbody>
+    ${filas.slice(0,200).map(f=>`<tr><td>${f.fecha}</td><td>${f.concepto}</td><td class="numcell" style="color:${f.signo>0?'var(--green)':'var(--red)'};font-weight:700">${f.signo>0?'+':'−'}$${num(f.monto)}</td></tr>`).join('')}
+    </tbody></table>`;
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
+}
+
+// Historial de PRODUCTOS: cuánto se ha vendido de cada producto en mayoreo.
+async function cargarHistProdMayoreo(){
+  const cont=document.getElementById('mayHistProdBody');
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
+  cont.textContent='Cargando…';
+  try{
+    const ventas=[]; { let d=0; for(;;){ const r=await sb.from('ventas_mayoreo').select('items').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; ventas.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
+    const acc={};
+    ventas.forEach(v=>{ (Array.isArray(v.items)?v.items:[]).forEach(it=>{ const k=it.producto_id; if(!acc[k]) acc[k]={nombre:it.nombre, uds:0, total:0}; acc[k].uds+=Number(it.cantidad||0); acc[k].total+=Number(it.cantidad||0)*Number(it.precio||0); }); });
+    const filas=Object.values(acc).sort((a,b)=>b.uds-a.uds);
+    if(!filas.length){ cont.innerHTML='<div class="empty">Aún no se ha vendido nada en mayoreo.</div>'; return; }
+    cont.innerHTML=`<table style="min-width:420px"><thead><tr><th>Producto</th><th class="numcell">Uds vendidas</th><th class="numcell">Vendido</th></tr></thead><tbody>
+    ${filas.map(f=>`<tr><td>${f.nombre}</td><td class="numcell">${num(f.uds)}</td><td class="numcell" style="font-weight:700">$${num(f.total)}</td></tr>`).join('')}
+    </tbody></table>`;
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
+}
+
 async function cargarHistorialMayoreo(){
   const cont=document.getElementById('mayHistorialBody');
   if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
@@ -10319,7 +10394,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v104</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v106</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
