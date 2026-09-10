@@ -96,7 +96,7 @@
   }
   .card h2{margin:0 0 14px; font-size:15px; color:var(--text);}
   .row{display:flex; gap:10px; flex-wrap:wrap; align-items:end;}
-  .field{display:flex; flex-direction:column; gap:4px; min-width:160px; flex:1;}
+  .field{display:flex; flex-direction:column; gap:4px; flex:1;}
   .field label{font-size:12px; color:var(--muted);}
   input, select{
     background:var(--panel2); border:1px solid var(--border); color:var(--text);
@@ -171,7 +171,7 @@
 
     /* Tablas: scroll horizontal en vez de letras microscópicas */
     .card > table, .card > div > table{display:block;}
-    table{font-size:14px; min-width:520px;}
+    table{font-size:14px; }
     th, td{padding:10px 8px;}
     .card{overflow-x:auto;}
 
@@ -205,7 +205,7 @@
   .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:18px; margin-bottom:18px;}
   .card h2{margin:0 0 14px; font-size:15px;}
   .row{display:flex; gap:10px; flex-wrap:wrap; align-items:end;}
-  .field{display:flex; flex-direction:column; gap:4px; min-width:140px; flex:1;}
+  .field{display:flex; flex-direction:column; gap:4px; flex:1;}
   .field label{font-size:12px; color:var(--muted);}
   input, select{background:var(--panel2); border:1px solid var(--border); color:var(--text); padding:9px 10px; border-radius:8px; font-size:14px; outline:none;}
   input:focus, select:focus{border-color:var(--accent);}
@@ -276,7 +276,7 @@
     input, select{font-size:16px; padding:14px 12px;}
     button.primary, button.success{width:100%; padding:16px 16px; font-size:16px; min-height:52px;}
     button.ghost{padding:12px 16px; font-size:15px; min-height:46px;}
-    table{font-size:14px; min-width:480px;}
+    table{font-size:14px; }
     th, td{padding:10px 8px;}
     .puesto-pick{flex-direction:column;}
     .puesto-pick button{width:100%; padding:18px 22px; font-size:16px;}
@@ -297,6 +297,15 @@
   }
   @media (max-width: 380px){
     .tabs button{font-size:11.5px; padding:11px 4px;}
+  }
+
+  /* ajuste-movil-tablas */
+  @media (max-width:760px){
+    table{ font-size:13px; }
+    th,td{ padding:7px 6px !important; word-break:break-word; }
+    .tabs{ flex-wrap:wrap; }
+    .mtab .card{ overflow-x:hidden; }
+    input, select, textarea{ max-width:100%; }
   }
 </style>
 </head>
@@ -327,7 +336,7 @@
       <button id="btnTema" onclick="alternarTema()" title="Cambiar tema" class="btn-icon">☀️</button>
       <span id="letraCtrl" title="Tamaño de letra" style="display:inline-flex; align-items:center; gap:2px; border:1px solid var(--border); border-radius:8px; padding:2px 4px">
         <button onclick="cambiarLetra(-1)" class="btn-icon" title="Letra más pequeña" style="padding:4px 9px; font-size:13px">A−</button>
-        <span id="letraNivel" style="min-width:14px; text-align:center; font-weight:700; font-size:13px">1</span>
+        <span id="letraNivel" style="text-align:center; font-weight:700; font-size:13px">1</span>
         <button onclick="cambiarLetra(1)" class="btn-icon" title="Letra más grande" style="padding:4px 9px; font-size:19px">A+</button>
       </span>
     </div>
@@ -1002,6 +1011,10 @@
 
     <div id="mtab-reservas" class="mtab" style="display:none">
       <div class="card"><h2>📋 Reservas de clientes (web)</h2><div id="mayReservasBody" style="margin-top:8px"></div></div>
+      <div class="card">
+        <div onclick="verCumplimientoClientes()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">✅ Cumplimiento por cliente</h2><button class="ghost" style="padding:6px 12px;font-size:13px">Ver</button></div>
+        <div id="mayCumplBody" style="margin-top:8px"></div>
+      </div>
     </div>
 
     <!-- HISTORIAL -->
@@ -8136,7 +8149,7 @@ function renderInvMayoreo(){
   const total=filas.reduce((s,x)=>s+x.cant,0);
   if(!filas.length){ cont.innerHTML='<div class="empty">El almacén de mayoreo no tiene stock todavía. Métele con "📥 Entrada de mercancía".</div>'; return; }
   cont.innerHTML=`<div style="font-weight:700; margin-bottom:6px">${num(total)} uds.</div>
-  <table style="min-width:420px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">P. Mayoreo</th></tr></thead><tbody>
+  <table style="width:100%"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">P. Mayoreo</th></tr></thead><tbody>
   ${filas.sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(x=>`<tr><td>${x.nombre}</td><td class="numcell">${num(x.cant)}</td><td class="numcell">$${num(x.pm)}</td></tr>`).join('')}
   </tbody></table>`;
 }
@@ -8149,7 +8162,7 @@ function renderPreciosMayoreo(){
   if(q) lista=lista.filter(p=>(p.nombre||'').toLowerCase().includes(q));
   lista=lista.slice(0,60);
   if(!lista.length){ cont.innerHTML='<div class="empty">Sin productos.</div>'; return; }
-  cont.innerHTML=`<table style="min-width:560px"><thead><tr><th>Producto</th><th class="numcell">Costo may.</th><th class="numcell">Precio may.</th><th></th><th></th></tr></thead><tbody>
+  cont.innerHTML=`<table style="width:100%"><thead><tr><th>Producto</th><th class="numcell">Costo may.</th><th class="numcell">Precio may.</th><th></th><th></th></tr></thead><tbody>
   ${lista.map(p=>`<tr>
     <td>${p.nombre}</td>
     <td class="numcell"><input type="number" id="mayco-${p.id}" value="${Number(p.costo_mayoreo)>0?Number(p.costo_mayoreo):''}" placeholder="0" inputmode="decimal" style="width:85px; text-align:right"></td>
@@ -8368,7 +8381,7 @@ function renderMayCarrito(){
   const btn=document.getElementById('mayFinalizarBtn');
   if(!__mayCarrito.length){ cont.innerHTML='<div class="empty">Carrito vacío.</div>'; btn.style.display='none'; return; }
   const total=__mayCarrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
-  cont.innerHTML=`<table style="min-width:480px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th><th></th></tr></thead><tbody>
+  cont.innerHTML=`<table style="width:100%"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th><th></th></tr></thead><tbody>
   ${__mayCarrito.map((x,i)=>`<tr><td>${x.nombre}</td><td class="numcell">${num(x.cantidad)}</td><td class="numcell">$${num(x.precio)}</td><td class="numcell">$${num(x.cantidad*x.precio)}</td><td><button class="ghost" onclick="quitarMayItem(${i})">✕</button></td></tr>`).join('')}
   </tbody><tfoot><tr><td colspan="3" style="text-align:right;font-weight:700">TOTAL</td><td class="numcell" style="font-weight:800;color:var(--green)">$${num(total)}</td><td></td></tr></tfoot></table>`;
   btn.style.display='block';
@@ -8559,7 +8572,7 @@ async function cargarReservasMayoreo(){
   try{
     const {data,error}=await sb.from('reservas_mayoreo').select('*').order('id',{ascending:false}).limit(100);
     if(error) throw error;
-    const nuevas=(data||[]).filter(r=>r.estado!=='atendida');
+    const nuevas=(data||[]).filter(r=>r.estado==='nueva');
     __reservasMay={}; nuevas.forEach(r=>{ __reservasMay[r.id]=r; });
     if(!nuevas.length){ cont.innerHTML='<div class="empty">No hay reservas nuevas.</div>'; return; }
     cont.innerHTML=nuevas.map(r=>{
@@ -8574,6 +8587,7 @@ async function cargarReservasMayoreo(){
           <button class="primary" style="padding:8px 12px;font-size:13px" onclick="venderReservaMayoreo(${r.id})">🛒 Vender</button>
           ${wa}
           <button class="ghost" style="padding:8px 12px;font-size:13px" onclick="marcarReservaAtendida(${r.id})">✓ Atendida</button>
+          <button class="ghost" style="padding:8px 12px;font-size:13px;color:var(--amber)" onclick="marcarReservaNoVino(${r.id})">🚫 No vino</button>
           <button class="ghost" style="padding:8px 12px;font-size:13px;color:var(--red)" onclick="quitarReservaMayoreo(${r.id})">🗑 Quitar</button>
         </div>
       </div>`;
@@ -8602,6 +8616,33 @@ async function quitarReservaMayoreo(id){
   if(!navigator.onLine){ alert('Necesitas internet.'); return; }
   try{ const {error}=await sb.from('reservas_mayoreo').delete().eq('id',id); if(error) throw error; cargarReservasMayoreo(); }
   catch(e){ alert('No se pudo: '+(e.message||e)); }
+}
+async function marcarReservaNoVino(id){
+  if(!confirm('¿Marcar que este cliente NO vino? Se libera el stock y queda en su historial.')) return;
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  try{ const {error}=await sb.from('reservas_mayoreo').update({estado:'no_vino'}).eq('id',id); if(error) throw error; cargarReservasMayoreo(); }
+  catch(e){ alert('No se pudo: '+(e.message||e)); }
+}
+// Cumplimiento por cliente (para saber si queda bien con las reservas)
+async function verCumplimientoClientes(){
+  const cont=document.getElementById('mayCumplBody');
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
+  cont.textContent='Cargando…';
+  try{
+    const rows=[]; { let d=0; for(;;){ const r=await sb.from('reservas_mayoreo').select('nombre,telefono,estado').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; rows.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
+    const map={};
+    rows.forEach(r=>{ const tel=(r.telefono||'').replace(/[^0-9]/g,'')||'(sin tel)'; if(!map[tel]) map[tel]={nombre:r.nombre||'', tel, total:0, atend:0, novino:0, nueva:0}; map[tel].total++; if(r.estado==='atendida')map[tel].atend++; else if(r.estado==='no_vino')map[tel].novino++; else map[tel].nueva++; if(r.nombre) map[tel].nombre=r.nombre; });
+    const lista=Object.values(map).sort((a,b)=>b.novino-a.novino || b.total-a.total);
+    if(!lista.length){ cont.innerHTML='<div class="empty">Sin clientes todavía.</div>'; return; }
+    cont.innerHTML=`<table style="width:100%"><thead><tr><th>Cliente</th><th class="numcell">Reservas</th><th class="numcell">Cumplió</th><th class="numcell">No vino</th></tr></thead><tbody>
+    ${lista.map(c=>`<tr>
+      <td>${c.nombre||'(sin nombre)'}<div style="color:var(--muted);font-size:12px">${c.tel}</div></td>
+      <td class="numcell">${c.total}</td>
+      <td class="numcell" style="color:var(--green);font-weight:700">${c.atend}</td>
+      <td class="numcell" style="color:${c.novino>0?'var(--red)':'var(--muted)'};font-weight:700">${c.novino}</td>
+    </tr>`).join('')}
+    </tbody></table>`;
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
 }
 async function marcarReservaAtendida(id){
   if(!navigator.onLine){ alert('Necesitas internet.'); return; }
@@ -8633,7 +8674,7 @@ async function cargarHistDineroMayoreo(){
     movs.forEach(m=>filas.push({fecha:(m.creado_en||'').slice(0,16).replace('T',' '), concepto:m.concepto||m.tipo, signo:(m.tipo==='ingreso'?1:-1), monto:Number(m.monto||0)}));
     filas.sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
     if(!filas.length){ cont.innerHTML='<div class="empty">Sin movimientos de dinero todavía.</div>'; return; }
-    cont.innerHTML=`<table style="min-width:420px"><thead><tr><th>Fecha</th><th>Concepto</th><th class="numcell">Monto</th></tr></thead><tbody>
+    cont.innerHTML=`<table style="width:100%"><thead><tr><th>Fecha</th><th>Concepto</th><th class="numcell">Monto</th></tr></thead><tbody>
     ${filas.slice(0,200).map(f=>`<tr><td>${f.fecha}</td><td>${f.concepto}</td><td class="numcell" style="color:${f.signo>0?'var(--green)':'var(--red)'};font-weight:700">${f.signo>0?'+':'−'}$${num(f.monto)}</td></tr>`).join('')}
     </tbody></table>`;
   }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
@@ -8648,7 +8689,7 @@ async function cargarHistProdMayoreo(){
     const movs=[]; { let d=0; for(;;){ const r=await sb.from('mayoreo_movimientos').select('*').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; movs.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; if(d>=4000) break; } }
     if(!movs.length){ cont.innerHTML='<div class="empty">Sin movimientos de mercancía todavía. (Ingresa/extrae en Productos o vende, y correr mayoreo_movimientos.sql.)</div>'; return; }
     const etiqueta=t=> t==='ingreso'?'<span class="badge ingreso">ingreso</span>' : t==='venta'?'<span class="badge traslado">venta</span>' : '<span class="badge extraccion">extracción</span>';
-    cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Fecha</th><th>Tipo</th><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Antes→Después</th></tr></thead><tbody>
+    cont.innerHTML=`<table style="width:100%"><thead><tr><th>Fecha</th><th>Tipo</th><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Antes→Después</th></tr></thead><tbody>
     ${movs.slice(0,300).map(m=>{ const signo=m.tipo==='ingreso'?'+':'−'; return `<tr>
       <td style="font-size:12px">${(m.creado_en||'').slice(0,16).replace('T',' ')}</td>
       <td>${etiqueta(m.tipo)}</td>
@@ -8677,7 +8718,7 @@ async function cargarHistorialMayoreo(){
         </div>
         <div id="mayHv-${idx}" style="display:none;margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
           <div style="color:var(--muted);font-size:12px;margin-bottom:6px">Ganancia $${num(v.ganancia)}</div>
-          <table style="min-width:360px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th></tr></thead><tbody>
+          <table style="width:100%"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th></tr></thead><tbody>
           ${items.map(it=>`<tr><td>${it.nombre}</td><td class="numcell">${num(it.cantidad)}</td><td class="numcell">$${num(it.precio)}</td><td class="numcell">$${num(it.cantidad*it.precio)}</td></tr>`).join('')}
           </tbody></table>
         </div>
@@ -8940,7 +8981,7 @@ function analizarNegocio(d){
 
 // ---------- RENDER ----------
 function kpiHTML(label, valor, color, sub){
-  return `<div style="background:var(--panel2); border:1px solid var(--border); border-radius:12px; padding:12px 14px; min-width:130px; flex:1">
+  return `<div style="background:var(--panel2); border:1px solid var(--border); border-radius:12px; padding:12px 14px; flex:1">
     <div style="color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.03em">${label}</div>
     <div style="font-size:22px; font-weight:800; color:${color||'var(--text)'}; margin-top:2px">${valor}</div>
     ${sub?`<div style="color:var(--muted); font-size:12px; margin-top:2px">${sub}</div>`:''}
@@ -9657,7 +9698,7 @@ async function cargarConciliacion(){
           <button class="ghost" style="font-size:13px; padding:6px 12px" onclick="quitarPuestoRecepcion(${pid})">✓ Quitar todo</button>
         </div>
         <div style="overflow-x:auto; -webkit-overflow-scrolling:touch">
-        <table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Anotó</th><th class="numcell">Enviado</th><th class="numcell">Dif.</th><th>Estado</th><th></th></tr></thead><tbody>`;
+        <table style="width:100%"><thead><tr><th>Producto</th><th class="numcell">Anotó</th><th class="numcell">Enviado</th><th class="numcell">Dif.</th><th>Estado</th><th></th></tr></thead><tbody>`;
       html += filas.map(f=>`<tr>
         <td>${f.nombre}</td>
         <td class="numcell">${num(f.anoto)}</td>
@@ -10334,7 +10375,7 @@ async function cargarAnalisisProductos(){
       <div style="color:var(--muted);font-size:12px;margin-top:6px">${diasPeriodo} día(s) analizados · ${ventas.length} ventas cerradas</div></div>`;
 
     const tablaProd = (arr, cols) => {
-      let h=`<div style="overflow-x:auto"><table style="min-width:520px"><thead><tr><th>Producto</th>${cols.map(c=>`<th class="numcell">${c.h}</th>`).join('')}</tr></thead><tbody>`;
+      let h=`<div style="overflow-x:auto"><table style="width:100%"><thead><tr><th>Producto</th>${cols.map(c=>`<th class="numcell">${c.h}</th>`).join('')}</tr></thead><tbody>`;
       h+=arr.map(x=>`<tr><td>${x.nombre}</td>${cols.map(c=>`<td class="numcell" style="${c.style?c.style(x):''}">${c.f(x)}</td>`).join('')}</tr>`).join('');
       return h+'</tbody></table></div>';
     };
@@ -10408,7 +10449,7 @@ async function cargarAnalisisProductos(){
     if(sugerencias.length){
       let h=`<div class="card"><h2>🏷️ Precios a actualizar (con tu visto bueno)</h2>
         <div style="color:var(--muted);font-size:12px;margin-bottom:8px">El precio del catálogo no coincide con el precio al que los vendedores están vendiendo de verdad. Aprueba uno por uno el que quieras cambiar.</div>
-        <div style="overflow-x:auto"><table style="min-width:560px"><thead><tr><th>Producto</th><th class="numcell">Catálogo</th><th class="numcell">Precio real</th><th class="numcell">Dif.</th><th></th></tr></thead><tbody>`;
+        <div style="overflow-x:auto"><table style="width:100%"><thead><tr><th>Producto</th><th class="numcell">Catálogo</th><th class="numcell">Precio real</th><th class="numcell">Dif.</th><th></th></tr></thead><tbody>`;
       h+=sugerencias.map(x=>`<tr>
         <td>${x.nombre}</td>
         <td class="numcell">${fmt(x.precioCat)}</td>
@@ -10459,6 +10500,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v108</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v110</div>
 </body>
 </html>
