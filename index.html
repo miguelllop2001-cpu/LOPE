@@ -905,6 +905,7 @@
         <button id="mtab-btn-ganancias" onclick="cambiarMTab('ganancias')">💰 Ganancias</button>
         <button id="mtab-btn-dinero" onclick="cambiarMTab('dinero')">💵 Dinero</button>
         <button id="mtab-btn-reservas" onclick="cambiarMTab('reservas')">📋 Reservas</button>
+        <button id="mtab-btn-avisar" onclick="cambiarMTab('avisar')">📣 Avisar</button>
         <button id="mtab-btn-historial" onclick="cambiarMTab('historial')">🕘 Historial</button>
       </div>
       <div id="mayAviso" class="msg"></div>
@@ -986,6 +987,23 @@
     </div>
 
     <!-- RESERVAS (desde la web) -->
+    <!-- AVISAR NOVEDADES -->
+    <div id="mtab-avisar" class="mtab" style="display:none">
+      <div class="card">
+        <h2>📣 Avisar novedades</h2>
+        <div style="color:var(--muted);font-size:13px;margin-bottom:8px">Manda un aviso a los clientes que dejaron su WhatsApp al reservar. Uno por uno, o copia el mensaje y los números para una lista de difusión.</div>
+        <label>Mensaje</label>
+        <textarea id="avisarMsg" style="width:100%;min-height:90px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--panel2);color:var(--texto);font-family:inherit;font-size:15px"></textarea>
+        <div class="row" style="margin-top:8px">
+          <div class="field" style="display:flex;align-items:flex-end"><button class="ghost" style="width:100%" onclick="ponerNovedadesAvisar()">➕ Poner lo nuevo (7 días)</button></div>
+          <div class="field" style="display:flex;align-items:flex-end"><button class="ghost" style="width:100%" onclick="copiarTexto(document.getElementById('avisarMsg').value,'Mensaje copiado')">📋 Copiar mensaje</button></div>
+        </div>
+        <button class="ghost" style="width:100%;margin-top:8px" onclick="copiarNumerosAvisar()">📋 Copiar todos los números (para difusión)</button>
+        <div id="avisarMsgEstado" class="msg"></div>
+        <div id="avisarContactos" style="margin-top:10px"></div>
+      </div>
+    </div>
+
     <div id="mtab-reservas" class="mtab" style="display:none">
       <div class="card"><h2>📋 Reservas de clientes (web)</h2><div id="mayReservasBody" style="margin-top:8px"></div></div>
     </div>
@@ -8095,7 +8113,7 @@ function cargarMayoreo(){
 }
 
 function cambiarMTab(cual){
-  ['productos','inventario','vender','ganancias','dinero','historial','reservas'].forEach(t=>{
+  ['productos','inventario','vender','ganancias','dinero','historial','reservas','avisar'].forEach(t=>{
     const el=document.getElementById('mtab-'+t); if(el) el.style.display = (t===cual)?'block':'none';
     const b=document.getElementById('mtab-btn-'+t); if(b) b.classList.toggle('active', t===cual);
   });
@@ -8106,6 +8124,7 @@ function cambiarMTab(cual){
   if(cual==='dinero') cargarDineroMayoreo();
   if(cual==='historial') cambiarHTab('dinero');
   if(cual==='reservas') cargarReservasMayoreo();
+  if(cual==='avisar') cargarAvisarMayoreo();
 }
 
 // Inventario del almacén MAYOREO
@@ -8484,6 +8503,57 @@ async function movCajaMayoreo(tipo){
     if(r.error) throw r.error;
     cargarDineroMayoreo();
   }catch(e){ msg.textContent='No se pudo: '+(e.message||e); msg.className='msg err'; }
+}
+
+// 📣 AVISAR NOVEDADES a los clientes que dejaron su WhatsApp al reservar.
+const LINK_TIENDA_AVISO = 'https://miguelllop2001-cpu.github.io/tienda/';
+function copiarTexto(txt, ok){
+  try{ navigator.clipboard.writeText(txt).then(()=>{ const e=document.getElementById('avisarMsgEstado'); if(e){e.textContent=ok||'Copiado'; e.className='msg ok';} }); }
+  catch(_){ prompt('Copia esto:', txt); }
+}
+async function cargarAvisarMayoreo(){
+  const cont=document.getElementById('avisarContactos');
+  const ta=document.getElementById('avisarMsg');
+  if(ta && !ta.value){ ta.value='🆕 ¡Llegó mercancía nueva a LOPE! Mira el catálogo y aparta tu pedido: '+LINK_TIENDA_AVISO; }
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet para ver los contactos.</div>'; return; }
+  cont.textContent='Cargando contactos…';
+  try{
+    const rows=[]; { let d=0; for(;;){ const r=await sb.from('reservas_mayoreo').select('nombre,telefono,creado_en').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; rows.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
+    // Números únicos (el más reciente con su nombre)
+    const vistos={}; const contactos=[];
+    rows.forEach(r=>{ const tel=(r.telefono||'').replace(/[^0-9]/g,''); if(!tel) return; if(vistos[tel]) return; vistos[tel]=1; contactos.push({tel, nombre:r.nombre||''}); });
+    __avisarNumeros = contactos.map(c=>c.tel);
+    if(!contactos.length){ cont.innerHTML='<div class="empty">Todavía no hay teléfonos (aparecen cuando los clientes reservan en la web).</div>'; return; }
+    cont.innerHTML='<div style="color:var(--muted);font-size:12px;margin-bottom:6px">'+contactos.length+' contacto(s):</div>'+contactos.map(c=>{
+      return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid var(--border);padding:10px 2px">
+        <div><b>${c.nombre||'(sin nombre)'}</b><div style="color:var(--muted);font-size:12px">${c.tel}</div></div>
+        <button class="primary" style="padding:8px 14px;font-size:13px" onclick="enviarAvisoUno('${c.tel}')">💬 Enviar</button>
+      </div>`;
+    }).join('');
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
+}
+let __avisarNumeros=[];
+function enviarAvisoUno(tel){
+  const msg=encodeURIComponent(document.getElementById('avisarMsg').value||'');
+  window.open('https://wa.me/'+tel+'?text='+msg, '_blank');
+}
+function copiarNumerosAvisar(){
+  if(!__avisarNumeros.length){ alert('No hay números.'); return; }
+  copiarTexto(__avisarNumeros.join(', '), __avisarNumeros.length+' números copiados');
+}
+async function ponerNovedadesAvisar(){
+  const ta=document.getElementById('avisarMsg'); const est=document.getElementById('avisarMsgEstado');
+  if(!navigator.onLine){ est.textContent='Necesitas internet.'; est.className='msg err'; return; }
+  try{
+    const desde=new Date(); desde.setDate(desde.getDate()-7);
+    const iso=desde.toISOString();
+    const {data,error}=await sb.from('mayoreo_movimientos').select('nombre,tipo,creado_en').eq('tipo','ingreso').gte('creado_en',iso).order('id',{ascending:false}).limit(500);
+    if(error) throw error;
+    const nombres=[...new Set((data||[]).map(m=>m.nombre).filter(Boolean))].slice(0,30);
+    if(!nombres.length){ est.textContent='No hay ingresos nuevos en los últimos 7 días.'; est.className='msg'; return; }
+    ta.value='🆕 ¡Llegó a LOPE!\n• '+nombres.join('\n• ')+'\n\nMira el catálogo y aparta: '+LINK_TIENDA_AVISO;
+    est.textContent='Puse '+nombres.length+' producto(s) nuevos.'; est.className='msg ok';
+  }catch(e){ est.textContent='No se pudo: '+(e.message||e)+' (¿corriste mayoreo_movimientos.sql?)'; est.className='msg err'; }
 }
 
 async function cargarReservasMayoreo(){
@@ -10393,7 +10463,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v107</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v108</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
