@@ -100,7 +100,7 @@
   }
   .card h2{margin:0 0 14px; font-size:15px; color:var(--text);}
   .row{display:flex; gap:10px; flex-wrap:wrap; align-items:end;}
-  .field{display:flex; flex-direction:column; gap:4px; min-width:160px; flex:1;}
+  .field{display:flex; flex-direction:column; gap:4px; flex:1;}
   .field label{font-size:12px; color:var(--muted);}
   input, select{
     background:var(--panel2); border:1px solid var(--border); color:var(--text);
@@ -175,7 +175,7 @@
 
     /* Tablas: scroll horizontal en vez de letras microscópicas */
     .card > table, .card > div > table{display:block;}
-    table{font-size:14px; min-width:520px;}
+    table{font-size:14px; }
     th, td{padding:10px 8px;}
     .card{overflow-x:auto;}
 
@@ -209,7 +209,7 @@
   .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:18px; margin-bottom:18px;}
   .card h2{margin:0 0 14px; font-size:15px;}
   .row{display:flex; gap:10px; flex-wrap:wrap; align-items:end;}
-  .field{display:flex; flex-direction:column; gap:4px; min-width:140px; flex:1;}
+  .field{display:flex; flex-direction:column; gap:4px; flex:1;}
   .field label{font-size:12px; color:var(--muted);}
   input, select{background:var(--panel2); border:1px solid var(--border); color:var(--text); padding:9px 10px; border-radius:8px; font-size:14px; outline:none;}
   input:focus, select:focus{border-color:var(--accent);}
@@ -280,7 +280,7 @@
     input, select{font-size:16px; padding:14px 12px;}
     button.primary, button.success{width:100%; padding:16px 16px; font-size:16px; min-height:52px;}
     button.ghost{padding:12px 16px; font-size:15px; min-height:46px;}
-    table{font-size:14px; min-width:480px;}
+    table{font-size:14px; }
     th, td{padding:10px 8px;}
     .puesto-pick{flex-direction:column;}
     .puesto-pick button{width:100%; padding:18px 22px; font-size:16px;}
@@ -301,6 +301,15 @@
   }
   @media (max-width: 380px){
     .tabs button{font-size:11.5px; padding:11px 4px;}
+  }
+
+  /* ajuste-movil-tablas */
+  @media (max-width:760px){
+    table{ font-size:13px; }
+    th,td{ padding:7px 6px !important; word-break:break-word; }
+    .tabs{ flex-wrap:wrap; }
+    .mtab .card{ overflow-x:hidden; }
+    input, select, textarea{ max-width:100%; }
   }
 </style>
 </head>
@@ -331,7 +340,7 @@
       <button id="btnTema" onclick="alternarTema()" title="Cambiar tema" class="btn-icon">☀️</button>
       <span id="letraCtrl" title="Tamaño de letra" style="display:inline-flex; align-items:center; gap:2px; border:1px solid var(--border); border-radius:8px; padding:2px 4px">
         <button onclick="cambiarLetra(-1)" class="btn-icon" title="Letra más pequeña" style="padding:4px 9px; font-size:13px">A−</button>
-        <span id="letraNivel" style="min-width:14px; text-align:center; font-weight:700; font-size:13px">1</span>
+        <span id="letraNivel" style="text-align:center; font-weight:700; font-size:13px">1</span>
         <button onclick="cambiarLetra(1)" class="btn-icon" title="Letra más grande" style="padding:4px 9px; font-size:19px">A+</button>
       </span>
     </div>
@@ -906,6 +915,7 @@
         <button id="mtab-btn-dinero" onclick="cambiarMTab('dinero')">💵 Dinero</button>
         <button id="mtab-btn-reservas" onclick="cambiarMTab('reservas')">📋 Reservas</button>
         <button id="mtab-btn-avisar" onclick="cambiarMTab('avisar')">📣 Avisar</button>
+        <button id="mtab-btn-clientes" onclick="cambiarMTab('clientes')">👥 Clientes</button>
         <button id="mtab-btn-historial" onclick="cambiarMTab('historial')">🕘 Historial</button>
       </div>
       <div id="mayAviso" class="msg"></div>
@@ -988,6 +998,16 @@
 
     <!-- RESERVAS (desde la web) -->
     <!-- AVISAR NOVEDADES -->
+    <!-- CLIENTES -->
+    <div id="mtab-clientes" class="mtab" style="display:none">
+      <div class="card">
+        <h2>👥 Clientes</h2>
+        <div style="color:var(--muted);font-size:13px;margin-bottom:8px">Sus compras y si cumplen con las reservas. Toca un cliente para ver sus pedidos.</div>
+        <input type="text" id="cliBuscar" placeholder="🔎 Buscar por nombre o teléfono" oninput="renderClientes()" autocomplete="off">
+        <div id="mayClientesBody" style="margin-top:10px"></div>
+      </div>
+    </div>
+
     <div id="mtab-avisar" class="mtab" style="display:none">
       <div class="card">
         <h2>📣 Avisar novedades</h2>
@@ -1006,6 +1026,10 @@
 
     <div id="mtab-reservas" class="mtab" style="display:none">
       <div class="card"><h2>📋 Reservas de clientes (web)</h2><div id="mayReservasBody" style="margin-top:8px"></div></div>
+      <div class="card">
+        <div onclick="verCumplimientoClientes()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">✅ Cumplimiento por cliente</h2><button class="ghost" style="padding:6px 12px;font-size:13px">Ver</button></div>
+        <div id="mayCumplBody" style="margin-top:8px"></div>
+      </div>
     </div>
 
     <!-- HISTORIAL -->
@@ -8113,7 +8137,7 @@ function cargarMayoreo(){
 }
 
 function cambiarMTab(cual){
-  ['productos','inventario','vender','ganancias','dinero','historial','reservas','avisar'].forEach(t=>{
+  ['productos','inventario','vender','ganancias','dinero','historial','reservas','avisar','clientes'].forEach(t=>{
     const el=document.getElementById('mtab-'+t); if(el) el.style.display = (t===cual)?'block':'none';
     const b=document.getElementById('mtab-btn-'+t); if(b) b.classList.toggle('active', t===cual);
   });
@@ -8125,6 +8149,7 @@ function cambiarMTab(cual){
   if(cual==='historial') cambiarHTab('dinero');
   if(cual==='reservas') cargarReservasMayoreo();
   if(cual==='avisar') cargarAvisarMayoreo();
+  if(cual==='clientes') cargarClientesMayoreo();
 }
 
 // Inventario del almacén MAYOREO
@@ -8140,7 +8165,7 @@ function renderInvMayoreo(){
   const total=filas.reduce((s,x)=>s+x.cant,0);
   if(!filas.length){ cont.innerHTML='<div class="empty">El almacén de mayoreo no tiene stock todavía. Métele con "📥 Entrada de mercancía".</div>'; return; }
   cont.innerHTML=`<div style="font-weight:700; margin-bottom:6px">${num(total)} uds.</div>
-  <table style="min-width:420px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">P. Mayoreo</th></tr></thead><tbody>
+  <table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">P. Mayoreo</th></tr></thead><tbody>
   ${filas.sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(x=>`<tr><td>${x.nombre}</td><td class="numcell">${num(x.cant)}</td><td class="numcell">$${num(x.pm)}</td></tr>`).join('')}
   </tbody></table>`;
 }
@@ -8153,7 +8178,7 @@ function renderPreciosMayoreo(){
   if(q) lista=lista.filter(p=>(p.nombre||'').toLowerCase().includes(q));
   lista=lista.slice(0,60);
   if(!lista.length){ cont.innerHTML='<div class="empty">Sin productos.</div>'; return; }
-  cont.innerHTML=`<table style="min-width:560px"><thead><tr><th>Producto</th><th class="numcell">Costo may.</th><th class="numcell">Precio may.</th><th></th><th></th></tr></thead><tbody>
+  cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Costo may.</th><th class="numcell">Precio may.</th><th></th><th></th></tr></thead><tbody>
   ${lista.map(p=>`<tr>
     <td>${p.nombre}</td>
     <td class="numcell"><input type="number" id="mayco-${p.id}" value="${Number(p.costo_mayoreo)>0?Number(p.costo_mayoreo):''}" placeholder="0" inputmode="decimal" style="width:85px; text-align:right"></td>
@@ -8372,7 +8397,7 @@ function renderMayCarrito(){
   const btn=document.getElementById('mayFinalizarBtn');
   if(!__mayCarrito.length){ cont.innerHTML='<div class="empty">Carrito vacío.</div>'; btn.style.display='none'; return; }
   const total=__mayCarrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
-  cont.innerHTML=`<table style="min-width:480px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th><th></th></tr></thead><tbody>
+  cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th><th></th></tr></thead><tbody>
   ${__mayCarrito.map((x,i)=>`<tr><td>${x.nombre}</td><td class="numcell">${num(x.cantidad)}</td><td class="numcell">$${num(x.precio)}</td><td class="numcell">$${num(x.cantidad*x.precio)}</td><td><button class="ghost" onclick="quitarMayItem(${i})">✕</button></td></tr>`).join('')}
   </tbody><tfoot><tr><td colspan="3" style="text-align:right;font-weight:700">TOTAL</td><td class="numcell" style="font-weight:800;color:var(--green)">$${num(total)}</td><td></td></tr></tfoot></table>`;
   btn.style.display='block';
@@ -8505,6 +8530,46 @@ async function movCajaMayoreo(tipo){
   }catch(e){ msg.textContent='No se pudo: '+(e.message||e); msg.className='msg err'; }
 }
 
+// 👥 CLIENTES: compras + cumplimiento de reservas
+let __clientesMay=[];
+async function cargarClientesMayoreo(){
+  const cont=document.getElementById('mayClientesBody');
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
+  cont.textContent='Cargando…';
+  try{
+    // Reservas (para compras + cumplimiento)
+    const rows=[]; { let d=0; for(;;){ const r=await sb.from('reservas_mayoreo').select('*').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; rows.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
+    // Cuentas registradas (por si alguno creó cuenta y no ha reservado)
+    let cuentas=[]; try{ const r=await sb.from('clientes').select('*').limit(1000); cuentas=r.data||[]; }catch(e){ cuentas=[]; }
+    const map={};
+    cuentas.forEach(c=>{ const tel=(c.telefono||'').replace(/[^0-9]/g,''); if(!tel)return; map[tel]={tel, nombre:c.usuario||c.nombre||'', total:0, atend:0, novino:0, nueva:0, reservas:[]}; });
+    rows.forEach(r=>{ const tel=(r.telefono||'').replace(/[^0-9]/g,'')||'(sin tel)'; if(!map[tel]) map[tel]={tel, nombre:r.nombre||'', total:0, atend:0, novino:0, nueva:0, reservas:[]}; if(r.nombre&&!map[tel].nombre)map[tel].nombre=r.nombre; const m=map[tel]; m.total++; if(r.estado==='atendida')m.atend++; else if(r.estado==='no_vino')m.novino++; else m.nueva++; m.reservas.push(r); });
+    __clientesMay=Object.values(map).sort((a,b)=> b.novino-a.novino || b.total-a.total);
+    renderClientes();
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+' (¿corriste clientes.sql / reservas_mayoreo.sql?)</div>'; }
+}
+function renderClientes(){
+  const cont=document.getElementById('mayClientesBody');
+  const q=(document.getElementById('cliBuscar').value||'').trim().toLowerCase();
+  let lista=__clientesMay;
+  if(q) lista=lista.filter(c=>(c.nombre||'').toLowerCase().includes(q)||c.tel.includes(q));
+  if(!lista.length){ cont.innerHTML='<div class="empty">Sin clientes.</div>'; return; }
+  cont.innerHTML=lista.map((c,i)=>{
+    const alerta = c.novino>0 ? `<span style="color:var(--red);font-weight:700">⚠ ${c.novino} no vino</span>` : `<span style="color:var(--green)">cumple</span>`;
+    const compras=c.reservas.map(r=>{ const items=(Array.isArray(r.items)?r.items:[]).map(it=>`${it.nombre} ×${num(it.cantidad)}`).join(', '); const est=r.estado==='atendida'?'✓':r.estado==='no_vino'?'🚫':'⏳'; return `<div style="font-size:13px;border-top:1px solid var(--border);padding:6px 0">${est} ${(r.creado_en||'').slice(0,10)} · $${num(r.total)}<div style="color:var(--muted)">${items}</div></div>`; }).join('');
+    return `<div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px">
+      <div onclick="document.getElementById('cli-${i}').style.display=(document.getElementById('cli-${i}').style.display==='none'?'block':'none')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div><b>${c.nombre||'(sin nombre)'}</b><div style="color:var(--muted);font-size:12px">${c.tel}</div></div>
+        <div style="text-align:right;font-size:12px">${c.total} reserva(s)<br>${alerta}</div>
+      </div>
+      <div id="cli-${i}" style="display:none;margin-top:8px">
+        <div style="font-size:12px;color:var(--muted)">✓ cumplió ${c.atend} · 🚫 no vino ${c.novino} · ⏳ pendiente ${c.nueva}</div>
+        ${compras||'<div style="color:var(--muted);font-size:13px;margin-top:6px">Sin compras aún.</div>'}
+      </div>
+    </div>`;
+  }).join('');
+}
+
 // 📣 AVISAR NOVEDADES a los clientes que dejaron su WhatsApp al reservar.
 const LINK_TIENDA_AVISO = 'https://miguelllop2001-cpu.github.io/tienda/';
 function copiarTexto(txt, ok){
@@ -8563,7 +8628,7 @@ async function cargarReservasMayoreo(){
   try{
     const {data,error}=await sb.from('reservas_mayoreo').select('*').order('id',{ascending:false}).limit(100);
     if(error) throw error;
-    const nuevas=(data||[]).filter(r=>r.estado!=='atendida');
+    const nuevas=(data||[]).filter(r=>r.estado==='nueva');
     __reservasMay={}; nuevas.forEach(r=>{ __reservasMay[r.id]=r; });
     if(!nuevas.length){ cont.innerHTML='<div class="empty">No hay reservas nuevas.</div>'; return; }
     cont.innerHTML=nuevas.map(r=>{
@@ -8578,6 +8643,7 @@ async function cargarReservasMayoreo(){
           <button class="primary" style="padding:8px 12px;font-size:13px" onclick="venderReservaMayoreo(${r.id})">🛒 Vender</button>
           ${wa}
           <button class="ghost" style="padding:8px 12px;font-size:13px" onclick="marcarReservaAtendida(${r.id})">✓ Atendida</button>
+          <button class="ghost" style="padding:8px 12px;font-size:13px;color:var(--amber)" onclick="marcarReservaNoVino(${r.id})">🚫 No vino</button>
           <button class="ghost" style="padding:8px 12px;font-size:13px;color:var(--red)" onclick="quitarReservaMayoreo(${r.id})">🗑 Quitar</button>
         </div>
       </div>`;
@@ -8606,6 +8672,33 @@ async function quitarReservaMayoreo(id){
   if(!navigator.onLine){ alert('Necesitas internet.'); return; }
   try{ const {error}=await sb.from('reservas_mayoreo').delete().eq('id',id); if(error) throw error; cargarReservasMayoreo(); }
   catch(e){ alert('No se pudo: '+(e.message||e)); }
+}
+async function marcarReservaNoVino(id){
+  if(!confirm('¿Marcar que este cliente NO vino? Se libera el stock y queda en su historial.')) return;
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  try{ const {error}=await sb.from('reservas_mayoreo').update({estado:'no_vino'}).eq('id',id); if(error) throw error; cargarReservasMayoreo(); }
+  catch(e){ alert('No se pudo: '+(e.message||e)); }
+}
+// Cumplimiento por cliente (para saber si queda bien con las reservas)
+async function verCumplimientoClientes(){
+  const cont=document.getElementById('mayCumplBody');
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
+  cont.textContent='Cargando…';
+  try{
+    const rows=[]; { let d=0; for(;;){ const r=await sb.from('reservas_mayoreo').select('nombre,telefono,estado').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; rows.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
+    const map={};
+    rows.forEach(r=>{ const tel=(r.telefono||'').replace(/[^0-9]/g,'')||'(sin tel)'; if(!map[tel]) map[tel]={nombre:r.nombre||'', tel, total:0, atend:0, novino:0, nueva:0}; map[tel].total++; if(r.estado==='atendida')map[tel].atend++; else if(r.estado==='no_vino')map[tel].novino++; else map[tel].nueva++; if(r.nombre) map[tel].nombre=r.nombre; });
+    const lista=Object.values(map).sort((a,b)=>b.novino-a.novino || b.total-a.total);
+    if(!lista.length){ cont.innerHTML='<div class="empty">Sin clientes todavía.</div>'; return; }
+    cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Cliente</th><th class="numcell">Reservas</th><th class="numcell">Cumplió</th><th class="numcell">No vino</th></tr></thead><tbody>
+    ${lista.map(c=>`<tr>
+      <td>${c.nombre||'(sin nombre)'}<div style="color:var(--muted);font-size:12px">${c.tel}</div></td>
+      <td class="numcell">${c.total}</td>
+      <td class="numcell" style="color:var(--green);font-weight:700">${c.atend}</td>
+      <td class="numcell" style="color:${c.novino>0?'var(--red)':'var(--muted)'};font-weight:700">${c.novino}</td>
+    </tr>`).join('')}
+    </tbody></table>`;
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
 }
 async function marcarReservaAtendida(id){
   if(!navigator.onLine){ alert('Necesitas internet.'); return; }
@@ -8637,7 +8730,7 @@ async function cargarHistDineroMayoreo(){
     movs.forEach(m=>filas.push({fecha:(m.creado_en||'').slice(0,16).replace('T',' '), concepto:m.concepto||m.tipo, signo:(m.tipo==='ingreso'?1:-1), monto:Number(m.monto||0)}));
     filas.sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
     if(!filas.length){ cont.innerHTML='<div class="empty">Sin movimientos de dinero todavía.</div>'; return; }
-    cont.innerHTML=`<table style="min-width:420px"><thead><tr><th>Fecha</th><th>Concepto</th><th class="numcell">Monto</th></tr></thead><tbody>
+    cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Fecha</th><th>Concepto</th><th class="numcell">Monto</th></tr></thead><tbody>
     ${filas.slice(0,200).map(f=>`<tr><td>${f.fecha}</td><td>${f.concepto}</td><td class="numcell" style="color:${f.signo>0?'var(--green)':'var(--red)'};font-weight:700">${f.signo>0?'+':'−'}$${num(f.monto)}</td></tr>`).join('')}
     </tbody></table>`;
   }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
@@ -8681,7 +8774,7 @@ async function cargarHistorialMayoreo(){
         </div>
         <div id="mayHv-${idx}" style="display:none;margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
           <div style="color:var(--muted);font-size:12px;margin-bottom:6px">Ganancia $${num(v.ganancia)}</div>
-          <table style="min-width:360px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th></tr></thead><tbody>
+          <table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th></tr></thead><tbody>
           ${items.map(it=>`<tr><td>${it.nombre}</td><td class="numcell">${num(it.cantidad)}</td><td class="numcell">$${num(it.precio)}</td><td class="numcell">$${num(it.cantidad*it.precio)}</td></tr>`).join('')}
           </tbody></table>
         </div>
@@ -8944,7 +9037,7 @@ function analizarNegocio(d){
 
 // ---------- RENDER ----------
 function kpiHTML(label, valor, color, sub){
-  return `<div style="background:var(--panel2); border:1px solid var(--border); border-radius:12px; padding:12px 14px; min-width:130px; flex:1">
+  return `<div style="background:var(--panel2); border:1px solid var(--border); border-radius:12px; padding:12px 14px; flex:1">
     <div style="color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.03em">${label}</div>
     <div style="font-size:22px; font-weight:800; color:${color||'var(--text)'}; margin-top:2px">${valor}</div>
     ${sub?`<div style="color:var(--muted); font-size:12px; margin-top:2px">${sub}</div>`:''}
@@ -10412,7 +10505,7 @@ async function cargarAnalisisProductos(){
     if(sugerencias.length){
       let h=`<div class="card"><h2>🏷️ Precios a actualizar (con tu visto bueno)</h2>
         <div style="color:var(--muted);font-size:12px;margin-bottom:8px">El precio del catálogo no coincide con el precio al que los vendedores están vendiendo de verdad. Aprueba uno por uno el que quieras cambiar.</div>
-        <div style="overflow-x:auto"><table style="min-width:560px"><thead><tr><th>Producto</th><th class="numcell">Catálogo</th><th class="numcell">Precio real</th><th class="numcell">Dif.</th><th></th></tr></thead><tbody>`;
+        <div style="overflow-x:auto"><table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Catálogo</th><th class="numcell">Precio real</th><th class="numcell">Dif.</th><th></th></tr></thead><tbody>`;
       h+=sugerencias.map(x=>`<tr>
         <td>${x.nombre}</td>
         <td class="numcell">${fmt(x.precioCat)}</td>
@@ -10463,7 +10556,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v108</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v111</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
