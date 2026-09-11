@@ -146,21 +146,6 @@
   </div>
 </div></nav>
 
-<header class="hero"><div class="hero-in">
-  <span class="kicker">Ferretería al por mayor · Cuba</span>
-  <h1>Surte tu ferretería sin dar vueltas.</h1>
-  <p class="lead">LOPE le vende al por mayor a ferreterías pequeñas. Armas tu pedido aquí, lo reservas, y te damos la hora para recoger y pagar.</p>
-  <div class="hero-cta">
-    <a href="#catalogo" class="btn btn-primary">Ver el catálogo</a>
-    <button class="btn btn-ghost" onclick="abrirPanel()">Mi reserva</button>
-  </div>
-  <div class="hero-facts">
-    <div class="fact"><b>Precio de mayoreo</b><span>Pensado para revender</span></div>
-    <div class="fact"><b>Reservas en línea</b><span>Sin llamadas ni colas</span></div>
-    <div class="fact"><b>Pagas al recoger</b><span>En persona, sin adelantos</span></div>
-  </div>
-</div></header>
-
 <section id="catalogo"><div class="wrap">
   <div class="sec-head"><h2>Catálogo</h2><p>Toca “Agregar” en lo que quieras. Se va sumando a tu reserva.</p></div>
   <div class="cat-bar">
@@ -182,6 +167,21 @@
     <div class="paso"><div class="num">3</div><h3>Recoge y paga</h3><p>Te escribimos por WhatsApp con la hora para pasar a buscarlo y pagar.</p></div>
   </div>
 </div></section>
+
+<header class="hero"><div class="hero-in">
+  <span class="kicker">Ferretería al por mayor · Cuba</span>
+  <h1>Surte tu ferretería sin dar vueltas.</h1>
+  <p class="lead">LOPE le vende al por mayor a ferreterías pequeñas. Armas tu pedido aquí, lo reservas, y te damos la hora para recoger y pagar.</p>
+  <div class="hero-cta">
+    <a href="#catalogo" class="btn btn-primary">Ver el catálogo</a>
+    <button class="btn btn-ghost" onclick="abrirPanel()">Mi reserva</button>
+  </div>
+  <div class="hero-facts">
+    <div class="fact"><b>Precio de mayoreo</b><span>Pensado para revender</span></div>
+    <div class="fact"><b>Reservas en línea</b><span>Sin llamadas ni colas</span></div>
+    <div class="fact"><b>Pagas al recoger</b><span>En persona, sin adelantos</span></div>
+  </div>
+</div></header>
 
 <section class="cta-final"><div class="wrap">
   <h2>Aparta tu pedido hoy.</h2>
@@ -261,7 +261,7 @@ async function cargar(){
 
 function render(){
   const q=(document.getElementById('buscar').value||'').trim().toLowerCase();
-  let lista=PRODUCTOS;if(q)lista=lista.filter(p=>p.nombre.toLowerCase().includes(q));
+  let lista=PRODUCTOS.filter(p=>dispDe(p)>0);if(q)lista=lista.filter(p=>p.nombre.toLowerCase().includes(q)); // solo con existencia disponible
   const grid=document.getElementById('grid'),estado=document.getElementById('estado'),count=document.getElementById('count');
   if(!PRODUCTOS.length){estado.style.display='block';estado.textContent='Todavía no hay productos publicados.';grid.innerHTML='';count.textContent='';return;}
   if(!lista.length){estado.style.display='block';estado.textContent='Sin resultados para “'+q+'”.';grid.innerHTML='';count.textContent='';return;}
