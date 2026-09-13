@@ -306,10 +306,20 @@
   /* ajuste-movil-tablas */
   @media (max-width:760px){
     table{ font-size:13px; }
-    th,td{ padding:7px 6px !important; word-break:break-word; }
+    th,td{ padding:7px 6px !important; }
     .tabs{ flex-wrap:wrap; }
     .mtab .card{ overflow-x:hidden; }
     input, select, textarea{ max-width:100%; }
+  }
+
+  /* fix-tablas-movil: que las columnas NO se aplasten letra por letra.
+     Se dejan las tablas con su ancho natural y la tarjeta se desliza a lo ancho. */
+  @media (max-width:760px){
+    .card{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+    .card > table, .card > div > table, .card table{ display:table !important; }
+    th, td{ word-break:normal !important; overflow-wrap:normal !important; }
+    th{ white-space:nowrap; }
+    .mtab .card{ overflow-x:hidden; }
   }
 </style>
 </head>
@@ -10728,7 +10738,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v112</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v113</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
