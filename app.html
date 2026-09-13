@@ -96,7 +96,7 @@
   }
   .card h2{margin:0 0 14px; font-size:15px; color:var(--text);}
   .row{display:flex; gap:10px; flex-wrap:wrap; align-items:end;}
-  .field{display:flex; flex-direction:column; gap:4px; min-width:160px; flex:1;}
+  .field{display:flex; flex-direction:column; gap:4px; flex:1;}
   .field label{font-size:12px; color:var(--muted);}
   input, select{
     background:var(--panel2); border:1px solid var(--border); color:var(--text);
@@ -171,7 +171,7 @@
 
     /* Tablas: scroll horizontal en vez de letras microscópicas */
     .card > table, .card > div > table{display:block;}
-    table{font-size:14px; min-width:520px;}
+    table{font-size:14px; }
     th, td{padding:10px 8px;}
     .card{overflow-x:auto;}
 
@@ -205,7 +205,7 @@
   .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:18px; margin-bottom:18px;}
   .card h2{margin:0 0 14px; font-size:15px;}
   .row{display:flex; gap:10px; flex-wrap:wrap; align-items:end;}
-  .field{display:flex; flex-direction:column; gap:4px; min-width:140px; flex:1;}
+  .field{display:flex; flex-direction:column; gap:4px; flex:1;}
   .field label{font-size:12px; color:var(--muted);}
   input, select{background:var(--panel2); border:1px solid var(--border); color:var(--text); padding:9px 10px; border-radius:8px; font-size:14px; outline:none;}
   input:focus, select:focus{border-color:var(--accent);}
@@ -276,7 +276,7 @@
     input, select{font-size:16px; padding:14px 12px;}
     button.primary, button.success{width:100%; padding:16px 16px; font-size:16px; min-height:52px;}
     button.ghost{padding:12px 16px; font-size:15px; min-height:46px;}
-    table{font-size:14px; min-width:480px;}
+    table{font-size:14px; }
     th, td{padding:10px 8px;}
     .puesto-pick{flex-direction:column;}
     .puesto-pick button{width:100%; padding:18px 22px; font-size:16px;}
@@ -297,6 +297,15 @@
   }
   @media (max-width: 380px){
     .tabs button{font-size:11.5px; padding:11px 4px;}
+  }
+
+  /* ajuste-movil-tablas */
+  @media (max-width:760px){
+    table{ font-size:13px; }
+    th,td{ padding:7px 6px !important; word-break:break-word; }
+    .tabs{ flex-wrap:wrap; }
+    .mtab .card{ overflow-x:hidden; }
+    input, select, textarea{ max-width:100%; }
   }
 </style>
 </head>
@@ -327,7 +336,7 @@
       <button id="btnTema" onclick="alternarTema()" title="Cambiar tema" class="btn-icon">☀️</button>
       <span id="letraCtrl" title="Tamaño de letra" style="display:inline-flex; align-items:center; gap:2px; border:1px solid var(--border); border-radius:8px; padding:2px 4px">
         <button onclick="cambiarLetra(-1)" class="btn-icon" title="Letra más pequeña" style="padding:4px 9px; font-size:13px">A−</button>
-        <span id="letraNivel" style="min-width:14px; text-align:center; font-weight:700; font-size:13px">1</span>
+        <span id="letraNivel" style="text-align:center; font-weight:700; font-size:13px">1</span>
         <button onclick="cambiarLetra(1)" class="btn-icon" title="Letra más grande" style="padding:4px 9px; font-size:19px">A+</button>
       </span>
     </div>
@@ -341,6 +350,7 @@
       <button data-vtab="cobrar" onclick="cambiarVTab('cobrar')">💰 Cobrar</button>
       <button data-vtab="devoluciones" onclick="cambiarVTab('devoluciones')">↩️ Devoluciones</button>
       <button data-vtab="historial" onclick="cambiarVTab('historial')">🕘 Historial</button>
+      <button data-vtab="mayoreo" id="vbtnMayoreo" onclick="cambiarVTab('mayoreo')" style="display:none">🏷️ Mayoreo</button>
       <button id="btnCambiarPuesto" onclick="cambiarPuestoComodin()" style="display:none">🔄 Cambiar de puesto</button>
       <button onclick="cerrarSesion()">🚪 Cerrar sesión</button>
     </div>
@@ -642,6 +652,41 @@
       <div id="recibidoEmpty" class="empty" style="display:none">Sin entradas registradas.</div>
     </div>
     </div>
+
+    <!-- MAYOREO (vendedor Tamy) -->
+    <div id="vtab-mayoreo" class="vtab" style="display:none">
+      <div class="card">
+        <h2>🏷️ Mayoreo</h2>
+        <div class="tabs" style="margin-bottom:0">
+          <button id="vmt-btn-vender" class="active" onclick="cambiarVMTab('vender')">🛒 Vender</button>
+          <button id="vmt-btn-reservas" onclick="cambiarVMTab('reservas')">📋 Reservas</button>
+        </div>
+      </div>
+
+      <div id="vmt-vender">
+        <div class="card">
+          <div id="tvAviso" class="msg"></div>
+          <div class="field">
+            <label>Producto</label>
+            <input type="text" id="tvBuscar" placeholder="🔎 Escribe para buscar…" oninput="tvFiltrar()" autocomplete="off">
+            <div id="tvSug" style="display:none; border:1px solid var(--border); border-radius:10px; margin-top:4px; max-height:220px; overflow-y:auto; background:var(--panel)"></div>
+            <input type="hidden" id="tvProd">
+            <div id="tvElegido" style="margin-top:6px; font-size:13px; color:var(--green); font-weight:700"></div>
+          </div>
+          <div class="row">
+            <div class="field"><label>Cantidad</label><input type="number" id="tvCant" inputmode="numeric" placeholder="0"></div>
+            <div class="field"><label>Precio (mayoreo)</label><input type="number" id="tvPrecio" inputmode="decimal" placeholder="0"></div>
+          </div>
+          <button class="primary" style="width:100%" onclick="tvAgregar()">+ Agregar</button>
+          <div id="tvCarritoBody" style="overflow-x:auto; margin-top:12px"></div>
+          <button class="primary" id="tvFinalizar" style="width:100%; margin-top:10px; display:none" onclick="tvVender()">✅ Cobrar venta</button>
+        </div>
+      </div>
+
+      <div id="vmt-reservas" style="display:none">
+        <div class="card"><h2>📋 Reservas de clientes</h2><div id="tvReservasBody" style="margin-top:8px"></div></div>
+      </div>
+    </div>
   </div>
 
 <!-- ===================== APP: GESTIÓN (rol administrador / dueño) ===================== -->
@@ -772,12 +817,14 @@
   <div id="tab-historial" class="tab" style="display:none">
     <div class="card">
       <h2>Historial de movimientos</h2>
-      <table>
+      <div style="overflow-x:auto; -webkit-overflow-scrolling:touch">
+      <table style="min-width:820px">
         <thead><tr>
           <th>Fecha</th><th>Tipo</th><th>Producto</th><th>Origen</th><th>Destino</th><th>Cant.</th><th>Antes → Después</th><th>Nota</th><th></th>
         </tr></thead>
         <tbody id="historialBody"></tbody>
       </table>
+      </div>
       <div id="historialMovEmpty" class="empty" style="display:none">Sin movimientos registrados todavía.</div>
       <div id="historialPie"></div>
     </div>
@@ -899,7 +946,10 @@
         <button id="mtab-btn-inventario" onclick="cambiarMTab('inventario')">🏬 Inventario</button>
         <button id="mtab-btn-vender" onclick="cambiarMTab('vender')">🛒 Vender</button>
         <button id="mtab-btn-ganancias" onclick="cambiarMTab('ganancias')">💰 Ganancias</button>
+        <button id="mtab-btn-dinero" onclick="cambiarMTab('dinero')">💵 Dinero</button>
         <button id="mtab-btn-reservas" onclick="cambiarMTab('reservas')">📋 Reservas</button>
+        <button id="mtab-btn-avisar" onclick="cambiarMTab('avisar')">📣 Avisar</button>
+        <button id="mtab-btn-clientes" onclick="cambiarMTab('clientes')">👥 Clientes</button>
         <button id="mtab-btn-historial" onclick="cambiarMTab('historial')">🕘 Historial</button>
       </div>
       <div id="mayAviso" class="msg"></div>
@@ -917,7 +967,7 @@
     <!-- PRODUCTOS / PRECIOS DE MAYOREO -->
     <div id="mtab-productos" class="mtab">
       <div class="card">
-        <h2>📥 Entrada de mercancía (mayoreo)</h2>
+        <h2>📥 Ingresar / Extraer mercancía (mayoreo)</h2>
         
         <div class="field">
           <label>Producto</label>
@@ -927,8 +977,11 @@
           <div id="mayEelegido" style="margin-top:6px; font-size:13px; color:var(--green); font-weight:700"></div>
         </div>
         <div class="row">
-          <div class="field"><label>Cantidad que entra</label><input type="number" id="mayEcant" inputmode="numeric" placeholder="0"></div>
-          <div class="field" style="display:flex; align-items:flex-end"><button class="primary" style="width:100%" onclick="entradaMayoreo()">📥 Meter al mayoreo</button></div>
+          <div class="field"><label>Cantidad</label><input type="number" id="mayEcant" inputmode="numeric" placeholder="0"></div>
+        </div>
+        <div class="row">
+          <div class="field" style="display:flex; align-items:flex-end"><button class="primary" style="width:100%" onclick="entradaMayoreo(1)">📥 Ingresar</button></div>
+          <div class="field" style="display:flex; align-items:flex-end"><button class="ghost" style="width:100%" onclick="entradaMayoreo(-1)">📤 Extraer</button></div>
         </div>
         <div id="mayEmsg" class="msg"></div>
       </div>
@@ -965,25 +1018,66 @@
     <div id="mtab-ganancias" class="mtab" style="display:none">
       <div class="card">
         <h2>💰 Ganancias de mayoreo</h2>
-        <div class="row" style="align-items:flex-end">
-          <div class="field"><label>Desde</label><input type="date" id="mayGanDesde"></div>
-          <div class="field"><label>Hasta</label><input type="date" id="mayGanHasta"></div>
-          <div class="field" style="display:flex; align-items:flex-end"><button class="primary" style="width:100%" onclick="cargarGananciasMayoreo()">Ver</button></div>
-        </div>
-        <div id="mayGananciasBody" style="margin-top:10px"></div>
+        <div id="mayGananciasBody" style="margin-top:6px"></div>
+      </div>
+    </div>
+
+    <!-- DINERO -->
+    <div id="mtab-dinero" class="mtab" style="display:none">
+      <div class="card">
+        <h2>💵 Dinero del mayoreo</h2>
+        <div id="mayDineroBody" style="margin-top:6px"></div>
       </div>
     </div>
 
     <!-- RESERVAS (desde la web) -->
+    <!-- AVISAR NOVEDADES -->
+    <!-- CLIENTES -->
+    <div id="mtab-clientes" class="mtab" style="display:none">
+      <div class="card">
+        <h2>👥 Clientes</h2>
+        <div style="color:var(--muted);font-size:13px;margin-bottom:8px">Sus compras y si cumplen con las reservas. Toca un cliente para ver sus pedidos.</div>
+        <input type="text" id="cliBuscar" placeholder="🔎 Buscar por nombre o teléfono" oninput="renderClientes()" autocomplete="off">
+        <div id="mayClientesBody" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+    <div id="mtab-avisar" class="mtab" style="display:none">
+      <div class="card">
+        <h2>📣 Avisar novedades</h2>
+        <div style="color:var(--muted);font-size:13px;margin-bottom:8px">Manda un aviso a los clientes que dejaron su WhatsApp al reservar. Uno por uno, o copia el mensaje y los números para una lista de difusión.</div>
+        <label>Mensaje</label>
+        <textarea id="avisarMsg" style="width:100%;min-height:90px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--panel2);color:var(--texto);font-family:inherit;font-size:15px"></textarea>
+        <div class="row" style="margin-top:8px">
+          <div class="field" style="display:flex;align-items:flex-end"><button class="ghost" style="width:100%" onclick="ponerNovedadesAvisar()">➕ Poner lo nuevo (7 días)</button></div>
+          <div class="field" style="display:flex;align-items:flex-end"><button class="ghost" style="width:100%" onclick="copiarTexto(document.getElementById('avisarMsg').value,'Mensaje copiado')">📋 Copiar mensaje</button></div>
+        </div>
+        <button class="ghost" style="width:100%;margin-top:8px" onclick="copiarNumerosAvisar()">📋 Copiar todos los números (para difusión)</button>
+        <div id="avisarMsgEstado" class="msg"></div>
+        <div id="avisarContactos" style="margin-top:10px"></div>
+      </div>
+    </div>
+
     <div id="mtab-reservas" class="mtab" style="display:none">
       <div class="card"><h2>📋 Reservas de clientes (web)</h2><div id="mayReservasBody" style="margin-top:8px"></div></div>
+      <div class="card">
+        <div onclick="verCumplimientoClientes()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">✅ Cumplimiento por cliente</h2><button class="ghost" style="padding:6px 12px;font-size:13px">Ver</button></div>
+        <div id="mayCumplBody" style="margin-top:8px"></div>
+      </div>
     </div>
 
     <!-- HISTORIAL -->
     <div id="mtab-historial" class="mtab" style="display:none">
       <div class="card">
-        <h2>🕘 Historial de ventas de mayoreo</h2>
-        <div id="mayHistorialBody" style="overflow-x:auto"></div>
+        <h2>🕘 Historial</h2>
+        <div class="tabs" style="margin-bottom:6px; flex-wrap:wrap">
+          <button id="htab-btn-dinero" class="active" onclick="cambiarHTab('dinero')">💵 Dinero</button>
+          <button id="htab-btn-ventas" onclick="cambiarHTab('ventas')">🛒 Ventas</button>
+          <button id="htab-btn-productos" onclick="cambiarHTab('productos')">📦 Productos</button>
+        </div>
+        <div id="htab-dinero"><div id="mayHistDineroBody" style="overflow-x:auto"></div></div>
+        <div id="htab-ventas" style="display:none"><div id="mayHistorialBody" style="overflow-x:auto"></div></div>
+        <div id="htab-productos" style="display:none"><div id="mayHistProdBody" style="overflow-x:auto"></div></div>
       </div>
     </div>
   </div>
@@ -5657,6 +5751,129 @@ function cambiarVTab(tab){
   if(tab==='cobrar'){ cargarCobros(); }
   if(tab==='devoluciones'){ cargarDevolucionesTab(); }
   if(tab==='historial'){ cargarHistorialDias(); cargarMercanciaRecibida(); }
+  if(tab==='mayoreo'){ cambiarVMTab('vender'); }
+}
+
+// ===== MAYOREO en la cuenta del vendedor (Tamy): vender + ver reservas =====
+let __tvCarrito=[]; let __tvReservaEnVenta=null;
+function cambiarVMTab(cual){
+  document.getElementById('vmt-vender').style.display = cual==='vender'?'block':'none';
+  document.getElementById('vmt-reservas').style.display = cual==='reservas'?'block':'none';
+  const bv=document.getElementById('vmt-btn-vender'), br=document.getElementById('vmt-btn-reservas');
+  if(bv) bv.classList.toggle('active', cual==='vender');
+  if(br) br.classList.toggle('active', cual==='reservas');
+  if(cual==='vender') tvPreparar();
+  if(cual==='reservas') tvCargarReservas();
+}
+function tvPreparar(){
+  const av=document.getElementById('tvAviso');
+  if(!almacenMayoreo()){ av.innerHTML='⚠️ Falta el almacén MAYOREO (que lo cree el dueño).'; av.className='msg err'; }
+  else { av.textContent=''; av.className='msg'; }
+  document.getElementById('tvBuscar').value=''; document.getElementById('tvProd').value='';
+  document.getElementById('tvElegido').textContent=''; document.getElementById('tvSug').style.display='none';
+  document.getElementById('tvCant').value=''; document.getElementById('tvPrecio').value='';
+  tvRenderCarrito();
+}
+function tvFiltrar(){
+  const q=(document.getElementById('tvBuscar').value||'').trim().toLowerCase();
+  const cont=document.getElementById('tvSug');
+  document.getElementById('tvProd').value=''; document.getElementById('tvElegido').textContent='';
+  const alm=almacenMayoreo();
+  if(q.length<1||!alm){ cont.style.display='none'; cont.innerHTML=''; return; }
+  const stockDe=pid=>(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
+  const m=(PRODUCTOS||[]).filter(p=>(p.nombre||'').toLowerCase().includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre)).slice(0,15);
+  if(!m.length){ cont.style.display='block'; cont.innerHTML='<div style="padding:10px;color:var(--muted)">Sin coincidencias.</div>'; return; }
+  cont.innerHTML=m.map(p=>{ const h=stockDe(p.id); return `<div onclick="tvElegir(${p.id})" style="padding:12px;border-bottom:1px solid var(--border);cursor:pointer">${p.nombre} <span style="color:${h>0?'var(--green)':'var(--muted)'};font-size:13px">· hay ${num(h)}</span></div>`; }).join('');
+  cont.style.display='block';
+}
+function tvElegir(id){
+  const p=(PRODUCTOS||[]).find(x=>x.id===id); if(!p) return;
+  document.getElementById('tvProd').value=id;
+  document.getElementById('tvBuscar').value=p.nombre;
+  document.getElementById('tvElegido').textContent='✓ '+p.nombre;
+  document.getElementById('tvSug').style.display='none';
+  document.getElementById('tvPrecio').value=Number(p.precio_mayoreo||0);
+  const c=document.getElementById('tvCant'); if(c&&!c.value) c.value=1;
+}
+function tvAgregar(){
+  const pid=Number(document.getElementById('tvProd').value);
+  const cant=Number(document.getElementById('tvCant').value);
+  const precio=Number(document.getElementById('tvPrecio').value);
+  const p=(PRODUCTOS||[]).find(x=>x.id===pid);
+  if(!p){ alert('Elige un producto.'); return; }
+  if(!cant||cant<=0){ alert('Pon una cantidad.'); return; }
+  if(isNaN(precio)||precio<0){ alert('Precio no válido.'); return; }
+  const alm=almacenMayoreo();
+  const stock=(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
+  const ya=__tvCarrito.filter(x=>x.producto_id===pid).reduce((s,x)=>s+x.cantidad,0);
+  if(cant+ya>stock){ alert('No hay tanto. Hay '+num(stock)+' y ya llevas '+num(ya)+'.'); return; }
+  __tvCarrito.push({producto_id:pid, nombre:p.nombre, cantidad:cant, precio, costo:Number(p.costo_mayoreo||0)});
+  document.getElementById('tvBuscar').value=''; document.getElementById('tvProd').value='';
+  document.getElementById('tvElegido').textContent=''; document.getElementById('tvCant').value=''; document.getElementById('tvPrecio').value='';
+  tvRenderCarrito();
+}
+function tvQuitar(i){ __tvCarrito.splice(i,1); tvRenderCarrito(); }
+function tvRenderCarrito(){
+  const cont=document.getElementById('tvCarritoBody'); const btn=document.getElementById('tvFinalizar');
+  if(!__tvCarrito.length){ cont.innerHTML='<div class="empty">Carrito vacío.</div>'; btn.style.display='none'; return; }
+  const total=__tvCarrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
+  cont.innerHTML=`<table style="min-width:480px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th><th></th></tr></thead><tbody>
+  ${__tvCarrito.map((x,i)=>`<tr><td>${x.nombre}</td><td class="numcell">${num(x.cantidad)}</td><td class="numcell">$${num(x.precio)}</td><td class="numcell">$${num(x.cantidad*x.precio)}</td><td><button class="ghost" onclick="tvQuitar(${i})">✕</button></td></tr>`).join('')}
+  </tbody><tfoot><tr><td colspan="3" style="text-align:right;font-weight:700">TOTAL</td><td class="numcell" style="font-weight:800;color:var(--green)">$${num(total)}</td><td></td></tr></tfoot></table>`;
+  btn.style.display='block';
+}
+async function tvVender(){
+  if(!__tvCarrito.length) return;
+  if(!navigator.onLine){ alert('Necesitas internet para cobrar.'); return; }
+  const total=__tvCarrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
+  if(!confirm('Cobrar venta de mayoreo por $'+num(total)+'.\n\n¿Confirmar?')) return;
+  const btn=document.getElementById('tvFinalizar'); btn.disabled=true; btn.textContent='Cobrando…';
+  try{
+    await procesarVentaMayoreo(__tvCarrito, __tvReservaEnVenta); __tvReservaEnVenta=null;
+    __tvCarrito=[]; tvRenderCarrito();
+    alert('Venta cobrada. ✓');
+    cambiarVMTab('reservas');
+  }catch(e){ alert('No se pudo (se revirtió el stock). '+(e.message||e)); }
+  finally{ btn.disabled=false; btn.textContent='✅ Cobrar venta'; }
+}
+let __tvReservas={};
+async function tvCargarReservas(){
+  const cont=document.getElementById('tvReservasBody');
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
+  cont.textContent='Cargando…';
+  try{
+    const {data,error}=await sb.from('reservas_mayoreo').select('*').eq('estado','nueva').order('id',{ascending:false}).limit(100);
+    if(error) throw error;
+    __tvReservas={}; (data||[]).forEach(r=>{ __tvReservas[r.id]=r; });
+    if(!data||!data.length){ cont.innerHTML='<div class="empty">No hay reservas pendientes.</div>'; return; }
+    cont.innerHTML=data.map(r=>{ const items=Array.isArray(r.items)?r.items:[]; const tel=(r.telefono||'').replace(/[^0-9]/g,'');
+      const wa=tel?`<a class="ghost" style="display:inline-block;padding:8px 12px;border:1px solid var(--border);border-radius:8px;text-decoration:none;font-size:13px" href="https://wa.me/${tel}" target="_blank">💬</a>`:'';
+      return `<div style="border:2px solid var(--amber);border-radius:12px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${r.nombre||'(sin nombre)'}</b><span style="color:var(--muted);font-size:12px">${(r.creado_en||'').slice(0,16).replace('T',' ')}</span></div>
+        <div style="color:var(--muted);font-size:13px;margin:4px 0">📞 ${r.telefono||'—'} · total aprox $${num(r.total)}</div>
+        <div style="font-size:14px;margin:6px 0">${items.map(it=>`${it.nombre} <b>×${num(it.cantidad)}</b>`).join('<br>')}</div>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <button class="primary" style="padding:8px 12px;font-size:13px" onclick="tvVenderReserva(${r.id})">🛒 Vender</button>
+          ${wa}
+          <button class="ghost" style="padding:8px 12px;font-size:13px;color:var(--amber)" onclick="tvNoVino(${r.id})">🚫 No vino</button>
+        </div>
+      </div>`;
+    }).join('');
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
+}
+function tvVenderReserva(id){
+  const r=__tvReservas[id]; if(!r) return;
+  __tvCarrito=[]; let avisos=[];
+  (Array.isArray(r.items)?r.items:[]).forEach(it=>{ const p=(PRODUCTOS||[]).find(x=>x.id===it.producto_id); if(!p){ avisos.push(it.nombre); return; } __tvCarrito.push({producto_id:p.id, nombre:p.nombre, cantidad:Number(it.cantidad)||0, precio:Number(p.precio_mayoreo||it.precio||0), costo:Number(p.costo_mayoreo||0)}); });
+  __tvReservaEnVenta=id;
+  cambiarVMTab('vender'); tvRenderCarrito();
+  if(avisos.length) alert('Ojo, ya no existen: '+avisos.join(', '));
+}
+async function tvNoVino(id){
+  if(!confirm('¿Marcar que el cliente NO vino? Libera el stock.')) return;
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  try{ const {error}=await sb.from('reservas_mayoreo').update({estado:'no_vino'}).eq('id',id); if(error) throw error; tvCargarReservas(); }
+  catch(e){ alert('No se pudo: '+(e.message||e)); }
 }
 
 // ---------- VENTA DEL DÍA (abrir si no existe una abierta para hoy) ----------
@@ -7911,6 +8128,7 @@ async function entrarComo(usuario){
     document.getElementById('btnAbrirMenu').style.display='flex';
     document.getElementById('ventaDiaHeaderPill').style.display='inline';
     document.getElementById('drawerNavVentas').style.display='block';
+    { const b=document.getElementById('vbtnMayoreo'); if(b) b.style.display = puedeMayoreoVenta() ? 'block' : 'none'; }
     document.getElementById('drawerNavGestion').style.display='none';
     document.getElementById('appVentas').style.display='block';
     actualizarConexionUI();
@@ -8066,6 +8284,7 @@ function esPuntoVenta(a){ return /^p\s/i.test(((a&&a.nombre)||'').trim()); }
 
 // ---- MAYOREO (mini-app) ----
 let __mayCarrito = [];
+let __reservaEnVenta = null;
 
 function cargarMayoreo(){
   const aviso=document.getElementById('mayAviso');
@@ -8076,16 +8295,19 @@ function cargarMayoreo(){
 }
 
 function cambiarMTab(cual){
-  ['productos','inventario','vender','ganancias','historial','reservas'].forEach(t=>{
+  ['productos','inventario','vender','ganancias','dinero','historial','reservas','avisar','clientes'].forEach(t=>{
     const el=document.getElementById('mtab-'+t); if(el) el.style.display = (t===cual)?'block':'none';
     const b=document.getElementById('mtab-btn-'+t); if(b) b.classList.toggle('active', t===cual);
   });
   if(cual==='productos') renderPreciosMayoreo();
   if(cual==='inventario') renderInvMayoreo();
   if(cual==='vender') prepararVenderMayoreo();
-  if(cual==='ganancias'){ const h=fechaHoyLocal(); const d=document.getElementById('mayGanDesde'), ha=document.getElementById('mayGanHasta'); if(d&&!d.value){ const x=new Date(); x.setDate(x.getDate()-30); d.value=x.toISOString().slice(0,10);} if(ha&&!ha.value) ha.value=h; cargarGananciasMayoreo(); }
-  if(cual==='historial') cargarHistorialMayoreo();
+  if(cual==='ganancias') cargarGananciasMayoreo();
+  if(cual==='dinero') cargarDineroMayoreo();
+  if(cual==='historial') cambiarHTab('dinero');
   if(cual==='reservas') cargarReservasMayoreo();
+  if(cual==='avisar') cargarAvisarMayoreo();
+  if(cual==='clientes') cargarClientesMayoreo();
 }
 
 // Inventario del almacén MAYOREO
@@ -8101,7 +8323,7 @@ function renderInvMayoreo(){
   const total=filas.reduce((s,x)=>s+x.cant,0);
   if(!filas.length){ cont.innerHTML='<div class="empty">El almacén de mayoreo no tiene stock todavía. Métele con "📥 Entrada de mercancía".</div>'; return; }
   cont.innerHTML=`<div style="font-weight:700; margin-bottom:6px">${num(total)} uds.</div>
-  <table style="min-width:420px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">P. Mayoreo</th></tr></thead><tbody>
+  <table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">P. Mayoreo</th></tr></thead><tbody>
   ${filas.sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(x=>`<tr><td>${x.nombre}</td><td class="numcell">${num(x.cant)}</td><td class="numcell">$${num(x.pm)}</td></tr>`).join('')}
   </tbody></table>`;
 }
@@ -8114,7 +8336,7 @@ function renderPreciosMayoreo(){
   if(q) lista=lista.filter(p=>(p.nombre||'').toLowerCase().includes(q));
   lista=lista.slice(0,60);
   if(!lista.length){ cont.innerHTML='<div class="empty">Sin productos.</div>'; return; }
-  cont.innerHTML=`<table style="min-width:560px"><thead><tr><th>Producto</th><th class="numcell">Costo may.</th><th class="numcell">Precio may.</th><th></th><th></th></tr></thead><tbody>
+  cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Costo may.</th><th class="numcell">Precio may.</th><th></th><th></th></tr></thead><tbody>
   ${lista.map(p=>`<tr>
     <td>${p.nombre}</td>
     <td class="numcell"><input type="number" id="mayco-${p.id}" value="${Number(p.costo_mayoreo)>0?Number(p.costo_mayoreo):''}" placeholder="0" inputmode="decimal" style="width:85px; text-align:right"></td>
@@ -8165,7 +8387,8 @@ function elegirMayEntrada(id){
   document.getElementById('mayEelegido').textContent='✓ '+p.nombre;
   document.getElementById('mayEsug').style.display='none';
 }
-async function entradaMayoreo(){
+async function entradaMayoreo(signo){
+  signo = (Number(signo)<0) ? -1 : 1;
   const pid=Number(document.getElementById('mayEprod').value);
   const cant=Number(document.getElementById('mayEcant').value);
   const msg=document.getElementById('mayEmsg');
@@ -8175,9 +8398,11 @@ async function entradaMayoreo(){
   if(!cant||cant<=0){ msg.textContent='Pon una cantidad.'; msg.className='msg err'; return; }
   if(!navigator.onLine){ msg.textContent='Necesitas internet.'; msg.className='msg err'; return; }
   try{
-    await ajustarInventario(alm.id, pid, cant);
+    const rr=await ajustarInventario(alm.id, pid, signo*cant);
+    const pr=(PRODUCTOS||[]).find(x=>x.id===pid);
+    try{ await sb.from('mayoreo_movimientos').insert({tipo: signo>0?'ingreso':'extraccion', producto_id:pid, nombre:(pr&&pr.nombre)||('#'+pid), cantidad:cant, cant_antes:rr.antes, cant_despues:rr.despues}); }catch(_){}
     await cargarTodo();
-    msg.textContent='Entró al mayoreo. ✓'; msg.className='msg ok';
+    msg.textContent = signo>0 ? 'Ingresó al mayoreo. ✓' : 'Se extrajo del mayoreo. ✓'; msg.className='msg ok';
     document.getElementById('mayEbuscar').value=''; document.getElementById('mayEprod').value='';
     document.getElementById('mayEelegido').textContent=''; document.getElementById('mayEcant').value='';
   }catch(e){ msg.textContent='No se pudo: '+(e.message||e); msg.className='msg err'; }
@@ -8330,75 +8555,240 @@ function renderMayCarrito(){
   const btn=document.getElementById('mayFinalizarBtn');
   if(!__mayCarrito.length){ cont.innerHTML='<div class="empty">Carrito vacío.</div>'; btn.style.display='none'; return; }
   const total=__mayCarrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
-  cont.innerHTML=`<table style="min-width:480px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th><th></th></tr></thead><tbody>
+  cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th><th></th></tr></thead><tbody>
   ${__mayCarrito.map((x,i)=>`<tr><td>${x.nombre}</td><td class="numcell">${num(x.cantidad)}</td><td class="numcell">$${num(x.precio)}</td><td class="numcell">$${num(x.cantidad*x.precio)}</td><td><button class="ghost" onclick="quitarMayItem(${i})">✕</button></td></tr>`).join('')}
   </tbody><tfoot><tr><td colspan="3" style="text-align:right;font-weight:700">TOTAL</td><td class="numcell" style="font-weight:800;color:var(--green)">$${num(total)}</td><td></td></tr></tfoot></table>`;
   btn.style.display='block';
 }
 
-async function finalizarVentaMayoreo(){
-  if(!__mayCarrito.length) return;
-  if(!navigator.onLine){ alert('Necesitas internet para cobrar la venta de mayoreo.'); return; }
-  const alm=almacenMayoreo(); if(!alm){ alert('Falta el almacén MAYOREO.'); return; }
-  const total=__mayCarrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
-  const ganancia=__mayCarrito.reduce((s,x)=>s+x.cantidad*(x.precio-x.costo),0);
-  const r=repartoMayoreo(ganancia);
-  if(!confirm(`Cobrar venta de mayoreo por $${num(total)} (ganancia $${num(ganancia)}).\n\nReparto: Dariel $${num(r.dariel)} · Tamy $${num(r.vendedor)} · Admin jk $${num(r.adminJk)} · Dueño $${num(r.dueno)}\n\n¿Confirmar?`)) return;
-  const btn=document.getElementById('mayFinalizarBtn'); btn.disabled=true; btn.textContent='Cobrando…';
+// NÚCLEO compartido de la venta de mayoreo (mismo dinero para dueño/Dariel y Tamy).
+async function procesarVentaMayoreo(carrito, reservaId){
+  const alm=almacenMayoreo(); if(!alm) throw new Error('Falta el almacén MAYOREO.');
+  const total=carrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
+  const ganancia=carrito.reduce((s,x)=>s+x.cantidad*(x.precio-x.costo),0);
   const clave='may_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
   const descontados=[];
   try{
-    // 1) Descontar stock del almacén MAYOREO (guardando lo hecho para poder revertir si algo falla).
-    for(const it of __mayCarrito){ await ajustarInventario(alm.id, it.producto_id, -it.cantidad); descontados.push(it); }
-    // 2) Registrar la venta de mayoreo (su historial va aquí, no en movimientos normales).
-    const vRes=await sb.from('ventas_mayoreo').insert({ items:__mayCarrito, total, ganancia, usuario:(usuarioActual&&usuarioActual.nombre)||'', clave_local:clave, fecha:fechaHoyLocal() });
-    if(vRes.error) throw vRes.error;
-    // 3) Reparto como deudas (dueño se queda el resto, sin deuda)
-    if(ganancia>0){
-      const filas=[
-        {persona:'Dariel', monto:r.dariel, nota:'Mayoreo 50% administración - venta del '+fechaHoyLocal()},
-        {persona:'Tamy',   monto:r.vendedor, nota:'Mayoreo 10% vendedor - venta del '+fechaHoyLocal()},
-        {persona:'admin jk', monto:r.adminJk, nota:'Mayoreo 20% admin jk - venta del '+fechaHoyLocal()},
-      ].filter(x=>x.monto>0);
-      for(const f of filas){ const dRes=await sb.from('deudas').insert({tipo:'debo', tipo_deuda:'dinero', persona:f.persona, monto:f.monto, pagada:false, nota:f.nota, clave_comision:'may-'+clave+'-'+f.persona}); if(dRes.error) throw dRes.error; }
+    for(const it of carrito){
+      const rr=await ajustarInventario(alm.id, it.producto_id, -it.cantidad); descontados.push(it);
+      try{ await sb.from('mayoreo_movimientos').insert({tipo:'venta', producto_id:it.producto_id, nombre:it.nombre, cantidad:it.cantidad, cant_antes:rr.antes, cant_despues:rr.despues, nota:'Venta mayoreo'}); }catch(_){}
+      const row=(INVENTARIO||[]).find(i=>i.almacen_id===alm.id && i.producto_id===it.producto_id);
+      if(row) row.cantidad = Number(row.cantidad||0) - it.cantidad;
     }
+    const vRes=await sb.from('ventas_mayoreo').insert({ items:carrito, total, ganancia, usuario:(usuarioActual&&usuarioActual.nombre)||'', clave_local:clave, fecha:fechaHoyLocal() });
+    if(vRes.error) throw vRes.error;
+    if(reservaId){ try{ await sb.from('reservas_mayoreo').update({estado:'atendida'}).eq('id',reservaId); }catch(_){} }
+    return {total, ganancia};
+  }catch(e){
+    for(const it of descontados){ try{ await ajustarInventario(alm.id, it.producto_id, it.cantidad); const row=(INVENTARIO||[]).find(i=>i.almacen_id===alm.id && i.producto_id===it.producto_id); if(row) row.cantidad=Number(row.cantidad||0)+it.cantidad; }catch(_){} }
+    throw e;
+  }
+}
+
+async function finalizarVentaMayoreo(){
+  if(!__mayCarrito.length) return;
+  if(!navigator.onLine){ alert('Necesitas internet para cobrar la venta de mayoreo.'); return; }
+  if(!almacenMayoreo()){ alert('Falta el almacén MAYOREO.'); return; }
+  const total=__mayCarrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
+  const ganancia=__mayCarrito.reduce((s,x)=>s+x.cantidad*(x.precio-x.costo),0);
+  if(!confirm('Cobrar venta de mayoreo por $'+num(total)+' (ganancia $'+num(ganancia)+').\n\n¿Confirmar?')) return;
+  const btn=document.getElementById('mayFinalizarBtn'); btn.disabled=true; btn.textContent='Cobrando…';
+  try{
+    await procesarVentaMayoreo(__mayCarrito, __reservaEnVenta); __reservaEnVenta=null;
     __mayCarrito=[]; renderMayCarrito();
     await cargarTodo();
     alert('Venta de mayoreo cobrada. ✓');
     cambiarMTab('historial');
-  }catch(e){
-    // Revertir el stock que ya se había descontado, para no perder mercancía.
-    for(const it of descontados){ try{ await ajustarInventario(alm.id, it.producto_id, it.cantidad); }catch(_){} }
-    alert('No se pudo completar la venta (se revirtió el stock). '+(e.message||e));
-  }
+  }catch(e){ alert('No se pudo completar la venta (se revirtió el stock). '+(e.message||e)); }
   finally{ btn.disabled=false; btn.textContent='✅ Cobrar venta de mayoreo'; }
 }
 
 // ----- GANANCIAS -----
+async function acumuladoMayoreo(){
+  const ventas=[]; { let d=0; for(;;){ const r=await sb.from('ventas_mayoreo').select('total,ganancia').order('id',{ascending:true}).range(d,d+999); if(r.error) throw r.error; ventas.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
+  let vendido=0, gan=0, acc={Dariel:0,Tamy:0,jk:0,'Dueño':0};
+  ventas.forEach(v=>{ const t=Number(v.total||0), g=Number(v.ganancia||0); const c=t-g; const rf=repartoMayoreoFull(c,g); vendido+=t; gan+=g; acc.Dariel+=rf.darielTotal; acc.Tamy+=rf.vendedor; acc.jk+=rf.adminJk; acc['Dueño']+=rf.dueno; });
+  let movs=[]; try{ let d=0; for(;;){ const r=await sb.from('mayoreo_caja').select('*').order('id',{ascending:true}).range(d,d+999); if(r.error) throw r.error; movs.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }catch(e){ movs=[]; }
+  const cobrado={Dariel:0,Tamy:0,jk:0,'Dueño':0}; let ingManual=0, egrManual=0;
+  movs.forEach(m=>{ if(m.tipo==='cobro'){ if(cobrado[m.persona]!=null) cobrado[m.persona]+=Number(m.monto||0); } else if(m.tipo==='ingreso'){ ingManual+=Number(m.monto||0); } else if(m.tipo==='egreso'){ egrManual+=Number(m.monto||0); } });
+  const pend={}; Object.keys(acc).forEach(k=>pend[k]=Math.round((acc[k]-cobrado[k])*100)/100);
+  const totalCobrado=Object.values(cobrado).reduce((a,b)=>a+b,0);
+  const efectivo=Math.round((vendido + ingManual - egrManual - totalCobrado)*100)/100;
+  return { vendido, gan, acc, cobrado, pend, efectivo };
+}
+
 async function cargarGananciasMayoreo(){
   const cont=document.getElementById('mayGananciasBody');
   if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
-  const desde=document.getElementById('mayGanDesde').value, hasta=document.getElementById('mayGanHasta').value;
   cont.textContent='Cargando…';
   try{
-    let q=sb.from('ventas_mayoreo').select('total,ganancia,fecha').order('id',{ascending:true});
-    if(desde) q=q.gte('fecha',desde);
-    if(hasta) q=q.lte('fecha',hasta);
-    const {data,error}=await q; if(error) throw error;
-    const vendido=(data||[]).reduce((s,v)=>s+Number(v.total||0),0);
-    const gan=(data||[]).reduce((s,v)=>s+Number(v.ganancia||0),0);
-    const r=repartoMayoreo(gan);
-    cont.innerHTML=`<div style="color:var(--muted);font-size:13px;margin-bottom:8px">${(data||[]).length} venta(s) · vendido $${num(vendido)} · ganancia <b style="color:var(--green)">$${num(gan)}</b></div>
-    <table><tbody>
-      <tr><td>👤 Dariel (administrador)</td><td class="numcell" style="font-weight:700">$${num(r.dariel)}</td></tr>
-      <tr><td>🛒 Vendedor (Tamy)</td><td class="numcell" style="font-weight:700">$${num(r.vendedor)}</td></tr>
-      <tr><td>👥 Admin jk</td><td class="numcell" style="font-weight:700">$${num(r.adminJk)}</td></tr>
-      <tr><td>🤵 Dueño (tú)</td><td class="numcell" style="font-weight:700;color:var(--green)">$${num(r.dueno)}</td></tr>
-    </tbody></table>`;
-  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
+    const a=await acumuladoMayoreo();
+    const fila=(clave,etq,desc)=>{
+      const p=a.pend[clave]||0;
+      const btn=p>0.004?`<button class="primary" style="padding:8px 14px;font-size:13px" onclick="cobrarMayoreo('${clave}')">Cobrar $${num(p)}</button>`:'<span style="color:var(--muted);font-size:13px">Nada por cobrar</span>';
+      return `<div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div><b>${etq}</b><div style="color:var(--muted);font-size:12px">${desc}</div></div>
+          <div style="text-align:right"><div style="font-weight:800;font-size:18px;color:var(--green)">$${num(p)}</div>${btn}</div>
+        </div>
+      </div>`;
+    };
+    cont.innerHTML=`<div style="color:var(--muted);font-size:12px;margin-bottom:10px">Vendido $${num(a.vendido)} · Ganancia $${num(a.gan)}. Cada uno cobra TODO lo acumulado; luego vuelve a subir con nuevas ventas.</div>`
+      + fila('Dariel','👤 Dariel','Inversión + su parte de ganancia. Al cobrar solo sale el dinero.')
+      + fila('Dueño','🤵 Dueño (tú)','Al cobrar entra a la caja normal de LOPE.')
+      + fila('jk','👥 Admin jk','Al cobrar se le pone en su cobro (Deudas).')
+      + fila('Tamy','🛒 Tamy','Al cobrar se le pone en su cobro (Deudas).');
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+' (¿corriste mayoreo_caja.sql?)</div>'; }
 }
 
-// ----- RESERVAS (desde la web) -----
+async function cobrarMayoreo(clave){
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  try{
+    const a=await acumuladoMayoreo();
+    const monto=Math.round((a.pend[clave]||0)*100)/100;
+    if(monto<=0.004){ alert('No hay nada por cobrar.'); return; }
+    const etq={Dariel:'Dariel', 'Dueño':'el dueño', jk:'Admin jk', Tamy:'Tamy'}[clave]||clave;
+    let destino = clave==='Dueño' ? 'Entra a la caja normal de LOPE.' : (clave==='jk'||clave==='Tamy') ? 'Se le pone en su cobro (Deudas).' : 'Solo sale del mayoreo.';
+    if(!confirm(`Cobrar $${num(monto)} para ${etq}.\n${destino}\n\n¿Confirmar?`)) return;
+    const c=await sb.from('mayoreo_caja').insert({tipo:'cobro', persona:clave, monto, concepto:'Cobro mayoreo '+etq});
+    if(c.error) throw c.error;
+    if(clave==='Dueño'){ await sb.from('caja_movimientos').insert({tipo:'ingreso', metodo:'efectivo', categoria:'otro', monto, concepto:'Cobro dueño (mayoreo)'}); }
+    else if(clave==='jk'){ await sb.from('deudas').insert({tipo:'debo', tipo_deuda:'dinero', persona:'admin jk', monto, pagada:false, nota:'Cobro mayoreo del '+fechaHoyLocal()}); }
+    else if(clave==='Tamy'){ await sb.from('deudas').insert({tipo:'debo', tipo_deuda:'dinero', persona:'Tamy', monto, pagada:false, nota:'Cobro mayoreo del '+fechaHoyLocal()}); }
+    alert('Cobrado. ✓');
+    cargarGananciasMayoreo();
+  }catch(e){ alert('No se pudo: '+(e.message||e)); }
+}
+
+async function cargarDineroMayoreo(){
+  const cont=document.getElementById('mayDineroBody');
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
+  cont.textContent='Cargando…';
+  try{
+    const a=await acumuladoMayoreo();
+    const alm=almacenMayoreo();
+    let netoInv=0;
+    if(alm){ (INVENTARIO||[]).filter(i=>i.almacen_id===alm.id).forEach(i=>{ const p=(PRODUCTOS||[]).find(x=>x.id===i.producto_id); netoInv += Number(i.cantidad||0)*Number((p&&p.costo_mayoreo)||0); }); }
+    cont.innerHTML=`
+    <div style="display:flex; gap:22px; flex-wrap:wrap; margin-bottom:14px">
+      <div><div style="color:var(--muted);font-size:12px">Efectivo en caja (mayoreo)</div><div style="font-weight:800;font-size:24px;color:var(--green)">$${num(a.efectivo)}</div></div>
+      <div><div style="color:var(--muted);font-size:12px">Neto del inventario (a costo)</div><div style="font-weight:800;font-size:24px">$${num(netoInv)}</div></div>
+    </div>
+    <div class="row">
+      <div class="field"><label>Monto</label><input type="number" id="mayCajaMonto" inputmode="decimal" placeholder="0"></div>
+      <div class="field"><label>Concepto (opcional)</label><input type="text" id="mayCajaConcepto" placeholder="ej: ajuste"></div>
+    </div>
+    <div class="row">
+      <div class="field" style="display:flex;align-items:flex-end"><button class="primary" style="width:100%" onclick="movCajaMayoreo('ingreso')">➕ Agregar dinero</button></div>
+      <div class="field" style="display:flex;align-items:flex-end"><button class="ghost" style="width:100%" onclick="movCajaMayoreo('egreso')">➖ Sacar dinero</button></div>
+    </div>
+    <div id="mayCajaMsg" class="msg"></div>`;
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+' (¿corriste mayoreo_caja.sql?)</div>'; }
+}
+async function movCajaMayoreo(tipo){
+  const monto=Number(document.getElementById('mayCajaMonto').value);
+  const concepto=(document.getElementById('mayCajaConcepto').value||'').trim();
+  const msg=document.getElementById('mayCajaMsg');
+  if(!monto||monto<=0){ msg.textContent='Pon un monto.'; msg.className='msg err'; return; }
+  if(!navigator.onLine){ msg.textContent='Necesitas internet.'; msg.className='msg err'; return; }
+  try{
+    const r=await sb.from('mayoreo_caja').insert({tipo, monto, concepto: concepto||(tipo==='ingreso'?'Agregado a mano':'Sacado a mano')});
+    if(r.error) throw r.error;
+    cargarDineroMayoreo();
+  }catch(e){ msg.textContent='No se pudo: '+(e.message||e); msg.className='msg err'; }
+}
+
+// 👥 CLIENTES: compras + cumplimiento de reservas
+let __clientesMay=[];
+async function cargarClientesMayoreo(){
+  const cont=document.getElementById('mayClientesBody');
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
+  cont.textContent='Cargando…';
+  try{
+    // Reservas (para compras + cumplimiento)
+    const rows=[]; { let d=0; for(;;){ const r=await sb.from('reservas_mayoreo').select('*').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; rows.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
+    // Cuentas registradas (por si alguno creó cuenta y no ha reservado)
+    let cuentas=[]; try{ const r=await sb.from('clientes').select('*').limit(1000); cuentas=r.data||[]; }catch(e){ cuentas=[]; }
+    const map={};
+    cuentas.forEach(c=>{ const tel=(c.telefono||'').replace(/[^0-9]/g,''); if(!tel)return; map[tel]={tel, nombre:c.usuario||c.nombre||'', total:0, atend:0, novino:0, nueva:0, reservas:[]}; });
+    rows.forEach(r=>{ const tel=(r.telefono||'').replace(/[^0-9]/g,'')||'(sin tel)'; if(!map[tel]) map[tel]={tel, nombre:r.nombre||'', total:0, atend:0, novino:0, nueva:0, reservas:[]}; if(r.nombre&&!map[tel].nombre)map[tel].nombre=r.nombre; const m=map[tel]; m.total++; if(r.estado==='atendida')m.atend++; else if(r.estado==='no_vino')m.novino++; else m.nueva++; m.reservas.push(r); });
+    __clientesMay=Object.values(map).sort((a,b)=> b.novino-a.novino || b.total-a.total);
+    renderClientes();
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+' (¿corriste clientes.sql / reservas_mayoreo.sql?)</div>'; }
+}
+function renderClientes(){
+  const cont=document.getElementById('mayClientesBody');
+  const q=(document.getElementById('cliBuscar').value||'').trim().toLowerCase();
+  let lista=__clientesMay;
+  if(q) lista=lista.filter(c=>(c.nombre||'').toLowerCase().includes(q)||c.tel.includes(q));
+  if(!lista.length){ cont.innerHTML='<div class="empty">Sin clientes.</div>'; return; }
+  cont.innerHTML=lista.map((c,i)=>{
+    const alerta = c.novino>0 ? `<span style="color:var(--red);font-weight:700">⚠ ${c.novino} no vino</span>` : `<span style="color:var(--green)">cumple</span>`;
+    const compras=c.reservas.map(r=>{ const items=(Array.isArray(r.items)?r.items:[]).map(it=>`${it.nombre} ×${num(it.cantidad)}`).join(', '); const est=r.estado==='atendida'?'✓':r.estado==='no_vino'?'🚫':'⏳'; return `<div style="font-size:13px;border-top:1px solid var(--border);padding:6px 0">${est} ${(r.creado_en||'').slice(0,10)} · $${num(r.total)}<div style="color:var(--muted)">${items}</div></div>`; }).join('');
+    return `<div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px">
+      <div onclick="document.getElementById('cli-${i}').style.display=(document.getElementById('cli-${i}').style.display==='none'?'block':'none')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div><b>${c.nombre||'(sin nombre)'}</b><div style="color:var(--muted);font-size:12px">${c.tel}</div></div>
+        <div style="text-align:right;font-size:12px">${c.total} reserva(s)<br>${alerta}</div>
+      </div>
+      <div id="cli-${i}" style="display:none;margin-top:8px">
+        <div style="font-size:12px;color:var(--muted)">✓ cumplió ${c.atend} · 🚫 no vino ${c.novino} · ⏳ pendiente ${c.nueva}</div>
+        ${compras||'<div style="color:var(--muted);font-size:13px;margin-top:6px">Sin compras aún.</div>'}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// 📣 AVISAR NOVEDADES a los clientes que dejaron su WhatsApp al reservar.
+const LINK_TIENDA_AVISO = 'https://miguelllop2001-cpu.github.io/tienda/';
+function copiarTexto(txt, ok){
+  try{ navigator.clipboard.writeText(txt).then(()=>{ const e=document.getElementById('avisarMsgEstado'); if(e){e.textContent=ok||'Copiado'; e.className='msg ok';} }); }
+  catch(_){ prompt('Copia esto:', txt); }
+}
+async function cargarAvisarMayoreo(){
+  const cont=document.getElementById('avisarContactos');
+  const ta=document.getElementById('avisarMsg');
+  if(ta && !ta.value){ ta.value='🆕 ¡Llegó mercancía nueva a LOPE! Mira el catálogo y aparta tu pedido: '+LINK_TIENDA_AVISO; }
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet para ver los contactos.</div>'; return; }
+  cont.textContent='Cargando contactos…';
+  try{
+    const rows=[]; { let d=0; for(;;){ const r=await sb.from('reservas_mayoreo').select('nombre,telefono,creado_en').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; rows.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
+    // Números únicos (el más reciente con su nombre)
+    const vistos={}; const contactos=[];
+    rows.forEach(r=>{ const tel=(r.telefono||'').replace(/[^0-9]/g,''); if(!tel) return; if(vistos[tel]) return; vistos[tel]=1; contactos.push({tel, nombre:r.nombre||''}); });
+    __avisarNumeros = contactos.map(c=>c.tel);
+    if(!contactos.length){ cont.innerHTML='<div class="empty">Todavía no hay teléfonos (aparecen cuando los clientes reservan en la web).</div>'; return; }
+    cont.innerHTML='<div style="color:var(--muted);font-size:12px;margin-bottom:6px">'+contactos.length+' contacto(s):</div>'+contactos.map(c=>{
+      return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid var(--border);padding:10px 2px">
+        <div><b>${c.nombre||'(sin nombre)'}</b><div style="color:var(--muted);font-size:12px">${c.tel}</div></div>
+        <button class="primary" style="padding:8px 14px;font-size:13px" onclick="enviarAvisoUno('${c.tel}')">💬 Enviar</button>
+      </div>`;
+    }).join('');
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
+}
+let __avisarNumeros=[];
+function enviarAvisoUno(tel){
+  const msg=encodeURIComponent(document.getElementById('avisarMsg').value||'');
+  window.open('https://wa.me/'+tel+'?text='+msg, '_blank');
+}
+function copiarNumerosAvisar(){
+  if(!__avisarNumeros.length){ alert('No hay números.'); return; }
+  copiarTexto(__avisarNumeros.join(', '), __avisarNumeros.length+' números copiados');
+}
+async function ponerNovedadesAvisar(){
+  const ta=document.getElementById('avisarMsg'); const est=document.getElementById('avisarMsgEstado');
+  if(!navigator.onLine){ est.textContent='Necesitas internet.'; est.className='msg err'; return; }
+  try{
+    const desde=new Date(); desde.setDate(desde.getDate()-7);
+    const iso=desde.toISOString();
+    const {data,error}=await sb.from('mayoreo_movimientos').select('nombre,tipo,creado_en').eq('tipo','ingreso').gte('creado_en',iso).order('id',{ascending:false}).limit(500);
+    if(error) throw error;
+    const nombres=[...new Set((data||[]).map(m=>m.nombre).filter(Boolean))].slice(0,30);
+    if(!nombres.length){ est.textContent='No hay ingresos nuevos en los últimos 7 días.'; est.className='msg'; return; }
+    ta.value='🆕 ¡Llegó a LOPE!\n• '+nombres.join('\n• ')+'\n\nMira el catálogo y aparta: '+LINK_TIENDA_AVISO;
+    est.textContent='Puse '+nombres.length+' producto(s) nuevos.'; est.className='msg ok';
+  }catch(e){ est.textContent='No se pudo: '+(e.message||e)+' (¿corriste mayoreo_movimientos.sql?)'; est.className='msg err'; }
+}
+
 async function cargarReservasMayoreo(){
   const cont=document.getElementById('mayReservasBody');
   if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
@@ -8406,7 +8796,8 @@ async function cargarReservasMayoreo(){
   try{
     const {data,error}=await sb.from('reservas_mayoreo').select('*').order('id',{ascending:false}).limit(100);
     if(error) throw error;
-    const nuevas=(data||[]).filter(r=>r.estado!=='atendida');
+    const nuevas=(data||[]).filter(r=>r.estado==='nueva');
+    __reservasMay={}; nuevas.forEach(r=>{ __reservasMay[r.id]=r; });
     if(!nuevas.length){ cont.innerHTML='<div class="empty">No hay reservas nuevas.</div>'; return; }
     cont.innerHTML=nuevas.map(r=>{
       const items=Array.isArray(r.items)?r.items:[];
@@ -8416,10 +8807,66 @@ async function cargarReservasMayoreo(){
         <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${r.nombre||'(sin nombre)'}</b><span style="color:var(--muted);font-size:12px">${(r.creado_en||'').slice(0,16).replace('T',' ')}</span></div>
         <div style="color:var(--muted);font-size:13px;margin:4px 0">📞 ${r.telefono||'—'} · total aprox $${num(r.total)}</div>
         <div style="font-size:14px;margin:6px 0">${items.map(it=>`${it.nombre} <b>×${num(it.cantidad)}</b>`).join('<br>')}</div>
-        <div style="display:flex;gap:8px;margin-top:8px">${wa}<button class="primary" style="padding:8px 12px;font-size:13px" onclick="marcarReservaAtendida(${r.id})">✓ Marcar atendida</button></div>
+        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+          <button class="primary" style="padding:8px 12px;font-size:13px" onclick="venderReservaMayoreo(${r.id})">🛒 Vender</button>
+          ${wa}
+          <button class="ghost" style="padding:8px 12px;font-size:13px" onclick="marcarReservaAtendida(${r.id})">✓ Atendida</button>
+          <button class="ghost" style="padding:8px 12px;font-size:13px;color:var(--amber)" onclick="marcarReservaNoVino(${r.id})">🚫 No vino</button>
+          <button class="ghost" style="padding:8px 12px;font-size:13px;color:var(--red)" onclick="quitarReservaMayoreo(${r.id})">🗑 Quitar</button>
+        </div>
       </div>`;
     }).join('');
   }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+' (¿corriste reservas_mayoreo.sql?)</div>'; }
+}
+let __reservasMay={};
+// Carga la reserva en el carrito de Vender (usa el precio de mayoreo actual del producto).
+function venderReservaMayoreo(id){
+  const r=__reservasMay[id]; if(!r) return;
+  const items=Array.isArray(r.items)?r.items:[];
+  __mayCarrito=[];
+  let avisos=[];
+  items.forEach(it=>{
+    const p=(PRODUCTOS||[]).find(x=>x.id===it.producto_id);
+    if(!p){ avisos.push('"'+it.nombre+'" ya no existe'); return; }
+    __mayCarrito.push({producto_id:p.id, nombre:p.nombre, cantidad:Number(it.cantidad)||0, precio:Number(p.precio_mayoreo||it.precio||0), costo:Number(p.costo_mayoreo||0)});
+  });
+  __reservaEnVenta=id; // recordar cuál reserva se está cobrando (para marcarla atendida al cobrar)
+  cambiarMTab('vender');
+  renderMayCarrito();
+  if(avisos.length) alert('Aviso: '+avisos.join(', '));
+}
+async function quitarReservaMayoreo(id){
+  if(!confirm('¿Quitar esta reserva? Se elimina de la lista.')) return;
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  try{ const {error}=await sb.from('reservas_mayoreo').delete().eq('id',id); if(error) throw error; cargarReservasMayoreo(); }
+  catch(e){ alert('No se pudo: '+(e.message||e)); }
+}
+async function marcarReservaNoVino(id){
+  if(!confirm('¿Marcar que este cliente NO vino? Se libera el stock y queda en su historial.')) return;
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  try{ const {error}=await sb.from('reservas_mayoreo').update({estado:'no_vino'}).eq('id',id); if(error) throw error; cargarReservasMayoreo(); }
+  catch(e){ alert('No se pudo: '+(e.message||e)); }
+}
+// Cumplimiento por cliente (para saber si queda bien con las reservas)
+async function verCumplimientoClientes(){
+  const cont=document.getElementById('mayCumplBody');
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
+  cont.textContent='Cargando…';
+  try{
+    const rows=[]; { let d=0; for(;;){ const r=await sb.from('reservas_mayoreo').select('nombre,telefono,estado').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; rows.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
+    const map={};
+    rows.forEach(r=>{ const tel=(r.telefono||'').replace(/[^0-9]/g,'')||'(sin tel)'; if(!map[tel]) map[tel]={nombre:r.nombre||'', tel, total:0, atend:0, novino:0, nueva:0}; map[tel].total++; if(r.estado==='atendida')map[tel].atend++; else if(r.estado==='no_vino')map[tel].novino++; else map[tel].nueva++; if(r.nombre) map[tel].nombre=r.nombre; });
+    const lista=Object.values(map).sort((a,b)=>b.novino-a.novino || b.total-a.total);
+    if(!lista.length){ cont.innerHTML='<div class="empty">Sin clientes todavía.</div>'; return; }
+    cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Cliente</th><th class="numcell">Reservas</th><th class="numcell">Cumplió</th><th class="numcell">No vino</th></tr></thead><tbody>
+    ${lista.map(c=>`<tr>
+      <td>${c.nombre||'(sin nombre)'}<div style="color:var(--muted);font-size:12px">${c.tel}</div></td>
+      <td class="numcell">${c.total}</td>
+      <td class="numcell" style="color:var(--green);font-weight:700">${c.atend}</td>
+      <td class="numcell" style="color:${c.novino>0?'var(--red)':'var(--muted)'};font-weight:700">${c.novino}</td>
+    </tr>`).join('')}
+    </tbody></table>`;
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
 }
 async function marcarReservaAtendida(id){
   if(!navigator.onLine){ alert('Necesitas internet.'); return; }
@@ -8428,6 +8875,56 @@ async function marcarReservaAtendida(id){
 }
 
 // ----- HISTORIAL -----
+function cambiarHTab(cual){
+  ['dinero','ventas','productos'].forEach(t=>{
+    const el=document.getElementById('htab-'+t); if(el) el.style.display=(t===cual)?'block':'none';
+    const b=document.getElementById('htab-btn-'+t); if(b) b.classList.toggle('active', t===cual);
+  });
+  if(cual==='dinero') cargarHistDineroMayoreo();
+  if(cual==='ventas') cargarHistorialMayoreo();
+  if(cual==='productos') cargarHistProdMayoreo();
+}
+
+// Historial de DINERO del mayoreo: entradas por ventas + (más adelante) cobros/agregar/sacar.
+async function cargarHistDineroMayoreo(){
+  const cont=document.getElementById('mayHistDineroBody');
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
+  cont.textContent='Cargando…';
+  try{
+    const ventas=[]; { let d=0; for(;;){ const r=await sb.from('ventas_mayoreo').select('fecha,total,creado_en').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; ventas.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
+    let movs=[]; try{ let d=0; for(;;){ const r=await sb.from('mayoreo_caja').select('*').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; movs.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }catch(e){ movs=[]; }
+    const filas=[];
+    ventas.forEach(v=>filas.push({fecha:(v.creado_en||v.fecha||'').slice(0,16).replace('T',' '), concepto:'Venta', signo:1, monto:Number(v.total||0)}));
+    movs.forEach(m=>filas.push({fecha:(m.creado_en||'').slice(0,16).replace('T',' '), concepto:m.concepto||m.tipo, signo:(m.tipo==='ingreso'?1:-1), monto:Number(m.monto||0)}));
+    filas.sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
+    if(!filas.length){ cont.innerHTML='<div class="empty">Sin movimientos de dinero todavía.</div>'; return; }
+    cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Fecha</th><th>Concepto</th><th class="numcell">Monto</th></tr></thead><tbody>
+    ${filas.slice(0,200).map(f=>`<tr><td>${f.fecha}</td><td>${f.concepto}</td><td class="numcell" style="color:${f.signo>0?'var(--green)':'var(--red)'};font-weight:700">${f.signo>0?'+':'−'}$${num(f.monto)}</td></tr>`).join('')}
+    </tbody></table>`;
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
+}
+
+// Historial de PRODUCTOS: cuánto se ha vendido de cada producto en mayoreo.
+async function cargarHistProdMayoreo(){
+  const cont=document.getElementById('mayHistProdBody');
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
+  cont.textContent='Cargando…';
+  try{
+    const movs=[]; { let d=0; for(;;){ const r=await sb.from('mayoreo_movimientos').select('*').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; movs.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; if(d>=4000) break; } }
+    if(!movs.length){ cont.innerHTML='<div class="empty">Sin movimientos de mercancía todavía. (Ingresa/extrae en Productos o vende, y correr mayoreo_movimientos.sql.)</div>'; return; }
+    const etiqueta=t=> t==='ingreso'?'<span class="badge ingreso">ingreso</span>' : t==='venta'?'<span class="badge traslado">venta</span>' : '<span class="badge extraccion">extracción</span>';
+    cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Fecha</th><th>Tipo</th><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Antes→Después</th></tr></thead><tbody>
+    ${movs.slice(0,300).map(m=>{ const signo=m.tipo==='ingreso'?'+':'−'; return `<tr>
+      <td style="font-size:12px">${(m.creado_en||'').slice(0,16).replace('T',' ')}</td>
+      <td>${etiqueta(m.tipo)}</td>
+      <td>${m.nombre||('#'+m.producto_id)}</td>
+      <td class="numcell" style="font-weight:700">${signo}${num(m.cantidad)}</td>
+      <td class="numcell" style="color:var(--muted)">${m.cant_antes!=null?num(m.cant_antes):'—'} → ${m.cant_despues!=null?num(m.cant_despues):'—'}</td>
+    </tr>`; }).join('')}
+    </tbody></table>`;
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+' (¿corriste mayoreo_movimientos.sql?)</div>'; }
+}
+
 async function cargarHistorialMayoreo(){
   const cont=document.getElementById('mayHistorialBody');
   if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
@@ -8436,12 +8933,19 @@ async function cargarHistorialMayoreo(){
     const {data,error}=await sb.from('ventas_mayoreo').select('*').order('id',{ascending:false}).limit(100);
     if(error) throw error;
     if(!data||!data.length){ cont.innerHTML='<div class="empty">Sin ventas de mayoreo todavía.</div>'; return; }
-    cont.innerHTML=data.map(v=>{
+    cont.innerHTML=data.map((v,idx)=>{
       const items=Array.isArray(v.items)?v.items:[];
       return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between"><b>${v.fecha}</b><span style="color:var(--green);font-weight:700">$${num(v.total)}</span></div>
-        <div style="color:var(--muted);font-size:12px;margin:4px 0">${items.length} artículo(s) · ganancia $${num(v.ganancia)} · ${v.usuario||''}</div>
-        <div style="font-size:13px">${items.map(it=>`${it.nombre} ×${num(it.cantidad)} @ $${num(it.precio)}`).join('<br>')}</div>
+        <div onclick="document.getElementById('mayHv-${idx}').style.display=(document.getElementById('mayHv-${idx}').style.display==='none'?'block':'none')" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;gap:8px">
+          <div><b>${v.fecha}</b> <span style="color:var(--muted);font-size:12px">· ${items.length} artículo(s) · ${v.usuario||''}</span></div>
+          <span style="color:var(--green);font-weight:700">$${num(v.total)}</span>
+        </div>
+        <div id="mayHv-${idx}" style="display:none;margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
+          <div style="color:var(--muted);font-size:12px;margin-bottom:6px">Ganancia $${num(v.ganancia)}</div>
+          <table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th></tr></thead><tbody>
+          ${items.map(it=>`<tr><td>${it.nombre}</td><td class="numcell">${num(it.cantidad)}</td><td class="numcell">$${num(it.precio)}</td><td class="numcell">$${num(it.cantidad*it.precio)}</td></tr>`).join('')}
+          </tbody></table>
+        </div>
       </div>`;
     }).join('');
   }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
@@ -8467,6 +8971,19 @@ function repartoMayoreo(G){
   const adminJk  = r2((G*0.50 - G*0.50*0.10)*0.20);
   const dueno    = r2(G - dariel - vendedor - adminJk); // absorbe el redondeo → siempre suma G
   return { dariel, vendedor, adminJk, dueno };
+}
+
+function repartoMayoreoFull(costo, ganancia){
+  costo=Number(costo)||0; ganancia=Number(ganancia)||0;
+  const r2=n=>Math.round(n*100)/100;
+  const inversion=r2(costo);
+  const darielGan=r2(ganancia*0.5);
+  const pool=ganancia*0.5;
+  const vendedor=r2(pool*0.10);
+  const adminJk=r2((pool-pool*0.10)*0.20);
+  const dueno=r2(pool - vendedor - adminJk);
+  const darielTotal=r2(inversion + darielGan);
+  return {inversion, darielGan, darielTotal, vendedor, adminJk, dueno};
 }
 
 
@@ -8688,7 +9205,7 @@ function analizarNegocio(d){
 
 // ---------- RENDER ----------
 function kpiHTML(label, valor, color, sub){
-  return `<div style="background:var(--panel2); border:1px solid var(--border); border-radius:12px; padding:12px 14px; min-width:130px; flex:1">
+  return `<div style="background:var(--panel2); border:1px solid var(--border); border-radius:12px; padding:12px 14px; flex:1">
     <div style="color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.03em">${label}</div>
     <div style="font-size:22px; font-weight:800; color:${color||'var(--text)'}; margin-top:2px">${valor}</div>
     ${sub?`<div style="color:var(--muted); font-size:12px; margin-top:2px">${sub}</div>`:''}
@@ -10156,7 +10673,7 @@ async function cargarAnalisisProductos(){
     if(sugerencias.length){
       let h=`<div class="card"><h2>🏷️ Precios a actualizar (con tu visto bueno)</h2>
         <div style="color:var(--muted);font-size:12px;margin-bottom:8px">El precio del catálogo no coincide con el precio al que los vendedores están vendiendo de verdad. Aprueba uno por uno el que quieras cambiar.</div>
-        <div style="overflow-x:auto"><table style="min-width:560px"><thead><tr><th>Producto</th><th class="numcell">Catálogo</th><th class="numcell">Precio real</th><th class="numcell">Dif.</th><th></th></tr></thead><tbody>`;
+        <div style="overflow-x:auto"><table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Catálogo</th><th class="numcell">Precio real</th><th class="numcell">Dif.</th><th></th></tr></thead><tbody>`;
       h+=sugerencias.map(x=>`<tr>
         <td>${x.nombre}</td>
         <td class="numcell">${fmt(x.precioCat)}</td>
@@ -10207,6 +10724,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v102</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v112</div>
 </body>
 </html>
