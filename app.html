@@ -8483,7 +8483,7 @@ async function listarFotosMayoreo(pid){
       <div style="border:1px solid var(--border);border-radius:10px;padding:6px;width:120px">
         <img src="${f.url}" style="width:108px;height:108px;object-fit:cover;border-radius:8px" onerror="this.style.opacity=.3">
         <button class="ghost" style="width:100%;margin-top:4px;font-size:12px;padding:5px" onclick="toggleFotoWeb(${f.id}, ${f.mostrar_web}, ${pid})">${f.mostrar_web?'🌐 Web':'📄 Legal'}</button>
-        <button class="ghost" style="width:100%;margin-top:4px;font-size:12px;padding:5px;color:var(--red)" onclick="borrarFotoMayoreo(${f.id}, ${JSON.stringify(f.path||'')}, ${pid})">Borrar</button>
+        <button class="ghost" style="width:100%;margin-top:4px;font-size:12px;padding:5px;color:var(--red)" onclick="borrarFotoMayoreo(${f.id}, ${pid})">Borrar</button>
       </div>`).join('')}</div>`;
   }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
 }
@@ -8530,14 +8530,17 @@ async function toggleFotoWeb(fid, actual, pid){
   catch(e){ alert('No se pudo: '+(e.message||e)); }
 }
 
-async function borrarFotoMayoreo(fid, path, pid){
+async function borrarFotoMayoreo(fid, pid){
   if(!confirm('¿Borrar esta foto?')) return;
   if(!navigator.onLine){ alert('Necesitas internet.'); return; }
   try{
+    // buscar la ruta para borrarla también del almacenamiento (si falla, igual se borra el registro)
+    let path='';
+    try{ const {data}=await sb.from('fotos_mayoreo').select('path').eq('id',fid).single(); if(data) path=data.path||''; }catch(_){}
     if(path){ try{ await sb.storage.from(MAY_BUCKET).remove([path]); }catch(_){} }
     const {error}=await sb.from('fotos_mayoreo').delete().eq('id',fid); if(error) throw error;
     await listarFotosMayoreo(pid);
-  }catch(e){ alert('No se pudo: '+(e.message||e)); }
+  }catch(e){ alert('No se pudo: '+(e.message||e)); registrarError('mayoreo/fotos','No se pudo borrar la foto',(e&&e.message)||String(e)); }
 }
 
 // ----- VENDER -----
@@ -8784,7 +8787,7 @@ function renderClientes(){
 }
 
 // 📣 AVISAR NOVEDADES a los clientes que dejaron su WhatsApp al reservar.
-const LINK_TIENDA_AVISO = 'https://miguelllop2001-cpu.github.io/tienda/';
+const LINK_TIENDA_AVISO = 'https://catalogo-er.github.io/MAYOREO/';
 function copiarTexto(txt, ok){
   try{ navigator.clipboard.writeText(txt).then(()=>{ const e=document.getElementById('avisarMsgEstado'); if(e){e.textContent=ok||'Copiado'; e.className='msg ok';} }); }
   catch(_){ prompt('Copia esto:', txt); }
@@ -10936,6 +10939,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v119</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v121</div>
 </body>
 </html>
