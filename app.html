@@ -2095,6 +2095,13 @@ function seleccionarAlmacen(id){
 }
 
 function num(n){ n=Number(n); return n%1===0 ? n.toString() : n.toFixed(2); }
+
+// --- Helpers de MAYOREO (definidos TEMPRANO: renderInventario y otros los usan antes) ---
+// ¿Este almacén es el de MAYOREO? (su nombre empieza con "mayoreo")
+function esMayoreo(a){ return /^mayoreo/i.test(((a&&a.nombre)||'').trim()); }
+function almacenMayoreo(){ return (ALMACENES||[]).find(esMayoreo) || null; }
+function idsMayoreo(){ return new Set((ALMACENES||[]).filter(esMayoreo).map(a=>a.id)); }
+function esAlmacenMayoreoId(id){ return idsMayoreo().has(Number(id)); }
 // Escapa un texto para meterlo con seguridad dentro de un atributo HTML (value="...").
 function escAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -9052,6 +9059,40 @@ async function actualizarBadgeErrores(){
     if(b){ const base='🚨 Errores'; b.textContent = (count&&count>0) ? (base+' ('+count+')') : base; }
   }catch(_){}
 }
+// Traduce un error técnico a algo que el dueño entienda, con una pista de qué hacer.
+function explicarError(r){
+  const t=((r.mensaje||'')+' '+(r.detalle||'')).toLowerCase();
+  let titulo, pista;
+  if(/is not defined|referenceerror|is not a function|cannot read|null is not|undefined is not|typeerror|syntaxerror/.test(t)){
+    titulo='La app tropezó con un fallo interno';
+    pista='Es un error de programación (no es culpa del usuario). Mándame esta tarjeta y lo arreglo.';
+  } else if(/row-level security|rls|permission|not allowed|violates|policy/.test(t)){
+    titulo='La base de datos bloqueó la acción por permisos';
+    pista='Falta correr un SQL de permisos en Supabase (o volver a correr TODO_MAYOREO.sql).';
+  } else if(/could not find|column|does not exist|schema|relation .* does not exist|undefined column/.test(t)){
+    titulo='Falta una tabla o columna en la base de datos';
+    pista='Corre en Supabase el SQL que falta (TODO_MAYOREO.sql / errores.sql).';
+  } else if(/bucket not found|storage|object not found/.test(t)){
+    titulo='Problema al subir/ver una foto';
+    pista='Falta crear el bucket "fotos-mayoreo" (Público) en Storage, o correr permisos_storage_fotos.sql.';
+  } else if(/necesitas internet|failed to fetch|networkerror|network request failed|load failed|timeout|err_/.test(t)){
+    titulo='Se cayó el internet a mitad de la acción';
+    pista='El usuario estaba sin conexión. Que lo intente de nuevo con internet.';
+  } else if(/negativo|no se puede descontar|no hay tanto|no alcanza|se agotó|solo quedan/.test(t)){
+    titulo='No había suficiente mercancía';
+    pista='El inventario no alcanzaba para esa venta o extracción. Revisa el stock.';
+  } else if(/se revirti|no se completó la venta|no se complet/.test(t)){
+    titulo='Una venta no se pudo completar';
+    pista='La app devolvió el stock sola (no se perdió mercancía). Que la repitan; si sigue, mándame la tarjeta.';
+  } else if(/falta (crear )?el almac|almacén mayoreo/.test(t)){
+    titulo='Falta el almacén MAYOREO';
+    pista='Crea un almacén cuyo nombre empiece por "MAYOREO".';
+  } else {
+    titulo='Ocurrió un error';
+    pista='Si se repite, mándame esta tarjeta.';
+  }
+  return {titulo, pista};
+}
 async function cargarErrores(){
   const cont=document.getElementById('erroresBody');
   if(!cont) return;
@@ -9068,18 +9109,25 @@ async function cargarErrores(){
     const fmt=iso=>{ try{ const d=new Date(iso); return d.toLocaleString('es',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }catch(_){ return iso||''; } };
     cont.innerHTML='<div style="color:var(--muted);font-size:12px;margin-bottom:10px">'+rows.length+' en total · '+pend+' sin resolver</div>'+rows.map(r=>{
       const resuelto=!!r.resuelto;
-      return `<div style="border:1px solid var(--border);border-left:4px solid ${resuelto?'var(--green)':'var(--red)'};border-radius:10px;padding:11px;margin-bottom:9px;opacity:${resuelto?'0.6':'1'}">
+      const ex=explicarError(r);
+      const dondeBonito = { 'mayoreo/venta':'Vender (mayoreo)','mayoreo/movimiento':'Ingresar/Extraer (mayoreo)','mayoreo/ingreso-extracción':'Ingresar/Extraer (mayoreo)','mayoreo/caja':'Dinero (mayoreo)','aviso':'Aviso en pantalla','cuelgue':'Fallo interno','promesa':'Fallo interno' }[r.donde] || (r.donde||'—');
+      const tecnico = ((r.mensaje||'')+(r.detalle?('\n'+r.detalle):'')).replace(/</g,'&lt;');
+      return `<div style="border:1px solid var(--border);border-left:4px solid ${resuelto?'var(--green)':'var(--red)'};border-radius:10px;padding:12px;margin-bottom:9px;opacity:${resuelto?'0.65':'1'}">
         <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline">
-          <b style="font-size:14px">${(r.mensaje||'').replace(/</g,'&lt;')}</b>
+          <b style="font-size:15px">${ex.titulo}</b>
           <span style="color:var(--muted);font-size:12px;white-space:nowrap">${fmt(r.creado_en)}</span>
         </div>
-        <div style="color:var(--muted);font-size:12px;margin-top:3px">
-          👤 ${(r.usuario||'?').replace(/</g,'&lt;')} · 📍 ${(r.donde||'?').replace(/</g,'&lt;')} · ${r.en_linea?'🟢 con internet':'🔴 sin internet'} · ${r.version||''}
+        <div style="font-size:13px;margin-top:6px;background:var(--bg,#f6f7f9);border-radius:8px;padding:8px 10px">💡 ${ex.pista}</div>
+        <div style="color:var(--muted);font-size:12px;margin-top:8px">
+          👤 ${(r.usuario||'?').replace(/</g,'&lt;')} · 📍 ${dondeBonito} · ${r.en_linea?'🟢 tenía internet':'🔴 sin internet'} · ${r.version||''}
         </div>
-        ${r.detalle?`<div style="color:var(--muted);font-size:11px;margin-top:5px;word-break:break-word">${String(r.detalle).replace(/</g,'&lt;')}</div>`:''}
-        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
-          ${resuelto?`<button class="ghost" style="padding:6px 12px;font-size:12px" onclick="marcarErrorResuelto(${r.id},false)">↩︎ Reabrir</button>`:`<button class="primary" style="padding:6px 12px;font-size:12px" onclick="marcarErrorResuelto(${r.id},true)">✓ Resuelto</button>`}
-          <button class="ghost" style="padding:6px 12px;font-size:12px;color:var(--red)" onclick="borrarUnError(${r.id})">🗑</button>
+        <details style="margin-top:8px">
+          <summary style="cursor:pointer;color:var(--muted);font-size:12px">Detalle técnico (para el programador)</summary>
+          <div style="color:var(--muted);font-size:11px;margin-top:5px;word-break:break-word;white-space:pre-wrap">${tecnico}</div>
+        </details>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+          ${resuelto?`<button class="ghost" style="padding:6px 12px;font-size:12px" onclick="marcarErrorResuelto(${r.id},false)">↩︎ Reabrir</button>`:`<button class="primary" style="padding:6px 12px;font-size:12px" onclick="marcarErrorResuelto(${r.id},true)">✓ Ya lo resolví</button>`}
+          <button class="ghost" style="padding:6px 12px;font-size:12px;color:var(--red)" onclick="borrarUnError(${r.id})">🗑 Borrar</button>
         </div>
       </div>`;
     }).join('');
@@ -9110,10 +9158,7 @@ async function limpiarTodosErrores(){
 }
 
 
-function almacenMayoreo(){ return (ALMACENES||[]).find(esMayoreo) || null; }
-// Conjunto de ids de almacenes de mayoreo — para EXCLUIRLOS de todo lo normal.
-function idsMayoreo(){ return new Set((ALMACENES||[]).filter(esMayoreo).map(a=>a.id)); }
-function esAlmacenMayoreoId(id){ return idsMayoreo().has(Number(id)); }
+// (esMayoreo / almacenMayoreo / idsMayoreo / esAlmacenMayoreoId se definen ARRIBA, antes de renderInventario)
 // Quién puede administrar el mayoreo (dueño + Dariel) y quién solo vende (Tamy).
 // El nombre se compara sin tildes y por palabras, así "Dariel Pérez" o "TAMY R." también valen.
 function __nomUsuario(){ return (((usuarioActual&&usuarioActual.nombre)||'')+'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase(); }
@@ -10891,6 +10936,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v117</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v119</div>
 </body>
 </html>
