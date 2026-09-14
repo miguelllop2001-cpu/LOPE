@@ -388,6 +388,7 @@
       <button data-tab="analisisprod" id="tabBtnAnalisisProd" style="display:none">📈 Análisis de productos</button>
       <button data-tab="mayoreo" id="tabBtnMayoreo" style="display:none">🏷️ Mayoreo</button>
       <button data-tab="cobraradmin" id="tabBtnCobrarAdmin" style="display:none">💰 Cobrar</button>
+      <button data-tab="errores" id="tabBtnErrores" style="display:none">🚨 Errores</button>
       <button onclick="cerrarSesion()">🚪 Cerrar sesión</button>
     </div>
   </div>
@@ -1374,6 +1375,19 @@
     </div>
   </div>
 
+  <div id="tab-errores" class="tab" style="display:none">
+    <div class="card">
+      <h2>🚨 Errores</h2>
+      <p style="color:var(--muted); font-size:13px; margin-top:-6px">Aquí caen los fallos que le salen a cualquier usuario (ventas o movimientos que no suben, avisos rojos, cuelgues). Se guardan solos, aunque pasen en otro celular.</p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px">
+        <button class="primary" style="padding:8px 14px; font-size:13px" onclick="cargarErrores()">🔄 Actualizar</button>
+        <button class="ghost" style="padding:8px 14px; font-size:13px" onclick="borrarErroresResueltos()">🧹 Borrar resueltos</button>
+        <button class="ghost" style="padding:8px 14px; font-size:13px; color:var(--red); border-color:var(--red)" onclick="limpiarTodosErrores()">🗑 Limpiar todo</button>
+      </div>
+      <div id="erroresBody">Cargando…</div>
+    </div>
+  </div>
+
   <div id="tab-estadisticas" class="tab" style="display:none">
 
     <div class="card">
@@ -1475,6 +1489,7 @@ document.querySelectorAll('.tabs button').forEach(btn=>{
     if(btn.dataset.tab==='comisionadmin') cargarDinero();
     if(btn.dataset.tab==='usuarios') cargarUsuarios();
     if(btn.dataset.tab==='cobraradmin') cargarCobrosAdmin();
+    if(btn.dataset.tab==='errores') cargarErrores();
     if(btn.dataset.tab==='estadisticas'){ prepararSelectorEstadisticas(); cargarListaVentas(); }
     if(btn.dataset.tab==='compras') prepararCompras();
     if(btn.dataset.tab==='ventasvendedor') prepararVentasPorVendedor();
@@ -5818,6 +5833,7 @@ function tvAgregar(){
   if(!cant||cant<=0){ alert('Pon una cantidad.'); return; }
   if(isNaN(precio)||precio<0){ alert('Precio no válido.'); return; }
   const alm=almacenMayoreo();
+  if(!alm){ alert('Falta el almacén MAYOREO.'); return; }
   const stock=(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
   const ya=__tvCarrito.filter(x=>x.producto_id===pid).reduce((s,x)=>s+x.cantidad,0);
   if(cant+ya>stock){ alert('No hay tanto. Hay '+num(stock)+' y ya llevas '+num(ya)+'.'); return; }
@@ -5877,11 +5893,22 @@ async function tvCargarReservas(){
 }
 function tvVenderReserva(id){
   const r=__tvReservas[id]; if(!r) return;
+  const alm=almacenMayoreo();
+  if(!alm){ alert('Falta el almacén MAYOREO.'); return; }
+  const stockDe=pid=>(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
   __tvCarrito=[]; let avisos=[];
-  (Array.isArray(r.items)?r.items:[]).forEach(it=>{ const p=(PRODUCTOS||[]).find(x=>x.id===it.producto_id); if(!p){ avisos.push(it.nombre); return; } __tvCarrito.push({producto_id:p.id, nombre:p.nombre, cantidad:Number(it.cantidad)||0, precio:Number(p.precio_mayoreo||it.precio||0), costo:Number(p.costo_mayoreo||0)}); });
+  (Array.isArray(r.items)?r.items:[]).forEach(it=>{
+    const p=(PRODUCTOS||[]).find(x=>x.id===it.producto_id);
+    if(!p){ avisos.push(it.nombre+' ya no existe'); return; }
+    let cant=Number(it.cantidad)||0;
+    const hay=stockDe(p.id);
+    if(cant>hay){ avisos.push('de "'+p.nombre+'" solo hay '+num(hay)+' (pedía '+num(cant)+')'); cant=hay; }
+    if(cant<=0) return;
+    __tvCarrito.push({producto_id:p.id, nombre:p.nombre, cantidad:cant, precio:Number(p.precio_mayoreo||it.precio||0), costo:Number(p.costo_mayoreo||0)});
+  });
   __tvReservaEnVenta=id;
   cambiarVMTab('vender'); tvRenderCarrito();
-  if(avisos.length) alert('Ojo, ya no existen: '+avisos.join(', '));
+  if(avisos.length) alert('Ojo: '+avisos.join(', ')+'.');
 }
 async function tvNoVino(id){
   if(!confirm('¿Marcar que el cliente NO vino? Libera el stock.')) return;
@@ -8419,7 +8446,7 @@ async function entradaMayoreo(signo){
     msg.textContent = signo>0 ? 'Ingresó al mayoreo. ✓' : 'Se extrajo del mayoreo. ✓'; msg.className='msg ok';
     document.getElementById('mayEbuscar').value=''; document.getElementById('mayEprod').value='';
     document.getElementById('mayEelegido').textContent=''; document.getElementById('mayEcant').value='';
-  }catch(e){ msg.textContent='No se pudo: '+(e.message||e); msg.className='msg err'; }
+  }catch(e){ msg.textContent='No se pudo: '+(e.message||e); msg.className='msg err'; registrarError('mayoreo/movimiento', 'No se pudo mover mercancía de mayoreo', (e&&e.message)||String(e)); }
 }
 
 // ----- FOTOS DE MAYOREO -----
@@ -8553,6 +8580,7 @@ function agregarMayItem(){
   if(!cant||cant<=0){ alert('Pon una cantidad.'); return; }
   if(isNaN(precio)||precio<0){ alert('Precio no válido.'); return; }
   const alm=almacenMayoreo();
+  if(!alm){ alert('Falta el almacén MAYOREO.'); return; }
   const stock=(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
   const yaEnCarrito=__mayCarrito.filter(x=>x.producto_id===pid).reduce((s,x)=>s+x.cantidad,0);
   if(cant+yaEnCarrito>stock){ alert(`No hay tanto en mayoreo. Hay ${num(stock)} y ya llevas ${num(yaEnCarrito)}.`); return; }
@@ -8709,7 +8737,7 @@ async function movCajaMayoreo(tipo){
     const r=await sb.from('mayoreo_caja').insert({tipo, monto, concepto: concepto||(tipo==='ingreso'?'Agregado a mano':'Sacado a mano')});
     if(r.error) throw r.error;
     cargarDineroMayoreo();
-  }catch(e){ msg.textContent='No se pudo: '+(e.message||e); msg.className='msg err'; }
+  }catch(e){ msg.textContent='No se pudo: '+(e.message||e); msg.className='msg err'; registrarError('mayoreo/caja', 'No se pudo agregar/sacar dinero del mayoreo', (e&&e.message)||String(e)); }
 }
 
 // 👥 CLIENTES: compras + cumplimiento de reservas
@@ -8837,17 +8865,24 @@ let __reservasMay={};
 function venderReservaMayoreo(id){
   const r=__reservasMay[id]; if(!r) return;
   const items=Array.isArray(r.items)?r.items:[];
+  const alm=almacenMayoreo();
+  if(!alm){ alert('Falta el almacén MAYOREO.'); return; }
+  const stockDe=pid=>(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
   __mayCarrito=[];
   let avisos=[];
   items.forEach(it=>{
     const p=(PRODUCTOS||[]).find(x=>x.id===it.producto_id);
     if(!p){ avisos.push('"'+it.nombre+'" ya no existe'); return; }
-    __mayCarrito.push({producto_id:p.id, nombre:p.nombre, cantidad:Number(it.cantidad)||0, precio:Number(p.precio_mayoreo||it.precio||0), costo:Number(p.costo_mayoreo||0)});
+    let cant=Number(it.cantidad)||0;
+    const hay=stockDe(p.id);
+    if(cant>hay){ avisos.push('de "'+p.nombre+'" solo hay '+num(hay)+' (pedía '+num(cant)+')'); cant=hay; }
+    if(cant<=0) return;
+    __mayCarrito.push({producto_id:p.id, nombre:p.nombre, cantidad:cant, precio:Number(p.precio_mayoreo||it.precio||0), costo:Number(p.costo_mayoreo||0)});
   });
   __reservaEnVenta=id; // recordar cuál reserva se está cobrando (para marcarla atendida al cobrar)
   cambiarMTab('vender');
   renderMayCarrito();
-  if(avisos.length) alert('Aviso: '+avisos.join(', '));
+  if(avisos.length) alert('Aviso: '+avisos.join(', ')+'.');
 }
 async function quitarReservaMayoreo(id){
   if(!confirm('¿Quitar esta reserva? Se elimina de la lista.')) return;
@@ -8967,22 +9002,139 @@ async function cargarHistorialMayoreo(){
 
 // ---- MAYOREO ----// ---- MAYOREO ----
 // El almacén de mayoreo se reconoce por el nombre (empieza con "MAYOREO").
-function esMayoreo(a){ return /^mayoreo/i.test(((a&&a.nombre)||'').trim()); }
+// ================== CAPTURA DE ERRORES (para la pestaña 🚨 Errores del dueño) ==================
+// Guarda cada fallo en la tabla 'errores' de Supabase. Si no hay internet, lo deja en cola
+// local y lo sube solo cuando vuelve la conexión. Así el dueño ve fallos de cualquier celular.
+function registrarError(donde, mensaje, detalle){
+  try{
+    if(!mensaje) return;
+    const verEl=document.getElementById('versionApp');
+    const reg={
+      usuario: (usuarioActual&&usuarioActual.nombre)||'(sin sesión)',
+      donde: String(donde||'').slice(0,200),
+      mensaje: String(mensaje||'').slice(0,600),
+      detalle: detalle?String(detalle).slice(0,1500):null,
+      version: (verEl&&verEl.textContent)||'',
+      en_linea: !!navigator.onLine,
+      creado_en: new Date().toISOString()
+    };
+    let cola=lsGet('errores_cola', []);
+    // evita duplicar el mismo error repetido en menos de 4 segundos
+    const ultimo=cola[cola.length-1];
+    if(ultimo && ultimo.mensaje===reg.mensaje && ultimo.donde===reg.donde && (Date.parse(reg.creado_en)-Date.parse(ultimo.creado_en))<4000) return;
+    cola.push(reg); if(cola.length>300) cola=cola.slice(-300);
+    lsSet('errores_cola', cola);
+    flushErrores();
+  }catch(_){}
+}
+async function flushErrores(){
+  try{
+    if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
+    let cola=lsGet('errores_cola', []);
+    if(!cola.length) return;
+    const lote=cola.slice(0,50);
+    const { error }=await sb.from('errores').insert(lote.map(r=>({usuario:r.usuario, donde:r.donde, mensaje:r.mensaje, detalle:r.detalle, version:r.version, en_linea:r.en_linea, creado_en:r.creado_en})));
+    if(!error){ const resto=lsGet('errores_cola', []).slice(lote.length); lsSet('errores_cola', resto); if(resto.length) flushErrores(); }
+  }catch(_){}
+}
+// Cuelgues y promesas rechazadas que no atrapó ningún try/catch:
+window.addEventListener('error', function(e){ try{ registrarError('cuelgue', (e&&e.message)||'error', (e&&e.filename)?(e.filename+':'+e.lineno):''); }catch(_){} });
+window.addEventListener('unhandledrejection', function(e){ try{ const r=e&&e.reason; registrarError('promesa', (r&&r.message)||String(r||'rechazo'), (r&&r.stack)||''); }catch(_){} });
+window.addEventListener('online', function(){ flushErrores(); });
+// Captura automática de los avisos ROJOS (la mayoría de fallos usan alert("No se pudo…")):
+(function(){
+  if(window.__alertHook) return; window.__alertHook=true;
+  const _alert = window.alert ? window.alert.bind(window) : function(){};
+  const rxErr = /(no se pudo|no se completó|no se complet|se revirti|no se guard|no subi|servidor no aplic|necesitas internet|no se puede|falta (crear|el|la)|no aplicó el cambio)/i;
+  window.alert = function(m){ try{ if(m && rxErr.test(String(m))) registrarError('aviso', String(m)); }catch(_){} return _alert(m); };
+})();
+async function actualizarBadgeErrores(){
+  try{
+    if(!navigator.onLine || !sb) return;
+    const { count }=await sb.from('errores').select('id',{count:'exact', head:true}).eq('resuelto', false);
+    const b=document.getElementById('tabBtnErrores');
+    if(b){ const base='🚨 Errores'; b.textContent = (count&&count>0) ? (base+' ('+count+')') : base; }
+  }catch(_){}
+}
+async function cargarErrores(){
+  const cont=document.getElementById('erroresBody');
+  if(!cont) return;
+  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet para ver los errores.</div>'; return; }
+  cont.textContent='Cargando…';
+  try{
+    await flushErrores(); // por si este mismo celular tenía errores en cola
+    const { data, error }=await sb.from('errores').select('*').order('id',{ascending:false}).limit(300);
+    if(error) throw error;
+    const rows=data||[];
+    actualizarBadgeErrores();
+    if(!rows.length){ cont.innerHTML='<div class="empty">✅ Sin errores. Todo bien.</div>'; return; }
+    const pend=rows.filter(r=>!r.resuelto).length;
+    const fmt=iso=>{ try{ const d=new Date(iso); return d.toLocaleString('es',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }catch(_){ return iso||''; } };
+    cont.innerHTML='<div style="color:var(--muted);font-size:12px;margin-bottom:10px">'+rows.length+' en total · '+pend+' sin resolver</div>'+rows.map(r=>{
+      const resuelto=!!r.resuelto;
+      return `<div style="border:1px solid var(--border);border-left:4px solid ${resuelto?'var(--green)':'var(--red)'};border-radius:10px;padding:11px;margin-bottom:9px;opacity:${resuelto?'0.6':'1'}">
+        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline">
+          <b style="font-size:14px">${(r.mensaje||'').replace(/</g,'&lt;')}</b>
+          <span style="color:var(--muted);font-size:12px;white-space:nowrap">${fmt(r.creado_en)}</span>
+        </div>
+        <div style="color:var(--muted);font-size:12px;margin-top:3px">
+          👤 ${(r.usuario||'?').replace(/</g,'&lt;')} · 📍 ${(r.donde||'?').replace(/</g,'&lt;')} · ${r.en_linea?'🟢 con internet':'🔴 sin internet'} · ${r.version||''}
+        </div>
+        ${r.detalle?`<div style="color:var(--muted);font-size:11px;margin-top:5px;word-break:break-word">${String(r.detalle).replace(/</g,'&lt;')}</div>`:''}
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+          ${resuelto?`<button class="ghost" style="padding:6px 12px;font-size:12px" onclick="marcarErrorResuelto(${r.id},false)">↩︎ Reabrir</button>`:`<button class="primary" style="padding:6px 12px;font-size:12px" onclick="marcarErrorResuelto(${r.id},true)">✓ Resuelto</button>`}
+          <button class="ghost" style="padding:6px 12px;font-size:12px;color:var(--red)" onclick="borrarUnError(${r.id})">🗑</button>
+        </div>
+      </div>`;
+    }).join('');
+  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo cargar: '+(e.message||e)+' (¿corriste errores.sql?)</div>'; }
+}
+async function marcarErrorResuelto(id, val){
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  try{ const {error}=await sb.from('errores').update({resuelto:!!val}).eq('id',id); if(error) throw error; cargarErrores(); }
+  catch(e){ alert('No se pudo: '+(e.message||e)); }
+}
+async function borrarUnError(id){
+  if(!confirm('¿Borrar este error de la lista?')) return;
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  try{ const {error}=await sb.from('errores').delete().eq('id',id); if(error) throw error; cargarErrores(); }
+  catch(e){ alert('No se pudo: '+(e.message||e)); }
+}
+async function borrarErroresResueltos(){
+  if(!confirm('¿Borrar todos los errores YA marcados como resueltos?')) return;
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  try{ const {error}=await sb.from('errores').delete().eq('resuelto',true); if(error) throw error; cargarErrores(); }
+  catch(e){ alert('No se pudo: '+(e.message||e)); }
+}
+async function limpiarTodosErrores(){
+  if(!confirm('¿Borrar TODOS los errores (resueltos y sin resolver)? No se puede deshacer.')) return;
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  try{ const {error}=await sb.from('errores').delete().gte('id',0); if(error) throw error; lsSet('errores_cola', []); cargarErrores(); }
+  catch(e){ alert('No se pudo: '+(e.message||e)); }
+}
+
+
 function almacenMayoreo(){ return (ALMACENES||[]).find(esMayoreo) || null; }
 // Conjunto de ids de almacenes de mayoreo — para EXCLUIRLOS de todo lo normal.
 function idsMayoreo(){ return new Set((ALMACENES||[]).filter(esMayoreo).map(a=>a.id)); }
 function esAlmacenMayoreoId(id){ return idsMayoreo().has(Number(id)); }
 // Quién puede administrar el mayoreo (dueño + Dariel) y quién solo vende (Tamy).
-function puedeMayoreoAdmin(){ return usuarioActual && (usuarioActual.rol==='dueno' || (usuarioActual.nombre||'').trim().toLowerCase()==='dariel'); }
-function puedeMayoreoVenta(){ return usuarioActual && (usuarioActual.nombre||'').trim().toLowerCase()==='tamy'; }
-// Reparto de ganancia del mayoreo (probado): Dariel 50%; del 50% del dueño, vendedor 10% del pool,
+// El nombre se compara sin tildes y por palabras, así "Dariel Pérez" o "TAMY R." también valen.
+function __nomUsuario(){ return (((usuarioActual&&usuarioActual.nombre)||'')+'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase(); }
+function __usuarioEs(nombre){ const s=__nomUsuario(); if(!s) return false; return s===nombre || s.split(/[^a-z0-9]+/).filter(Boolean).includes(nombre); }
+function puedeMayoreoAdmin(){ return !!usuarioActual && (usuarioActual.rol==='dueno' || __usuarioEs('dariel')); }
+// Tamy vende. Dariel también aparece aquí por si su cuenta quedó como vendedor: así nunca
+// se queda sin acceso al mayoreo (si es administrador, ve la pestaña completa).
+function puedeMayoreoVenta(){ return !!usuarioActual && (__usuarioEs('tamy') || __usuarioEs('dariel')); }
+// Reparto de ganancia del mayoreo: Dariel 60%; del 40% del dueño, vendedor 10% del pool,
 // del restante admin jk 20%, y el dueño se queda el resto.
 function repartoMayoreo(G){
   G = Number(G)||0;
   const r2 = n => Math.round(n*100)/100;
-  const dariel   = r2(G*0.50);
-  const vendedor = r2(G*0.50*0.10);
-  const adminJk  = r2((G*0.50 - G*0.50*0.10)*0.20);
+  const pool = G*0.40; // lado del dueño (de aquí salen Tamy y jk)
+  const dariel   = r2(G*0.60);
+  const vendedor = r2(pool*0.10);
+  const adminJk  = r2((pool - pool*0.10)*0.20);
   const dueno    = r2(G - dariel - vendedor - adminJk); // absorbe el redondeo → siempre suma G
   return { dariel, vendedor, adminJk, dueno };
 }
@@ -8990,13 +9142,17 @@ function repartoMayoreo(G){
 function repartoMayoreoFull(costo, ganancia){
   costo=Number(costo)||0; ganancia=Number(ganancia)||0;
   const r2=n=>Math.round(n*100)/100;
+  const PARTE_DARIEL = 0.60; // Dariel: 60% de la ganancia
+  const PARTE_DUENO  = 0.40; // Lado del dueño: 40% de la ganancia (de aquí salen Tamy y jk)
+  const total=r2(costo + ganancia);
   const inversion=r2(costo);
-  const darielGan=r2(ganancia*0.5);
-  const pool=ganancia*0.5;
-  const vendedor=r2(pool*0.10);
-  const adminJk=r2((pool-pool*0.10)*0.20);
-  const dueno=r2(pool - vendedor - adminJk);
+  const darielGan=r2(ganancia*PARTE_DARIEL);
   const darielTotal=r2(inversion + darielGan);
+  const pool = ganancia*PARTE_DUENO;
+  const vendedor=r2(pool*0.10);
+  const adminJk=r2((pool - pool*0.10)*0.20);
+  // El dueño absorbe TODO el redondeo: es lo que falta para llegar al total exacto.
+  const dueno=r2(total - darielTotal - vendedor - adminJk);
   return {inversion, darielGan, darielTotal, vendedor, adminJk, dueno};
 }
 
@@ -10730,6 +10886,7 @@ function aplicarRestriccionesDeRol(){
   document.getElementById('tabBtnAnalizador').style.display = esDueno ? 'inline-block' : 'none';
   { const b=document.getElementById('tabBtnAnalisisProd'); if(b) b.style.display = esDueno ? 'inline-block' : 'none'; }
   { const b=document.getElementById('tabBtnMayoreo'); if(b) b.style.display = puedeMayoreoAdmin() ? 'inline-block' : 'none'; }
+  { const b=document.getElementById('tabBtnErrores'); if(b){ b.style.display = esDueno ? 'inline-block' : 'none'; if(esDueno) actualizarBadgeErrores(); } }
   document.getElementById('tabBtnCobrarAdmin').style.display = usuarioActual.rol==='administrador' ? 'inline-block' : 'none';
   const cardComp = document.getElementById('cardComprobarInv');
   if(cardComp) cardComp.style.display = esDueno ? '' : 'none';
@@ -10738,7 +10895,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v113</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v117</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
