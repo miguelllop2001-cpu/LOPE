@@ -5884,6 +5884,7 @@ async function tvCargarReservas(){
       return `<div style="border:2px solid var(--amber);border-radius:12px;padding:12px;margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${r.nombre||'(sin nombre)'}</b><span style="color:var(--muted);font-size:12px">${(r.creado_en||'').slice(0,16).replace('T',' ')}</span></div>
         <div style="color:var(--muted);font-size:13px;margin:4px 0">📞 ${r.telefono||'—'} · total aprox $${num(r.total)}</div>
+        ${r.cita?`<div style="font-size:13px;margin:4px 0;color:#0a7d33;font-weight:700">📅 Recogida: ${fmtCita(r.cita)}</div>`:''}
         <div style="font-size:14px;margin:6px 0">${items.map(it=>`${it.nombre} <b>×${num(it.cantidad)}</b>`).join('<br>')}</div>
         <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
           <button class="primary" style="padding:8px 12px;font-size:13px" onclick="tvVenderReserva(${r.id})">🛒 Vender</button>
@@ -8837,6 +8838,24 @@ async function ponerNovedadesAvisar(){
   }catch(e){ est.textContent='No se pudo: '+(e.message||e)+' (¿corriste mayoreo_movimientos.sql?)'; est.className='msg err'; }
 }
 
+// Formatea la cita (fecha+hora) para mostrarla bonita.
+function fmtCita(v){
+  if(!v) return '';
+  try{ const d=new Date(v); if(isNaN(d.getTime())) return v;
+    return d.toLocaleString('es',{weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+  }catch(_){ return v; }
+}
+// El admin le pone (o cambia) fecha y hora de recogida a una reserva; el cliente la ve en el catálogo.
+async function guardarCitaReserva(id){
+  const inp=document.getElementById('cita-'+id); if(!inp) return;
+  const val=inp.value; // "2026-09-20T15:00" o ''
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  try{
+    const {error}=await sb.from('reservas_mayoreo').update({cita: val||null}).eq('id',id); if(error) throw error;
+    alert(val? ('Cita guardada: '+fmtCita(val)) : 'Cita borrada.');
+    cargarReservasMayoreo();
+  }catch(e){ alert('No se pudo: '+(e.message||e)); registrarError('mayoreo/reservas','No se pudo guardar la cita',(e&&e.message)||String(e)); }
+}
 async function cargarReservasMayoreo(){
   const cont=document.getElementById('mayReservasBody');
   if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
@@ -8855,6 +8874,14 @@ async function cargarReservasMayoreo(){
         <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${r.nombre||'(sin nombre)'}</b><span style="color:var(--muted);font-size:12px">${(r.creado_en||'').slice(0,16).replace('T',' ')}</span></div>
         <div style="color:var(--muted);font-size:13px;margin:4px 0">📞 ${r.telefono||'—'} · total aprox $${num(r.total)}</div>
         <div style="font-size:14px;margin:6px 0">${items.map(it=>`${it.nombre} <b>×${num(it.cantidad)}</b>`).join('<br>')}</div>
+        <div style="margin:8px 0;padding:9px;background:#f6f7f9;border-radius:9px">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:5px">📅 Fecha y hora de recogida (la ve el cliente):</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+            <input type="datetime-local" id="cita-${r.id}" value="${(r.cita||'').slice(0,16)}" style="flex:1;min-width:160px;padding:8px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px">
+            <button class="primary" style="padding:8px 12px;font-size:13px" onclick="guardarCitaReserva(${r.id})">Guardar cita</button>
+          </div>
+          ${r.cita?`<div style="font-size:12px;color:#0a7d33;margin-top:5px">✓ Cita: ${fmtCita(r.cita)}</div>`:'<div style="font-size:12px;color:var(--muted);margin-top:5px">Sin cita todavía</div>'}
+        </div>
         <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
           <button class="primary" style="padding:8px 12px;font-size:13px" onclick="venderReservaMayoreo(${r.id})">🛒 Vender</button>
           ${wa}
@@ -10939,6 +10966,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v121</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v123</div>
 </body>
 </html>
