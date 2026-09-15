@@ -8485,7 +8485,7 @@ function abrirSpecsMayoreo(pid){
       <h3 style="margin:0">📋 Especificaciones — ${prod.nombre}</h3>
       <button class="ghost" onclick="document.getElementById('mayFotosPanel').innerHTML=''">Cerrar ✕</button>
     </div>
-    <p style="color:var(--muted);font-size:13px;margin:6px 0">Una por línea, así: <b>Medida: 5 pulgadas</b>. Las 2 primeras se ven siempre en la tarjeta; el resto queda en "Ver especificaciones".</p>
+    <p style="color:var(--muted);font-size:13px;margin:6px 0">Una por línea. Se ven <b>tal como las escribas</b>. En el catálogo aparece un <b>!</b> al lado del nombre y al tocarlo se abren.</p>
     <textarea id="specsTxt-${pid}" rows="7" style="width:100%;font-family:inherit;font-size:14px;padding:10px;border:1px solid var(--border);border-radius:9px" placeholder="Medida: 5 pulgadas&#10;Material: Acero&#10;Marca: Q7&#10;Contenido: 1000 piezas">${val}</textarea>
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
       <button class="primary" onclick="guardarSpecsMayoreo(${pid})">Guardar especificaciones</button>
@@ -11021,7 +11021,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v126</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v127</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
