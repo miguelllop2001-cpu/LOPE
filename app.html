@@ -8394,7 +8394,7 @@ function renderPreciosMayoreo(){
     <td class="numcell"><input type="number" id="mayco-${p.id}" value="${Number(p.costo_mayoreo)>0?Number(p.costo_mayoreo):''}" placeholder="0" inputmode="decimal" style="width:85px; text-align:right"></td>
     <td class="numcell"><input type="number" id="maypv-${p.id}" value="${Number(p.precio_mayoreo)>0?Number(p.precio_mayoreo):''}" placeholder="0" inputmode="decimal" style="width:85px; text-align:right"></td>
     <td><button class="ghost" onclick="guardarPrecioMayoreo(${p.id})">✓</button></td>
-    <td><button class="ghost" onclick="abrirFotosMayoreo(${p.id})">📷 Fotos</button></td>
+    <td><button class="ghost" onclick="abrirFotosMayoreo(${p.id})">📷 Fotos</button> <button class="ghost" onclick="abrirSpecsMayoreo(${p.id})">📋 Especif.</button></td>
   </tr>`).join('')}
   </tbody></table>
   <div id="mayFotosPanel" style="margin-top:12px"></div>`;
@@ -8471,6 +8471,42 @@ async function entradaMayoreo(signo){
 // ----- FOTOS DE MAYOREO -----
 const MAY_BUCKET = 'fotos-mayoreo';
 
+// --- Especificaciones del producto (se ven en el catálogo web) ---
+function abrirSpecsMayoreo(pid){
+  const prod=(PRODUCTOS||[]).find(x=>x.id===pid); if(!prod) return;
+  const cont=document.getElementById('mayFotosPanel'); if(!cont) return;
+  const val=(prod.especificaciones||'').replace(/</g,'&lt;');
+  cont.innerHTML=`<div class="card" style="border:2px solid var(--blue)">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+      <h3 style="margin:0">📋 Especificaciones — ${prod.nombre}</h3>
+      <button class="ghost" onclick="document.getElementById('mayFotosPanel').innerHTML=''">Cerrar ✕</button>
+    </div>
+    <p style="color:var(--muted);font-size:13px;margin:6px 0">Una por línea, así: <b>Medida: 5 pulgadas</b>. Las 2 primeras se ven siempre en la tarjeta; el resto queda en "Ver especificaciones".</p>
+    <textarea id="specsTxt-${pid}" rows="7" style="width:100%;font-family:inherit;font-size:14px;padding:10px;border:1px solid var(--border);border-radius:9px" placeholder="Medida: 5 pulgadas&#10;Material: Acero&#10;Marca: Q7&#10;Contenido: 1000 piezas">${val}</textarea>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="primary" onclick="guardarSpecsMayoreo(${pid})">Guardar especificaciones</button>
+    </div>
+    <div id="specsMsg-${pid}" class="msg"></div>
+  </div>`;
+}
+async function guardarSpecsMayoreo(pid){
+  const ta=document.getElementById('specsTxt-'+pid); if(!ta) return;
+  const msg=document.getElementById('specsMsg-'+pid);
+  const txt=(ta.value||'').trim();
+  if(!navigator.onLine){ if(msg){msg.textContent='Necesitas internet.';msg.className='msg err';} return; }
+  try{
+    const {data,error}=await sb.from('productos').update({especificaciones: txt||null}).eq('id',pid).select();
+    if(error) throw error;
+    if(!data||!data.length){ if(msg){msg.textContent='El servidor no aplicó el cambio (permisos).';msg.className='msg err';} return; }
+    const p=(PRODUCTOS||[]).find(x=>x.id===pid); if(p) p.especificaciones=txt||null;
+    lsSet('adm_cache_productos', PRODUCTOS);
+    if(msg){ msg.textContent='Guardado ✓ (se ve en el catálogo web)'; msg.className='msg ok'; }
+  }catch(e){
+    const falta=String(e.message||'').includes('especificaciones');
+    if(msg){ msg.textContent = falta ? 'Falta correr el SQL "especificaciones.sql" en Supabase.' : ('No se pudo: '+(e.message||e)); msg.className='msg err'; }
+    registrarError('mayoreo/especificaciones','No se pudo guardar especificaciones',(e&&e.message)||String(e));
+  }
+}
 async function abrirFotosMayoreo(pid){
   const p=(PRODUCTOS||[]).find(x=>x.id===pid);
   const cont=document.getElementById('mayFotosPanel');
@@ -10981,6 +11017,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v125</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v126</div>
 </body>
 </html>
