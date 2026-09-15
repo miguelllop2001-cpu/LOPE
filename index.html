@@ -1864,7 +1864,7 @@ function prepararVentasPorVendedor(){
   const sel = document.getElementById('vvAlmacen');
   if(sel){
     sel.innerHTML = '<option value="">Todos los puestos</option>' +
-      ALMACENES.map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
+      ALMACENES.filter(a=>!esMayoreo(a)).map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
   }
   const hasta = document.getElementById('vvHasta');
   const desde = document.getElementById('vvDesde');
@@ -2069,8 +2069,14 @@ function renderInventario(){
     cont.innerHTML = '<div class="empty">No hay almacenes creados. Ve a la pestaña "Almacenes y Productos".</div>';
     return;
   }
-  if(almacenSeleccionado===null || !ALMACENES.find(a=>a.id===almacenSeleccionado)){
-    almacenSeleccionado = ALMACENES[0].id;
+  const __almNormales = ALMACENES.filter(a=>!esMayoreo(a)); // MAYOREO no se muestra aquí
+  if(!__almNormales.length){
+    tabsEl.innerHTML = '';
+    cont.innerHTML = '<div class="empty">No hay almacenes (sin contar MAYOREO).</div>';
+    return;
+  }
+  if(almacenSeleccionado===null || !__almNormales.find(a=>a.id===almacenSeleccionado)){
+    almacenSeleccionado = __almNormales[0].id;
   }
   tabsEl.innerHTML = ALMACENES.filter(a=>!esMayoreo(a)).map(a=>
     `<button class="${a.id===almacenSeleccionado?'active':''}" onclick="seleccionarAlmacen(${a.id})">${a.nombre}</button>`
@@ -8385,9 +8391,10 @@ function renderPreciosMayoreo(){
   if(q) lista=lista.filter(p=>(p.nombre||'').toLowerCase().includes(q));
   lista=lista.slice(0,60);
   if(!lista.length){ cont.innerHTML='<div class="empty">Sin productos.</div>'; return; }
-  cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Costo may.</th><th class="numcell">Precio may.</th><th></th><th></th></tr></thead><tbody>
+  cont.innerHTML=`<table style="min-width:700px"><thead><tr><th>Producto (interno)</th><th>Nombre para la web</th><th class="numcell">Costo may.</th><th class="numcell">Precio may.</th><th></th><th></th></tr></thead><tbody>
   ${lista.map(p=>`<tr>
     <td>${p.nombre}</td>
+    <td><input type="text" id="maynw-${p.id}" value="${(p.nombre_web||'').replace(/"/g,'&quot;')}" placeholder="(igual que el interno)" style="width:170px"></td>
     <td class="numcell"><input type="number" id="mayco-${p.id}" value="${Number(p.costo_mayoreo)>0?Number(p.costo_mayoreo):''}" placeholder="0" inputmode="decimal" style="width:85px; text-align:right"></td>
     <td class="numcell"><input type="number" id="maypv-${p.id}" value="${Number(p.precio_mayoreo)>0?Number(p.precio_mayoreo):''}" placeholder="0" inputmode="decimal" style="width:85px; text-align:right"></td>
     <td><button class="ghost" onclick="guardarPrecioMayoreo(${p.id})">✓</button></td>
@@ -8400,10 +8407,18 @@ function renderPreciosMayoreo(){
 async function guardarPrecioMayoreo(pid){
   const pv=Number(document.getElementById('maypv-'+pid).value)||0;
   const co=Number(document.getElementById('mayco-'+pid).value)||0;
+  const nwEl=document.getElementById('maynw-'+pid);
+  const nw=nwEl?(nwEl.value||'').trim():'';
   if(pv<0||co<0){ alert('Precio o costo no válido.'); return; }
   if(!navigator.onLine){ alert('Necesitas internet para guardar.'); return; }
   try{
-    let {data,error}=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co}).eq('id',pid).select();
+    let {data,error}=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co, nombre_web:nw||null}).eq('id',pid).select();
+    if(error && (String(error.message||'').includes('nombre_web'))){
+      // Aún no existe la columna nombre_web: guardamos precio y costo.
+      const r0=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co}).eq('id',pid).select();
+      data=r0.data; error=r0.error;
+      if(!error){ alert('Guardé precio y costo. Para el nombre web corre el SQL "nombre_web.sql".'); }
+    }
     if(error && (String(error.message||'').includes('costo_mayoreo'))){
       // Aún no existe la columna costo_mayoreo: guardamos al menos el precio.
       const r2=await sb.from('productos').update({precio_mayoreo:pv}).eq('id',pid).select();
@@ -8412,10 +8427,10 @@ async function guardarPrecioMayoreo(pid){
     }
     if(error) throw error;
     if(!data||!data.length){ alert('El servidor no aplicó el cambio (permisos).'); return; }
-    const p=(PRODUCTOS||[]).find(x=>x.id===pid); if(p){ p.precio_mayoreo=pv; p.costo_mayoreo=co; }
+    const p=(PRODUCTOS||[]).find(x=>x.id===pid); if(p){ p.precio_mayoreo=pv; p.costo_mayoreo=co; p.nombre_web=nw||null; }
     lsSet('adm_cache_productos', PRODUCTOS);
     const btn=event&&event.target; if(btn){ const t=btn.textContent; btn.textContent='✓'; btn.style.color='var(--green)'; setTimeout(()=>{btn.textContent=t; btn.style.color='';},1200); }
-  }catch(e){ alert('No se pudo: '+(e.message||e)); }
+  }catch(e){ alert('No se pudo: '+(e.message||e)); registrarError('mayoreo/productos','No se pudo guardar precio/nombre web',(e&&e.message)||String(e)); }
 }
 
 // ----- ENTRADA DE MERCANCÍA A MAYOREO -----
@@ -8793,9 +8808,6 @@ function renderClientes(){
 
 // 📣 AVISAR NOVEDADES a los clientes que dejaron su WhatsApp al reservar.
 const LINK_TIENDA_AVISO = 'https://catalogo-er.github.io/MAYOREO/';
-// 📍 Lugar de recogida (se le manda al cliente por WhatsApp al guardar la cita, y se ve en el catálogo).
-const DIR_RECOGIDA = 'Centro Comercial La Caridad (Estrella Roja), Camagüey';
-const MAPA_RECOGIDA = 'https://maps.google.com/?q=21.374018,-77.915894';
 function copiarTexto(txt, ok){
   try{ navigator.clipboard.writeText(txt).then(()=>{ const e=document.getElementById('avisarMsgEstado'); if(e){e.textContent=ok||'Copiado'; e.className='msg ok';} }); }
   catch(_){ prompt('Copia esto:', txt); }
@@ -8859,20 +8871,7 @@ async function guardarCitaReserva(id){
   if(!navigator.onLine){ alert('Necesitas internet.'); return; }
   try{
     const {error}=await sb.from('reservas_mayoreo').update({cita: val||null}).eq('id',id); if(error) throw error;
-    if(val){
-      const r=__reservasMay[id]||{};
-      const tel=(r.telefono||'').replace(/[^0-9]/g,'');
-      if(tel){
-        if(confirm('✓ Cita guardada: '+fmtCita(val)+'\n\n¿Mandarle el aviso al cliente por WhatsApp con la hora y la ubicación?')){
-          const msg=encodeURIComponent('Hola'+(r.nombre?(' '+r.nombre):'')+'! Tu pedido de LOPE ya tiene fecha y hora de recogida.\n\n📅 '+fmtCita(val)+'\n📍 '+DIR_RECOGIDA+'\n🗺️ Ubicación: '+MAPA_RECOGIDA+'\n\n¡Te esperamos! 🙌');
-          window.open('https://wa.me/'+tel+'?text='+msg,'_blank');
-        }
-      } else {
-        alert('✓ Cita guardada: '+fmtCita(val)+'\n(Este cliente no dejó WhatsApp)');
-      }
-    } else {
-      alert('Cita borrada.');
-    }
+    alert(val? ('Cita guardada: '+fmtCita(val)) : 'Cita borrada.');
     cargarReservasMayoreo();
   }catch(e){ alert('No se pudo: '+(e.message||e)); registrarError('mayoreo/reservas','No se pudo guardar la cita',(e&&e.message)||String(e)); }
 }
@@ -9341,7 +9340,7 @@ function analizarNegocio(d){
   const invPorProdAlm = {};
   (inventario||[]).forEach(r=>{ (invPorProdAlm[r.producto_id]=invPorProdAlm[r.producto_id]||{})[r.almacen_id]=Number(r.cantidad||0); });
   const puestosIds = puntos.map(a=>a.id);
-  const bodegas = (almacenes||[]).filter(a=>!esPuntoVenta(a));
+  const bodegas = (almacenes||[]).filter(a=>!esPuntoVenta(a) && !esMayoreo(a)); // MAYOREO va aparte: nunca se mezcla con lo normal
   let reposicionFaltan = 0;
   Object.keys(invPorProdAlm).forEach(pid=>{
     const porAlm = invPorProdAlm[pid];
@@ -9652,7 +9651,7 @@ function analizarReposicion(d){
   const { inventario, productos, almacenes, umbral, puestoId } = d;
   const nombreProd = id => { const p=(productos||[]).find(x=>x.id===id); return p?p.nombre:('#'+id); };
   const U = Number(umbral)||0;
-  const bodegas = (almacenes||[]).filter(a=>!esPuntoVenta(a));
+  const bodegas = (almacenes||[]).filter(a=>!esPuntoVenta(a) && !esMayoreo(a)); // MAYOREO va aparte: nunca se mezcla con lo normal
   let puestos = (almacenes||[]).filter(esPuntoVenta);
   if(puestoId) puestos = puestos.filter(p=>String(p.id)===String(puestoId));
   const invMap = {};
@@ -9682,7 +9681,7 @@ function analizarReposicion(d){
 function sugerirReposicion(d){
   const { ventasPuestoProd, inventario, productos, almacenes, diasHistorial, diasCubrir, puestoId } = d;
   const nombreProd = id => { const p=(productos||[]).find(x=>x.id===id); return p?p.nombre:('#'+id); };
-  const bodegas = (almacenes||[]).filter(a=>!esPuntoVenta(a));
+  const bodegas = (almacenes||[]).filter(a=>!esPuntoVenta(a) && !esMayoreo(a)); // MAYOREO va aparte: nunca se mezcla con lo normal
   let puestos = (almacenes||[]).filter(esPuntoVenta);
   if(puestoId) puestos = puestos.filter(p=>String(p.id)===String(puestoId));
   const invMap = {};
@@ -10986,7 +10985,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v124</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v125</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
