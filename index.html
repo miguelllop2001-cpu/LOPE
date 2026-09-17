@@ -8444,12 +8444,13 @@ function renderPreciosMayoreo(){
   if(q) lista=lista.filter(p=>(p.nombre||'').toLowerCase().includes(q));
   lista=lista.slice(0,60);
   if(!lista.length){ cont.innerHTML='<div class="empty">Sin productos.</div>'; return; }
-  cont.innerHTML=`<table style="min-width:700px"><thead><tr><th>Producto (interno)</th><th>Nombre para la web</th><th class="numcell">Costo may.</th><th class="numcell">Precio may.</th><th></th><th></th></tr></thead><tbody>
+  cont.innerHTML=`<table style="min-width:780px"><thead><tr><th>Producto (interno)</th><th>Nombre para la web</th><th class="numcell">Costo may.</th><th class="numcell">Precio may.</th><th class="numcell">Mín.</th><th></th><th></th></tr></thead><tbody>
   ${lista.map(p=>`<tr>
     <td>${p.nombre}</td>
     <td><input type="text" id="maynw-${p.id}" value="${(p.nombre_web||'').replace(/"/g,'&quot;')}" placeholder="(igual que el interno)" style="width:170px"></td>
     <td class="numcell"><input type="number" id="mayco-${p.id}" value="${Number(p.costo_mayoreo)>0?Number(p.costo_mayoreo):''}" placeholder="0" inputmode="decimal" style="width:85px; text-align:right"></td>
     <td class="numcell"><input type="number" id="maypv-${p.id}" value="${Number(p.precio_mayoreo)>0?Number(p.precio_mayoreo):''}" placeholder="0" inputmode="decimal" style="width:85px; text-align:right"></td>
+    <td class="numcell"><input type="number" id="maymin-${p.id}" value="${Number(p.min_mayoreo)>1?Number(p.min_mayoreo):''}" placeholder="1" inputmode="numeric" style="width:60px; text-align:right"></td>
     <td><button class="ghost" onclick="guardarPrecioMayoreo(${p.id})">✓</button></td>
     <td><button class="ghost" onclick="abrirFotosMayoreo(${p.id})">📷 Fotos</button> <button class="ghost" onclick="abrirSpecsMayoreo(${p.id})">📋 Especif.</button></td>
   </tr>`).join('')}
@@ -8462,28 +8463,33 @@ async function guardarPrecioMayoreo(pid){
   const co=Number(document.getElementById('mayco-'+pid).value)||0;
   const nwEl=document.getElementById('maynw-'+pid);
   const nw=nwEl?(nwEl.value||'').trim():'';
+  const minEl=document.getElementById('maymin-'+pid);
+  let mn=minEl?(parseInt(minEl.value)||1):1; if(mn<1)mn=1;
   if(pv<0||co<0){ alert('Precio o costo no válido.'); return; }
   if(!navigator.onLine){ alert('Necesitas internet para guardar.'); return; }
   try{
-    let {data,error}=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co, nombre_web:nw||null}).eq('id',pid).select();
+    let {data,error}=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co, nombre_web:nw||null, min_mayoreo:mn}).eq('id',pid).select();
+    if(error && (String(error.message||'').includes('min_mayoreo'))){
+      const r0=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co, nombre_web:nw||null}).eq('id',pid).select();
+      data=r0.data; error=r0.error;
+      if(!error){ alert('Guardé lo demás. Para el mínimo corre el SQL "min_mayoreo.sql".'); }
+    }
     if(error && (String(error.message||'').includes('nombre_web'))){
-      // Aún no existe la columna nombre_web: guardamos precio y costo.
       const r0=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co}).eq('id',pid).select();
       data=r0.data; error=r0.error;
       if(!error){ alert('Guardé precio y costo. Para el nombre web corre el SQL "nombre_web.sql".'); }
     }
     if(error && (String(error.message||'').includes('costo_mayoreo'))){
-      // Aún no existe la columna costo_mayoreo: guardamos al menos el precio.
       const r2=await sb.from('productos').update({precio_mayoreo:pv}).eq('id',pid).select();
       data=r2.data; error=r2.error;
       if(!error){ alert('Guardé el precio. El costo de mayoreo necesita correr el SQL "mayoreo_setup.sql".'); }
     }
     if(error) throw error;
     if(!data||!data.length){ alert('El servidor no aplicó el cambio (permisos).'); return; }
-    const p=(PRODUCTOS||[]).find(x=>x.id===pid); if(p){ p.precio_mayoreo=pv; p.costo_mayoreo=co; p.nombre_web=nw||null; }
+    const p=(PRODUCTOS||[]).find(x=>x.id===pid); if(p){ p.precio_mayoreo=pv; p.costo_mayoreo=co; p.nombre_web=nw||null; p.min_mayoreo=mn; }
     lsSet('adm_cache_productos', PRODUCTOS);
     const btn=event&&event.target; if(btn){ const t=btn.textContent; btn.textContent='✓'; btn.style.color='var(--green)'; setTimeout(()=>{btn.textContent=t; btn.style.color='';},1200); }
-  }catch(e){ alert('No se pudo: '+(e.message||e)); registrarError('mayoreo/productos','No se pudo guardar precio/nombre web',(e&&e.message)||String(e)); }
+  }catch(e){ alert('No se pudo: '+(e.message||e)); registrarError('mayoreo/productos','No se pudo guardar precio/mínimo',(e&&e.message)||String(e)); }
 }
 
 // ----- ENTRADA DE MERCANCÍA A MAYOREO -----
@@ -11074,7 +11080,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v130</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v131</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
