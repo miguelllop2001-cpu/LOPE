@@ -5235,12 +5235,17 @@ async function revisarComisionesFaltantes(){
     for(const it of (items||[])){ (itemsPorDia[it.venta_dia_id]=itemsPorDia[it.venta_dia_id]||[]).push(it); }
 
     // Todas las comisiones de vendedor existentes (por vínculo a la venta y por clave)
-    const {data: comis} = await sb.from('deudas').select('id, venta_dia_id, clave_comision, nota, monto').eq('tipo','debo');
+    const {data: comis} = await sb.from('deudas').select('id, venta_dia_id, clave_comision, nota, monto, persona').eq('tipo','debo');
     const comisionPorVenta = new Set();
     const comisionPorClave = new Set();
+    const comisionPorPersonaFecha = new Set(); // respaldo: comisiones viejas o sin vínculo
     for(const c of (comis||[])){
       if(c.venta_dia_id!=null && (c.nota||'').includes('Comisión 15%')) comisionPorVenta.add(c.venta_dia_id);
       if(c.clave_comision) comisionPorClave.add(c.clave_comision);
+      if((c.nota||'').includes('Comisión 15%')){
+        const mf=(c.nota||'').match(/venta del (\d{4}-\d{2}-\d{2})/);
+        if(mf) comisionPorPersonaFecha.add(((c.persona||'').trim().toLowerCase())+'|'+mf[1]);
+      }
     }
 
     const faltantes = [];
@@ -5249,10 +5254,14 @@ async function revisarComisionesFaltantes(){
       const ganancia = reales.reduce((s,it)=> s + Number(it.cantidad)*(Number(it.precio_venta)-Number(it.costo)), 0);
       if(ganancia <= 0) continue; // sin ganancia no corresponde comisión
       const claveVta = 'comvta-' + (d.clave_local || d.id);
-      const tiene = comisionPorVenta.has(d.id) || comisionPorClave.has(claveVta);
+      const alm = ALMACENES.find(a=>a.id===d.almacen_id);
+      const puesto = alm?alm.nombre:('#'+d.almacen_id);
+      const quien = (d.cobra_comision || puesto || '').trim().toLowerCase();
+      const tiene = comisionPorVenta.has(d.id)
+                 || comisionPorClave.has(claveVta)
+                 || comisionPorPersonaFecha.has(quien+'|'+d.fecha); // ya existe una de esa persona y fecha
       if(!tiene){
-        const alm = ALMACENES.find(a=>a.id===d.almacen_id);
-        faltantes.push({dia:d, ganancia, comision: redondearComision(ganancia*0.15), puesto: alm?alm.nombre:('#'+d.almacen_id)});
+        faltantes.push({dia:d, ganancia, comision: redondearComision(ganancia*0.15), puesto});
       }
     }
 
@@ -5295,6 +5304,18 @@ async function generarComisionFaltante(ventaDiaId){
 
     const alm = ALMACENES.find(a=>a.id===dia.almacen_id);
     const puesto = alm?alm.nombre:('#'+dia.almacen_id);
+    const quienCobra = (dia.cobra_comision || puesto);
+    // PROTECCIÓN EXTRA: ¿ya hay una comisión de ESA persona y ESA fecha (aunque sin vínculo)?
+    // Evita pagar dos veces cuando la comisión vieja se guardó sin clave.
+    try{
+      const {data: mismas} = await sb.from('deudas').select('id,nota,monto').eq('tipo','debo').eq('persona', quienCobra);
+      const yaFecha = (mismas||[]).filter(c=>(c.nota||'').includes('Comisión 15%') && (c.nota||'').includes('venta del '+dia.fecha));
+      if(yaFecha.length>0){
+        const seguir = confirm('⚠️ OJO: '+quienCobra+' YA tiene una comisión registrada de la venta del '+dia.fecha+' (por $'+num(yaFecha[0].monto)+').\n\nSi generas otra, se le pagaría DOBLE.\n\n¿Seguro que quieres generarla de todos modos?');
+        if(!seguir){ msgEl.textContent='No se generó (ya existía una de esa fecha).'; msgEl.className='msg'; await revisarComisionesFaltantes(); return; }
+      }
+    }catch(e){}
+
     const comision = redondearComision(ganancia*0.15);
     const filaCom = {
       tipo:'debo', persona: (dia.cobra_comision || puesto), monto: comision,
@@ -5724,7 +5745,7 @@ function descartarPendienteAtascado(){
   else { pedidos.shift(); lsSet('vt_pending_pedidos', pedidos); }
   actualizarConexionUI();
 }
-window.addEventListener('online', ()=>{ actualizarConexionUI(); sincronizarPendientes(); actualizarConexionAdminUI(); sincronizarPendientesAdmin(); sincronizarRecepciones(); });
+window.addEventListener('online', ()=>{ actualizarConexionUI(); sincronizarPendientes(); actualizarConexionAdminUI(); sincronizarPendientesAdmin(); sincronizarRecepciones(); reintentarComisiones(); });
 window.addEventListener('offline', actualizarConexionUI);
 
 async function cargarCatalogoVentas(){
@@ -7480,7 +7501,7 @@ async function finalizarDiaInterno(){
         }
         if(rCom.error){
           console.error('COMISIÓN NO CREADA al cerrar:', rCom.error.message, filaCom);
-          try{ const log=lsGet('com_fallidas',[]); log.push({fecha, persona:quienCobra, monto:comision, venta_dia_id:ventaDiaAbiertaId, error:rCom.error.message, ts:Date.now()}); lsSet('com_fallidas',log); }catch(e){}
+          try{ const log=lsGet('com_fallidas',[]); log.push({fila:{tipo:'debo',persona:quienCobra,monto:comision,nota:filaCom.nota,clave_comision:claveComVta,venta_dia_id:ventaDiaAbiertaId}, fecha, persona:quienCobra, monto:comision, venta_dia_id:ventaDiaAbiertaId, error:rCom.error.message, ts:Date.now()}); lsSet('com_fallidas',log); }catch(e){}
         }
       }
     }
@@ -7643,8 +7664,38 @@ async function finalizarDiaInterno(){
 // ============================================================
 let sincronizando = false;
 
-async function sincronizarPendientes(){
-  if(sincronizando || !navigator.onLine) { actualizarConexionUI(); return; }
+// Reintenta SOLO las comisiones que fallaron al subir (cola com_fallidas).
+// Corre sola al reconectar y cada 30s → la comisión nunca se pierde, sin buscar faltantes a mano.
+async function reintentarComisiones(){
+  if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
+  let cola=lsGet('com_fallidas',[]);
+  if(!cola.length) return;
+  const quedan=[];
+  for(const item of cola){
+    const fila = item.fila || {tipo:'debo', persona:item.persona, monto:item.monto, venta_dia_id:item.venta_dia_id,
+      clave_comision:(item.venta_dia_id!=null?('comvta-'+item.venta_dia_id):null),
+      nota:('Comisión 15% de ganancia ($'+num(item.monto)+') - venta del '+item.fecha)};
+    try{
+      // ¿ya existe? (por clave, o por persona+fecha) → no duplicar
+      let existe=false;
+      if(fila.clave_comision){ const {data}=await sb.from('deudas').select('id').eq('clave_comision',fila.clave_comision); existe = data && data.length>0; }
+      if(!existe){
+        const mf=(fila.nota||'').match(/venta del (\d{4}-\d{2}-\d{2})/);
+        if(mf){ const {data}=await sb.from('deudas').select('id,nota').eq('tipo','debo').eq('persona',fila.persona);
+          existe = (data||[]).some(c=>(c.nota||'').includes('Comisión 15%') && (c.nota||'').includes('venta del '+mf[1])); }
+      }
+      if(existe) continue; // ya está → se saca de la cola
+      // crear (con fallback si falta la columna clave_comision)
+      let r=await sb.from('deudas').insert(fila);
+      if(r.error && ((r.error.message||'').includes('clave_comision')||(r.error.message||'').includes('column'))){
+        const base=Object.assign({},fila); delete base.clave_comision; r=await sb.from('deudas').insert(base);
+      }
+      if(r.error){ quedan.push(item); }   // sigue fallando → se queda para el próximo intento
+    }catch(e){ quedan.push(item); }         // sin conexión a mitad → se queda
+  }
+  lsSet('com_fallidas', quedan);
+}
+async function sincronizarPendientes(){  if(sincronizando || !navigator.onLine) { actualizarConexionUI(); return; }
   sincronizando = true;
   try{
     await sincronizarPedidosPendientes();
@@ -7895,7 +7946,7 @@ async function sincronizarUnDia(dia){
       }
       if(rCom.error){
         console.error('COMISIÓN NO CREADA al sincronizar:', rCom.error.message, filaCom);
-        try{ const log=lsGet('com_fallidas',[]); log.push({fecha:dia.fecha, persona:(dia.cobra_comision||dia.almacen_nombre), monto:comision, venta_dia_id:nuevo.id, error:rCom.error.message, ts:Date.now()}); lsSet('com_fallidas',log); }catch(e){}
+        try{ const log=lsGet('com_fallidas',[]); log.push({fila:{tipo:'debo',persona:(dia.cobra_comision||dia.almacen_nombre),monto:comision,nota:filaCom.nota,clave_comision:claveComVta,venta_dia_id:nuevo.id}, fecha:dia.fecha, persona:(dia.cobra_comision||dia.almacen_nombre), monto:comision, venta_dia_id:nuevo.id, error:rCom.error.message, ts:Date.now()}); lsSet('com_fallidas',log); }catch(e){}
       }
     }
   }
@@ -7913,6 +7964,8 @@ async function sincronizarUnDia(dia){
 }
 
 setInterval(sincronizarPendientes, 30000);
+setInterval(reintentarComisiones, 30000);
+reintentarComisiones();
 setInterval(sincronizarPendientesAdmin, 30000);
 
 // ---------- HISTORIAL DE DÍAS (colapsable) ----------
@@ -11017,6 +11070,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v127</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v130</div>
 </body>
 </html>
