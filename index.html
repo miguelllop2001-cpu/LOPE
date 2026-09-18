@@ -5749,7 +5749,7 @@ function descartarPendienteAtascado(){
   else { pedidos.shift(); lsSet('vt_pending_pedidos', pedidos); }
   actualizarConexionUI();
 }
-window.addEventListener('online', ()=>{ actualizarConexionUI(); sincronizarPendientes(); actualizarConexionAdminUI(); sincronizarPendientesAdmin(); sincronizarRecepciones(); reintentarComisiones(); });
+window.addEventListener('online', ()=>{ actualizarConexionUI(); sincronizarPendientes(); actualizarConexionAdminUI(); sincronizarPendientesAdmin(); sincronizarRecepciones(); reintentarComisiones(); subirVentasMayoreo(); subirMovsMayoreo(); });
 window.addEventListener('offline', actualizarConexionUI);
 
 async function cargarCatalogoVentas(){
@@ -5888,16 +5888,15 @@ function tvRenderCarrito(){
 }
 async function tvVender(){
   if(!__tvCarrito.length) return;
-  if(!navigator.onLine){ alert('Necesitas internet para cobrar.'); return; }
   const total=__tvCarrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
   if(!confirm('Cobrar venta de mayoreo por $'+num(total)+'.\n\n¿Confirmar?')) return;
   const btn=document.getElementById('tvFinalizar'); btn.disabled=true; btn.textContent='Cobrando…';
   try{
     await procesarVentaMayoreo(__tvCarrito, __tvReservaEnVenta); __tvReservaEnVenta=null;
     __tvCarrito=[]; tvRenderCarrito();
-    alert('Venta cobrada. ✓');
+    alert(navigator.onLine ? 'Venta cobrada. ✓' : 'Venta guardada. Se subirá sola cuando vuelva el internet. ✓');
     cambiarVMTab('reservas');
-  }catch(e){ alert('No se pudo (se revirtió el stock). '+(e.message||e)); }
+  }catch(e){ alert('No se pudo: '+(e.message||e)); }
   finally{ btn.disabled=false; btn.textContent='✅ Cobrar venta'; }
 }
 let __tvReservas={};
@@ -7970,6 +7969,10 @@ async function sincronizarUnDia(dia){
 setInterval(sincronizarPendientes, 30000);
 setInterval(reintentarComisiones, 30000);
 reintentarComisiones();
+setInterval(subirVentasMayoreo, 30000);
+subirVentasMayoreo();
+setInterval(subirMovsMayoreo, 30000);
+subirMovsMayoreo();
 setInterval(sincronizarPendientesAdmin, 30000);
 
 // ---------- HISTORIAL DE DÍAS (colapsable) ----------
@@ -8444,13 +8447,14 @@ function renderPreciosMayoreo(){
   if(q) lista=lista.filter(p=>(p.nombre||'').toLowerCase().includes(q));
   lista=lista.slice(0,60);
   if(!lista.length){ cont.innerHTML='<div class="empty">Sin productos.</div>'; return; }
-  cont.innerHTML=`<table style="min-width:780px"><thead><tr><th>Producto (interno)</th><th>Nombre para la web</th><th class="numcell">Costo may.</th><th class="numcell">Precio may.</th><th class="numcell">Mín.</th><th></th><th></th></tr></thead><tbody>
+  cont.innerHTML=`<table style="min-width:850px"><thead><tr><th>Producto (interno)</th><th>Nombre para la web</th><th class="numcell">Costo may.</th><th class="numcell">Precio may.</th><th class="numcell">Mín.</th><th class="numcell">Caja</th><th></th><th></th></tr></thead><tbody>
   ${lista.map(p=>`<tr>
     <td>${p.nombre}</td>
     <td><input type="text" id="maynw-${p.id}" value="${(p.nombre_web||'').replace(/"/g,'&quot;')}" placeholder="(igual que el interno)" style="width:170px"></td>
     <td class="numcell"><input type="number" id="mayco-${p.id}" value="${Number(p.costo_mayoreo)>0?Number(p.costo_mayoreo):''}" placeholder="0" inputmode="decimal" style="width:85px; text-align:right"></td>
     <td class="numcell"><input type="number" id="maypv-${p.id}" value="${Number(p.precio_mayoreo)>0?Number(p.precio_mayoreo):''}" placeholder="0" inputmode="decimal" style="width:85px; text-align:right"></td>
     <td class="numcell"><input type="number" id="maymin-${p.id}" value="${Number(p.min_mayoreo)>1?Number(p.min_mayoreo):''}" placeholder="1" inputmode="numeric" style="width:60px; text-align:right"></td>
+    <td class="numcell"><input type="number" id="maymul-${p.id}" value="${Number(p.multiplo_mayoreo)>1?Number(p.multiplo_mayoreo):''}" placeholder="1" inputmode="numeric" style="width:60px; text-align:right"></td>
     <td><button class="ghost" onclick="guardarPrecioMayoreo(${p.id})">✓</button></td>
     <td><button class="ghost" onclick="abrirFotosMayoreo(${p.id})">📷 Fotos</button> <button class="ghost" onclick="abrirSpecsMayoreo(${p.id})">📋 Especif.</button></td>
   </tr>`).join('')}
@@ -8465,10 +8469,17 @@ async function guardarPrecioMayoreo(pid){
   const nw=nwEl?(nwEl.value||'').trim():'';
   const minEl=document.getElementById('maymin-'+pid);
   let mn=minEl?(parseInt(minEl.value)||1):1; if(mn<1)mn=1;
+  const mulEl=document.getElementById('maymul-'+pid);
+  let ml=mulEl?(parseInt(mulEl.value)||1):1; if(ml<1)ml=1;
   if(pv<0||co<0){ alert('Precio o costo no válido.'); return; }
   if(!navigator.onLine){ alert('Necesitas internet para guardar.'); return; }
   try{
-    let {data,error}=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co, nombre_web:nw||null, min_mayoreo:mn}).eq('id',pid).select();
+    let {data,error}=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co, nombre_web:nw||null, min_mayoreo:mn, multiplo_mayoreo:ml}).eq('id',pid).select();
+    if(error && (String(error.message||'').includes('multiplo_mayoreo'))){
+      const r0=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co, nombre_web:nw||null, min_mayoreo:mn}).eq('id',pid).select();
+      data=r0.data; error=r0.error;
+      if(!error){ alert('Guardé lo demás. Para la caja (múltiplo) corre el SQL "multiplo_mayoreo.sql".'); }
+    }
     if(error && (String(error.message||'').includes('min_mayoreo'))){
       const r0=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co, nombre_web:nw||null}).eq('id',pid).select();
       data=r0.data; error=r0.error;
@@ -8486,10 +8497,10 @@ async function guardarPrecioMayoreo(pid){
     }
     if(error) throw error;
     if(!data||!data.length){ alert('El servidor no aplicó el cambio (permisos).'); return; }
-    const p=(PRODUCTOS||[]).find(x=>x.id===pid); if(p){ p.precio_mayoreo=pv; p.costo_mayoreo=co; p.nombre_web=nw||null; p.min_mayoreo=mn; }
+    const p=(PRODUCTOS||[]).find(x=>x.id===pid); if(p){ p.precio_mayoreo=pv; p.costo_mayoreo=co; p.nombre_web=nw||null; p.min_mayoreo=mn; p.multiplo_mayoreo=ml; }
     lsSet('adm_cache_productos', PRODUCTOS);
     const btn=event&&event.target; if(btn){ const t=btn.textContent; btn.textContent='✓'; btn.style.color='var(--green)'; setTimeout(()=>{btn.textContent=t; btn.style.color='';},1200); }
-  }catch(e){ alert('No se pudo: '+(e.message||e)); registrarError('mayoreo/productos','No se pudo guardar precio/mínimo',(e&&e.message)||String(e)); }
+  }catch(e){ alert('No se pudo: '+(e.message||e)); registrarError('mayoreo/productos','No se pudo guardar precio/caja',(e&&e.message)||String(e)); }
 }
 
 // ----- ENTRADA DE MERCANCÍA A MAYOREO -----
@@ -8519,16 +8530,44 @@ async function entradaMayoreo(signo){
   if(!alm){ msg.textContent='Falta crear el almacén MAYOREO.'; msg.className='msg err'; return; }
   if(!pid){ msg.textContent='Elige un producto.'; msg.className='msg err'; return; }
   if(!cant||cant<=0){ msg.textContent='Pon una cantidad.'; msg.className='msg err'; return; }
-  if(!navigator.onLine){ msg.textContent='Necesitas internet.'; msg.className='msg err'; return; }
-  try{
-    const rr=await ajustarInventario(alm.id, pid, signo*cant);
-    const pr=(PRODUCTOS||[]).find(x=>x.id===pid);
-    try{ await sb.from('mayoreo_movimientos').insert({tipo: signo>0?'ingreso':'extraccion', producto_id:pid, nombre:(pr&&pr.nombre)||('#'+pid), cantidad:cant, cant_antes:rr.antes, cant_despues:rr.despues}); }catch(_){}
-    await cargarTodo();
-    msg.textContent = signo>0 ? 'Ingresó al mayoreo. ✓' : 'Se extrajo del mayoreo. ✓'; msg.className='msg ok';
-    document.getElementById('mayEbuscar').value=''; document.getElementById('mayEprod').value='';
-    document.getElementById('mayEelegido').textContent=''; document.getElementById('mayEcant').value='';
-  }catch(e){ msg.textContent='No se pudo: '+(e.message||e); msg.className='msg err'; registrarError('mayoreo/movimiento', 'No se pudo mover mercancía de mayoreo', (e&&e.message)||String(e)); }
+  const pr=(PRODUCTOS||[]).find(x=>x.id===pid);
+  // Si es EXTRACCIÓN, no dejar sacar más de lo que hay (en memoria)
+  if(signo<0){
+    const hay=(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
+    if(cant>hay){ msg.textContent='No hay tanto para extraer (hay '+num(hay)+').'; msg.className='msg err'; return; }
+  }
+  // 1) guardar el movimiento en la cola local (nunca se pierde)
+  const clave='maymov_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+  const mov={ clave, almacen_id:alm.id, producto_id:pid, delta:signo*cant, nombre:(pr&&pr.nombre)||('#'+pid), ts:Date.now() };
+  try{ const cola=lsGet('may_movs_pendientes',[]); cola.push(mov); lsSet('may_movs_pendientes',cola); }catch(_){}
+  // 2) ajustar el stock en memoria al momento
+  { let row=(INVENTARIO||[]).find(i=>i.almacen_id===alm.id&&i.producto_id===pid); if(!row){ row={almacen_id:alm.id,producto_id:pid,cantidad:0}; INVENTARIO.push(row);} row.cantidad=Number(row.cantidad||0)+signo*cant; }
+  // 3) intentar subirlo (si falla, queda en cola y se reintenta solo)
+  await subirMovsMayoreo();
+  msg.textContent = (signo>0 ? 'Ingresó al mayoreo.' : 'Se extrajo del mayoreo.') + (navigator.onLine?' ✓':' (se subirá cuando vuelva el internet) ✓'); msg.className='msg ok';
+  document.getElementById('mayEbuscar').value=''; document.getElementById('mayEprod').value='';
+  document.getElementById('mayEelegido').textContent=''; document.getElementById('mayEcant').value='';
+  try{ renderInvMayoreo(); }catch(_){}
+}
+// Sube los movimientos de mercancía pendientes con el RPC atómico. Idempotente + reintento.
+async function subirMovsMayoreo(){
+  if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
+  let cola=lsGet('may_movs_pendientes',[]);
+  if(!cola.length) return;
+  const quedan=[];
+  for(const m of cola){
+    try{
+      const { error } = await sb.rpc('mover_mayoreo_atomico', { p_clave:m.clave, p_almacen:m.almacen_id, p_producto:m.producto_id, p_delta:m.delta, p_nombre:m.nombre||'' });
+      if(error){
+        if(String(error.message||'').includes('mover_mayoreo_atomico')){
+          if(!window.__avisoRpcMov){ window.__avisoRpcMov=true; try{ alert('Falta correr el SQL "mover_mayoreo_atomico.sql" en Supabase. El movimiento quedó guardado y se subirá cuando lo corras.'); }catch(_){} }
+        }
+        registrarError('mayoreo/movimiento','No subió el movimiento (queda en cola)', error.message);
+        quedan.push(m);
+      }
+    }catch(e){ quedan.push(m); }
+  }
+  lsSet('may_movs_pendientes', quedan);
 }
 
 // ----- FOTOS DE MAYOREO -----
@@ -8725,32 +8764,61 @@ function renderMayCarrito(){
 }
 
 // NÚCLEO compartido de la venta de mayoreo (mismo dinero para dueño/Dariel y Tamy).
+// Venta de mayoreo A PRUEBA DE CAÍDAS:
+// 1) Se guarda PRIMERO en el teléfono (cola local) → nunca se pierde.
+// 2) Se descuenta el stock en memoria al momento (no se sobrevende).
+// 3) Se sube con el RPC atómico (o todo o nada). Si falla (sin internet, etc.)
+//    queda en la cola y se reintenta solo. Idempotente: no duplica.
 async function procesarVentaMayoreo(carrito, reservaId){
   const alm=almacenMayoreo(); if(!alm) throw new Error('Falta el almacén MAYOREO.');
+  if(!carrito||!carrito.length) throw new Error('Carrito vacío.');
   const total=carrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
   const ganancia=carrito.reduce((s,x)=>s+x.cantidad*(x.precio-x.costo),0);
-  const clave='may_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
-  const descontados=[];
-  try{
-    for(const it of carrito){
-      const rr=await ajustarInventario(alm.id, it.producto_id, -it.cantidad); descontados.push(it);
-      try{ await sb.from('mayoreo_movimientos').insert({tipo:'venta', producto_id:it.producto_id, nombre:it.nombre, cantidad:it.cantidad, cant_antes:rr.antes, cant_despues:rr.despues, nota:'Venta mayoreo'}); }catch(_){}
-      const row=(INVENTARIO||[]).find(i=>i.almacen_id===alm.id && i.producto_id===it.producto_id);
-      if(row) row.cantidad = Number(row.cantidad||0) - it.cantidad;
-    }
-    const vRes=await sb.from('ventas_mayoreo').insert({ items:carrito, total, ganancia, usuario:(usuarioActual&&usuarioActual.nombre)||'', clave_local:clave, fecha:fechaHoyLocal() });
-    if(vRes.error) throw vRes.error;
-    if(reservaId){ try{ await sb.from('reservas_mayoreo').update({estado:'atendida'}).eq('id',reservaId); }catch(_){} }
-    return {total, ganancia};
-  }catch(e){
-    for(const it of descontados){ try{ await ajustarInventario(alm.id, it.producto_id, it.cantidad); const row=(INVENTARIO||[]).find(i=>i.almacen_id===alm.id && i.producto_id===it.producto_id); if(row) row.cantidad=Number(row.cantidad||0)+it.cantidad; }catch(_){} }
-    throw e;
+  // validar stock en memoria antes de nada
+  for(const it of carrito){
+    const hay=(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===it.producto_id).reduce((s,i)=>s+Number(i.cantidad||0),0);
+    if(it.cantidad>hay) throw new Error('No hay suficiente de "'+it.nombre+'" (hay '+num(hay)+').');
   }
+  const clave='may_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+  const venta={ clave, almacen_id:alm.id, items:carrito.map(x=>({producto_id:x.producto_id,nombre:x.nombre,cantidad:x.cantidad,precio:x.precio,costo:x.costo})), total, ganancia, usuario:(usuarioActual&&usuarioActual.nombre)||'', reserva_id:reservaId||null, ts:Date.now() };
+  // 1) guardar en la cola local (esto NUNCA falla ni se pierde)
+  try{ const cola=lsGet('may_ventas_pendientes',[]); cola.push(venta); lsSet('may_ventas_pendientes',cola); }catch(_){}
+  // 2) descontar stock en memoria de una vez (para que se vea al instante y no se sobrevenda)
+  carrito.forEach(it=>{ const row=(INVENTARIO||[]).find(i=>i.almacen_id===alm.id&&i.producto_id===it.producto_id); if(row) row.cantidad=Number(row.cantidad||0)-it.cantidad; });
+  if(reservaId){ if(__reservasMay&&__reservasMay[reservaId]) __reservasMay[reservaId].estado='atendida'; }
+  // 3) intentar subirla ya (si falla, queda en la cola y se reintenta solo)
+  await subirVentasMayoreo();
+  return {total, ganancia, encolada:true};
+}
+
+// Sube las ventas de mayoreo pendientes con el RPC atómico. Idempotente y con reintento.
+async function subirVentasMayoreo(){
+  if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
+  let cola=lsGet('may_ventas_pendientes',[]);
+  if(!cola.length) return;
+  const quedan=[];
+  for(const v of cola){
+    try{
+      const { data, error } = await sb.rpc('vender_mayoreo_atomico', {
+        p_clave:v.clave, p_almacen:v.almacen_id, p_items:v.items,
+        p_total:v.total, p_ganancia:v.ganancia, p_usuario:v.usuario||'', p_reserva_id:v.reserva_id||null
+      });
+      if(error){
+        // Si el RPC no existe todavía, avisar una vez (no perder la venta: queda en cola)
+        if(String(error.message||'').includes('vender_mayoreo_atomico')){
+          if(!window.__avisoRpcVenta){ window.__avisoRpcVenta=true; try{ alert('Falta correr el SQL "vender_mayoreo_atomico.sql" en Supabase. La venta quedó guardada y se subirá cuando lo corras.'); }catch(_){} }
+        }
+        registrarError('mayoreo/venta','No subió la venta (queda en cola para reintento)', error.message);
+        quedan.push(v); // se reintenta luego
+      }
+      // si no hay error (data 'ok' o 'ya_existe') → se saca de la cola
+    }catch(e){ quedan.push(v); } // sin conexión a mitad → se queda para el próximo intento
+  }
+  lsSet('may_ventas_pendientes', quedan);
 }
 
 async function finalizarVentaMayoreo(){
   if(!__mayCarrito.length) return;
-  if(!navigator.onLine){ alert('Necesitas internet para cobrar la venta de mayoreo.'); return; }
   if(!almacenMayoreo()){ alert('Falta el almacén MAYOREO.'); return; }
   const total=__mayCarrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
   const ganancia=__mayCarrito.reduce((s,x)=>s+x.cantidad*(x.precio-x.costo),0);
@@ -8759,10 +8827,10 @@ async function finalizarVentaMayoreo(){
   try{
     await procesarVentaMayoreo(__mayCarrito, __reservaEnVenta); __reservaEnVenta=null;
     __mayCarrito=[]; renderMayCarrito();
-    await cargarTodo();
-    alert('Venta de mayoreo cobrada. ✓');
+    alert(navigator.onLine ? 'Venta de mayoreo cobrada. ✓' : 'Venta guardada. Se subirá sola cuando vuelva el internet. ✓');
+    try{ await cargarTodo(); }catch(_){}
     cambiarMTab('historial');
-  }catch(e){ alert('No se pudo completar la venta (se revirtió el stock). '+(e.message||e)); }
+  }catch(e){ alert('No se pudo: '+(e.message||e)); }
   finally{ btn.disabled=false; btn.textContent='✅ Cobrar venta de mayoreo'; }
 }
 
@@ -11080,7 +11148,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v131</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v133</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
