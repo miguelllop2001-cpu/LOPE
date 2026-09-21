@@ -3170,9 +3170,33 @@ async function crearAlmacen(){
 
 async function eliminarAlmacen(id){
   if(usuarioActual.rol !== 'dueno'){ alert('Solo el dueño puede eliminar almacenes.'); return; }
-  if(!confirm('¿Eliminar este almacén? Se perderá su inventario asociado.')) return;
-  await sb.from('almacenes').delete().eq('id', id);
-  await cargarTodo();
+  if(!navigator.onLine){ alert('Necesitas internet para eliminar un almacén.'); return; }
+  const alm=(ALMACENES||[]).find(a=>a.id===id); const nom=alm?alm.nombre:'este almacén';
+  if(!confirm('¿Eliminar "'+nom+'"? Se borra su inventario. (No se borran las ventas ni movimientos ya registrados.)')) return;
+  try{
+    // 1) borrar primero el inventario de ese almacén (lo advertimos)
+    { const r=await sb.from('inventario').delete().eq('almacen_id', id); if(r.error) throw r.error; }
+    // 2) borrar el almacén y CONFIRMAR que de verdad se borró
+    const { data, error } = await sb.from('almacenes').delete().eq('id', id).select();
+    if(error) throw error;
+    if(!data || !data.length){
+      alert('El servidor no borró el almacén (permisos). Corre en Supabase el SQL "permisos_todas_tablas.sql" y vuelve a intentar.');
+      registrarError('almacenes','Borrado de almacén sin efecto (RLS)', 'almacen '+id);
+      return;
+    }
+    await cargarTodo();
+    alert('Almacén "'+nom+'" eliminado. ✓');
+  }catch(e){
+    const m=String((e&&e.message)||e);
+    if(/foreign key|violates|referenced|still referenced/i.test(m)){
+      alert('No se puede borrar "'+nom+'" porque tiene ventas o movimientos registrados, y borrarlo perdería ese historial. Si de verdad quieres eliminarlo por completo, dime y te preparo un borrado seguro que limpie también su historial.');
+    } else if(/permission|row-level|rls|not allowed/i.test(m)){
+      alert('No se pudo por permisos. Corre en Supabase el SQL "permisos_todas_tablas.sql".');
+    } else {
+      alert('No se pudo eliminar: '+m);
+    }
+    registrarError('almacenes','No se pudo eliminar almacén', m);
+  }
 }
 
 // ---------- ADMIN: PRODUCTOS ----------
@@ -11154,6 +11178,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v134</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v135</div>
 </body>
 </html>
