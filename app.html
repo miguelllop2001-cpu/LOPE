@@ -8833,15 +8833,15 @@ async function finalizarVentaMayoreo(){
 // ----- GANANCIAS -----
 async function acumuladoMayoreo(){
   const ventas=[]; { let d=0; for(;;){ const r=await sb.from('ventas_mayoreo').select('total,ganancia').order('id',{ascending:true}).range(d,d+999); if(r.error) throw r.error; ventas.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
-  let vendido=0, gan=0, acc={Dariel:0,Tamy:0,jk:0,'Dueño':0};
-  ventas.forEach(v=>{ const t=Number(v.total||0), g=Number(v.ganancia||0); const c=t-g; const rf=repartoMayoreoFull(c,g); vendido+=t; gan+=g; acc.Dariel+=rf.darielTotal; acc.Tamy+=rf.vendedor; acc.jk+=rf.adminJk; acc['Dueño']+=rf.dueno; });
+  let vendido=0, gan=0, acc={Dariel:0,Tamy:0,jk:0,'Dueño':0}, darInv=0, darGan=0;
+  ventas.forEach(v=>{ const t=Number(v.total||0), g=Number(v.ganancia||0); const c=t-g; const rf=repartoMayoreoFull(c,g); vendido+=t; gan+=g; acc.Dariel+=rf.darielTotal; darInv+=rf.inversion; darGan+=rf.darielGan; acc.Tamy+=rf.vendedor; acc.jk+=rf.adminJk; acc['Dueño']+=rf.dueno; });
   let movs=[]; try{ let d=0; for(;;){ const r=await sb.from('mayoreo_caja').select('*').order('id',{ascending:true}).range(d,d+999); if(r.error) throw r.error; movs.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }catch(e){ movs=[]; }
   const cobrado={Dariel:0,Tamy:0,jk:0,'Dueño':0}; let ingManual=0, egrManual=0;
   movs.forEach(m=>{ if(m.tipo==='cobro'){ if(cobrado[m.persona]!=null) cobrado[m.persona]+=Number(m.monto||0); } else if(m.tipo==='ingreso'){ ingManual+=Number(m.monto||0); } else if(m.tipo==='egreso'){ egrManual+=Number(m.monto||0); } });
   const pend={}; Object.keys(acc).forEach(k=>pend[k]=Math.round((acc[k]-cobrado[k])*100)/100);
   const totalCobrado=Object.values(cobrado).reduce((a,b)=>a+b,0);
   const efectivo=Math.round((vendido + ingManual - egrManual - totalCobrado)*100)/100;
-  return { vendido, gan, acc, cobrado, pend, efectivo };
+  return { vendido, gan, acc, cobrado, pend, efectivo, dariel:{inv:Math.round(darInv*100)/100, gan:Math.round(darGan*100)/100} };
 }
 
 async function cargarGananciasMayoreo(){
@@ -8850,18 +8850,28 @@ async function cargarGananciasMayoreo(){
   cont.textContent='Cargando…';
   try{
     const a=await acumuladoMayoreo();
-    const fila=(clave,etq,desc)=>{
+    const fila=(clave,etq,desc,extra)=>{
       const p=a.pend[clave]||0;
       const btn=p>0.004?`<button class="primary" style="padding:8px 14px;font-size:13px" onclick="cobrarMayoreo('${clave}')">Cobrar $${num(p)}</button>`:'<span style="color:var(--muted);font-size:13px">Nada por cobrar</span>';
       return `<div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
           <div><b>${etq}</b><div style="color:var(--muted);font-size:12px">${desc}</div></div>
           <div style="text-align:right"><div style="font-weight:800;font-size:18px;color:var(--green)">$${num(p)}</div>${btn}</div>
-        </div>
+        </div>${extra||''}
       </div>`;
     };
+    // Desglose de Dariel: cuánto de lo pendiente es recuperar inversión y cuánto es su ganancia
+    let dExtra='';
+    { const pd=a.pend.Dariel||0, accD=a.acc.Dariel||0, inv=(a.dariel&&a.dariel.inv)||0, gan=(a.dariel&&a.dariel.gan)||0;
+      const pInv = accD>0 ? Math.round(pd*(inv/accD)*100)/100 : 0;
+      const pGan = Math.round((pd-pInv)*100)/100;
+      dExtra=`<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);display:flex;gap:14px;font-size:13px">
+        <div>📦 Inversión<br><b style="font-size:15px">$${num(pInv)}</b></div>
+        <div>📈 Ganancia<br><b style="font-size:15px;color:var(--green)">$${num(pGan)}</b></div>
+      </div>`;
+    }
     cont.innerHTML=`<div style="color:var(--muted);font-size:12px;margin-bottom:10px">Vendido $${num(a.vendido)} · Ganancia $${num(a.gan)}. Cada uno cobra TODO lo acumulado; luego vuelve a subir con nuevas ventas.</div>`
-      + fila('Dariel','👤 Dariel','Inversión + su parte de ganancia. Al cobrar solo sale el dinero.')
+      + fila('Dariel','👤 Dariel','Inversión + su parte de ganancia. Al cobrar solo sale el dinero.', dExtra)
       + fila('Dueño','🤵 Dueño (tú)','Al cobrar entra a la caja normal de LOPE.')
       + fila('jk','👥 Admin jk','Al cobrar se le pone en su cobro (Deudas).')
       + fila('Tamy','🛒 Tamy','Al cobrar se le pone en su cobro (Deudas).');
@@ -11144,6 +11154,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v133</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v134</div>
 </body>
 </html>
