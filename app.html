@@ -5839,12 +5839,41 @@ function cambiarVTab(tab){
 
 // ===== MAYOREO en la cuenta del vendedor (Tamy): vender + ver reservas =====
 let __tvCarrito=[]; let __tvReservaEnVenta=null;
+// Stock FRESCO del almacén MAYOREO. La vista de la vendedora (Tamy) NO carga el
+// almacén MAYOREO en INVENTARIO, así que aquí lo pedimos directo a Supabase.
+// Mapa { producto_id: cantidad }. Si está null aún no se cargó.
+let __tvStockMayoreo=null;
+async function tvCargarStockMayoreo(){
+  const alm=almacenMayoreo();
+  if(!alm){ __tvStockMayoreo=null; return; }
+  if(!navigator.onLine){ /* sin internet: se queda con lo último que tenga */ return; }
+  try{
+    const mapa={}; const PAGE=1000; let desde=0;
+    for(;;){
+      const r=await sb.from('inventario').select('producto_id, cantidad').eq('almacen_id', alm.id).order('id',{ascending:true}).range(desde, desde+PAGE-1);
+      if(r.error || !r.data) break;
+      r.data.forEach(row=>{ mapa[row.producto_id]=(mapa[row.producto_id]||0)+Number(row.cantidad||0); });
+      if(r.data.length < PAGE) break;
+      desde += PAGE;
+    }
+    __tvStockMayoreo=mapa;
+  }catch(e){ /* si falla, tvStockDe cae a INVENTARIO */ }
+}
+// Stock de un producto en MAYOREO: usa el mapa fresco si existe; si no, cae a INVENTARIO.
+function tvStockDe(pid){
+  if(__tvStockMayoreo){ return Number(__tvStockMayoreo[pid]||0); }
+  const alm=almacenMayoreo();
+  if(!alm) return 0;
+  return (INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
+}
 function cambiarVMTab(cual){
   document.getElementById('vmt-vender').style.display = cual==='vender'?'block':'none';
   document.getElementById('vmt-reservas').style.display = cual==='reservas'?'block':'none';
   const bv=document.getElementById('vmt-btn-vender'), br=document.getElementById('vmt-btn-reservas');
   if(bv) bv.classList.toggle('active', cual==='vender');
   if(br) br.classList.toggle('active', cual==='reservas');
+  // Refresca el stock del MAYOREO al entrar (en segundo plano) y re-pinta cuando llega.
+  tvCargarStockMayoreo().then(()=>{ try{ if(cual==='vender') tvRenderCarrito(); }catch(e){} });
   if(cual==='vender') tvPreparar();
   if(cual==='reservas') tvCargarReservas();
 }
@@ -5863,10 +5892,9 @@ function tvFiltrar(){
   document.getElementById('tvProd').value=''; document.getElementById('tvElegido').textContent='';
   const alm=almacenMayoreo();
   if(q.length<1||!alm){ cont.style.display='none'; cont.innerHTML=''; return; }
-  const stockDe=pid=>(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
   const m=(PRODUCTOS||[]).filter(p=>(p.nombre||'').toLowerCase().includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre)).slice(0,15);
   if(!m.length){ cont.style.display='block'; cont.innerHTML='<div style="padding:10px;color:var(--muted)">Sin coincidencias.</div>'; return; }
-  cont.innerHTML=m.map(p=>{ const h=stockDe(p.id); return `<div onclick="tvElegir(${p.id})" style="padding:12px;border-bottom:1px solid var(--border);cursor:pointer">${p.nombre} <span style="color:${h>0?'var(--green)':'var(--muted)'};font-size:13px">· hay ${num(h)}</span></div>`; }).join('');
+  cont.innerHTML=m.map(p=>{ const h=tvStockDe(p.id); return `<div onclick="tvElegir(${p.id})" style="padding:12px;border-bottom:1px solid var(--border);cursor:pointer">${p.nombre} <span style="color:${h>0?'var(--green)':'var(--muted)'};font-size:13px">· hay ${num(h)}</span></div>`; }).join('');
   cont.style.display='block';
 }
 function tvElegir(id){
@@ -5888,7 +5916,7 @@ function tvAgregar(){
   if(isNaN(precio)||precio<0){ alert('Precio no válido.'); return; }
   const alm=almacenMayoreo();
   if(!alm){ alert('Falta el almacén MAYOREO.'); return; }
-  const stock=(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
+  const stock=tvStockDe(pid);
   const ya=__tvCarrito.filter(x=>x.producto_id===pid).reduce((s,x)=>s+x.cantidad,0);
   if(cant+ya>stock){ alert('No hay tanto. Hay '+num(stock)+' y ya llevas '+num(ya)+'.'); return; }
   __tvCarrito.push({producto_id:pid, nombre:p.nombre, cantidad:cant, precio, costo:Number(p.costo_mayoreo||0)});
@@ -5945,17 +5973,18 @@ async function tvCargarReservas(){
     }).join('');
   }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
 }
-function tvVenderReserva(id){
+async function tvVenderReserva(id){
   const r=__tvReservas[id]; if(!r) return;
   const alm=almacenMayoreo();
   if(!alm){ alert('Falta el almacén MAYOREO.'); return; }
-  const stockDe=pid=>(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
+  // Pide el stock FRESCO del MAYOREO antes de validar (la vista de Tamy no lo tiene en memoria).
+  await tvCargarStockMayoreo();
   __tvCarrito=[]; let avisos=[];
   (Array.isArray(r.items)?r.items:[]).forEach(it=>{
     const p=(PRODUCTOS||[]).find(x=>x.id===it.producto_id);
     if(!p){ avisos.push(it.nombre+' ya no existe'); return; }
     let cant=Number(it.cantidad)||0;
-    const hay=stockDe(p.id);
+    const hay=tvStockDe(p.id);
     if(cant>hay){ avisos.push('de "'+p.nombre+'" solo hay '+num(hay)+' (pedía '+num(cant)+')'); cant=hay; }
     if(cant<=0) return;
     __tvCarrito.push({producto_id:p.id, nombre:p.nombre, cantidad:cant, precio:Number(p.precio_mayoreo||it.precio||0), costo:Number(p.costo_mayoreo||0)});
@@ -11178,6 +11207,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v135</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v136</div>
 </body>
 </html>
