@@ -5850,6 +5850,21 @@ async function tvCargarStockMayoreo(){
   const alm=almacenMayoreo();
   if(!alm){ __tvStockMayoreo=null; return; }
   if(!navigator.onLine){ /* sin internet: se queda con lo último que tenga */ return; }
+  // 1) Vía función PROTEGIDA (stock_mayoreo): funciona aunque la cuenta de la
+  //    vendedora no tenga permiso directo de leer el almacén MAYOREO.
+  try{
+    const mapa={}; const PAGE=1000; let desde=0; let ok=false;
+    for(;;){
+      const r=await sb.rpc('stock_mayoreo',{p_almacen:alm.id}).range(desde, desde+PAGE-1);
+      if(r.error || !Array.isArray(r.data)) break;
+      ok=true;
+      r.data.forEach(row=>{ mapa[row.producto_id]=(mapa[row.producto_id]||0)+Number(row.cantidad||0); });
+      if(r.data.length < PAGE) break;
+      desde += PAGE;
+    }
+    if(ok){ __tvStockMayoreo=mapa; return; }
+  }catch(e){ /* si la función no está, cae al respaldo */ }
+  // 2) Respaldo: lectura directa (si aún no se instaló la función o RLS está abierto).
   try{
     const mapa={}; const PAGE=1000; let desde=0;
     for(;;){
@@ -11210,7 +11225,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v136</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v137</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
