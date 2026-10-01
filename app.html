@@ -2105,7 +2105,27 @@ function num(n){ n=Number(n); return n%1===0 ? n.toString() : n.toFixed(2); }
 // --- Helpers de MAYOREO (definidos TEMPRANO: renderInventario y otros los usan antes) ---
 // ¿Este almacén es el de MAYOREO? (su nombre empieza con "mayoreo")
 function esMayoreo(a){ return /^mayoreo/i.test(((a&&a.nombre)||'').trim()); }
-function almacenMayoreo(){ return (ALMACENES||[]).find(esMayoreo) || null; }
+// Copia del almacén MAYOREO traída directo del servidor, por si la cuenta (ej. la vendedora)
+// no lo tiene en su lista ALMACENES. Así almacenMayoreo() nunca queda vacío cuando el almacén existe.
+let __almMayCache=null;
+function almacenMayoreo(){ return (ALMACENES||[]).find(esMayoreo) || __almMayCache || null; }
+// Asegura tener el almacén MAYOREO: si no está en la lista, lo busca por nombre en el servidor
+// (igual que el catálogo) y lo deja cacheado. Devuelve el almacén o null.
+async function asegurarAlmacenMayoreo(){
+  const yaEnLista=(ALMACENES||[]).find(esMayoreo);
+  if(yaEnLista) return yaEnLista;
+  if(__almMayCache) return __almMayCache;
+  if(typeof navigator!=='undefined' && !navigator.onLine) return null;
+  try{
+    const r=await sb.from('almacenes').select('id,nombre').ilike('nombre','mayoreo%').limit(1);
+    if(!r.error && r.data && r.data[0]){
+      __almMayCache=r.data[0];
+      if(Array.isArray(ALMACENES) && !ALMACENES.find(a=>a.id===__almMayCache.id)) ALMACENES.push(__almMayCache);
+      return __almMayCache;
+    }
+  }catch(e){}
+  return null;
+}
 function idsMayoreo(){ return new Set((ALMACENES||[]).filter(esMayoreo).map(a=>a.id)); }
 function esAlmacenMayoreoId(id){ return idsMayoreo().has(Number(id)); }
 // Escapa un texto para meterlo con seguridad dentro de un atributo HTML (value="...").
@@ -5844,7 +5864,7 @@ let __tvCarrito=[]; let __tvReservaEnVenta=null;
 // Mapa { producto_id: cantidad }. Si está null aún no se cargó.
 let __tvStockMayoreo=null;
 async function tvCargarStockMayoreo(){
-  const alm=almacenMayoreo();
+  const alm=await asegurarAlmacenMayoreo();
   if(!alm){ __tvStockMayoreo=null; return; }
   if(!navigator.onLine){ /* sin internet: se queda con lo último que tenga */ return; }
   // 1) Vía función PROTEGIDA (stock_mayoreo): funciona aunque la cuenta de la
@@ -5887,8 +5907,9 @@ function cambiarVMTab(cual){
   const bv=document.getElementById('vmt-btn-vender'), br=document.getElementById('vmt-btn-reservas');
   if(bv) bv.classList.toggle('active', cual==='vender');
   if(br) br.classList.toggle('active', cual==='reservas');
-  // Refresca el stock del MAYOREO al entrar (en segundo plano) y re-pinta cuando llega.
-  tvCargarStockMayoreo().then(()=>{ try{ if(cual==='vender') tvRenderCarrito(); }catch(e){} });
+  // Asegura el almacén MAYOREO (la cuenta de la vendedora no siempre lo tiene cargado) y
+  // luego refresca el stock; re-pinta cuando llega.
+  asegurarAlmacenMayoreo().then(()=>tvCargarStockMayoreo()).then(()=>{ try{ if(cual==='vender'){ tvPreparar(); tvRenderCarrito(); } }catch(e){} });
   if(cual==='vender') tvPreparar();
   if(cual==='reservas') tvCargarReservas();
 }
@@ -5990,7 +6011,7 @@ async function tvCargarReservas(){
 }
 async function tvVenderReserva(id){
   const r=__tvReservas[id]; if(!r) return;
-  const alm=almacenMayoreo();
+  const alm=await asegurarAlmacenMayoreo();
   if(!alm){ alert('Falta el almacén MAYOREO.'); return; }
   // Pide el stock FRESCO del MAYOREO antes de validar (la vista de Tamy no lo tiene en memoria).
   await tvCargarStockMayoreo();
@@ -8834,14 +8855,21 @@ function renderMayCarrito(){
 // 3) Se sube con el RPC atómico (o todo o nada). Si falla (sin internet, etc.)
 //    queda en la cola y se reintenta solo. Idempotente: no duplica.
 async function procesarVentaMayoreo(carrito, reservaId){
-  const alm=almacenMayoreo(); if(!alm) throw new Error('Falta el almacén MAYOREO.');
+  const alm=await asegurarAlmacenMayoreo(); if(!alm) throw new Error('Falta el almacén MAYOREO.');
   if(!carrito||!carrito.length) throw new Error('Carrito vacío.');
   const total=carrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
   const ganancia=carrito.reduce((s,x)=>s+x.cantidad*(x.precio-x.costo),0);
-  // validar stock en memoria antes de nada
-  for(const it of carrito){
-    const hay=(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===it.producto_id).reduce((s,i)=>s+Number(i.cantidad||0),0);
-    if(it.cantidad>hay) throw new Error('No hay suficiente de "'+it.nombre+'" (hay '+num(hay)+').');
+  // Validar stock con lo que hay DE VERDAD en el almacén MAYOREO (pedido fresco al
+  // servidor). La cuenta de la vendedora NO tiene ese almacén en memoria, por eso antes
+  // decía "hay 0". Si no se puede leer (sin internet), NO bloqueamos: la venta se encola
+  // y el servidor (RPC atómico) valida el stock igual al subirla.
+  let __stkFresco=null;
+  try{ await tvCargarStockMayoreo(); if(typeof __tvStockMayoreo!=='undefined' && __tvStockMayoreo) __stkFresco=__tvStockMayoreo; }catch(_){}
+  if(__stkFresco){
+    for(const it of carrito){
+      const hay=Number(__stkFresco[it.producto_id]||0);
+      if(it.cantidad>hay) throw new Error('No hay suficiente de "'+it.nombre+'" (hay '+num(hay)+').');
+    }
   }
   const clave='may_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
   const venta={ clave, almacen_id:alm.id, items:carrito.map(x=>({producto_id:x.producto_id,nombre:x.nombre,cantidad:x.cantidad,precio:x.precio,costo:x.costo})), total, ganancia, usuario:(usuarioActual&&usuarioActual.nombre)||'', reserva_id:reservaId||null, ts:Date.now() };
@@ -11222,6 +11250,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v137</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v139</div>
 </body>
 </html>
