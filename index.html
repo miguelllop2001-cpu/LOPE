@@ -9,6 +9,7 @@
 <meta name="theme-color" content="#0f1115">
 <title>Mi Negocio</title>
 <link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f1115">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -99,7 +100,7 @@
   }
   .card h2{margin:0 0 14px; font-size:15px; color:var(--text);}
   .row{display:flex; gap:10px; flex-wrap:wrap; align-items:end;}
-  .field{display:flex; flex-direction:column; gap:4px; flex:1;}
+  .field{display:flex; flex-direction:column; gap:4px; min-width:160px; flex:1;}
   .field label{font-size:12px; color:var(--muted);}
   input, select{
     background:var(--panel2); border:1px solid var(--border); color:var(--text);
@@ -174,7 +175,7 @@
 
     /* Tablas: scroll horizontal en vez de letras microscópicas */
     .card > table, .card > div > table{display:block;}
-    table{font-size:14px; }
+    table{font-size:14px; min-width:520px;}
     th, td{padding:10px 8px;}
     .card{overflow-x:auto;}
 
@@ -208,7 +209,7 @@
   .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:18px; margin-bottom:18px;}
   .card h2{margin:0 0 14px; font-size:15px;}
   .row{display:flex; gap:10px; flex-wrap:wrap; align-items:end;}
-  .field{display:flex; flex-direction:column; gap:4px; flex:1;}
+  .field{display:flex; flex-direction:column; gap:4px; min-width:140px; flex:1;}
   .field label{font-size:12px; color:var(--muted);}
   input, select{background:var(--panel2); border:1px solid var(--border); color:var(--text); padding:9px 10px; border-radius:8px; font-size:14px; outline:none;}
   input:focus, select:focus{border-color:var(--accent);}
@@ -279,7 +280,7 @@
     input, select{font-size:16px; padding:14px 12px;}
     button.primary, button.success{width:100%; padding:16px 16px; font-size:16px; min-height:52px;}
     button.ghost{padding:12px 16px; font-size:15px; min-height:46px;}
-    table{font-size:14px; }
+    table{font-size:14px; min-width:480px;}
     th, td{padding:10px 8px;}
     .puesto-pick{flex-direction:column;}
     .puesto-pick button{width:100%; padding:18px 22px; font-size:16px;}
@@ -300,25 +301,6 @@
   }
   @media (max-width: 380px){
     .tabs button{font-size:11.5px; padding:11px 4px;}
-  }
-
-  /* ajuste-movil-tablas */
-  @media (max-width:760px){
-    table{ font-size:13px; }
-    th,td{ padding:7px 6px !important; }
-    .tabs{ flex-wrap:wrap; }
-    .mtab .card{ overflow-x:hidden; }
-    input, select, textarea{ max-width:100%; }
-  }
-
-  /* fix-tablas-movil: que las columnas NO se aplasten letra por letra.
-     Se dejan las tablas con su ancho natural y la tarjeta se desliza a lo ancho. */
-  @media (max-width:760px){
-    .card{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
-    .card > table, .card > div > table, .card table{ display:table !important; }
-    th, td{ word-break:normal !important; overflow-wrap:normal !important; }
-    th{ white-space:nowrap; }
-    .mtab .card{ overflow-x:hidden; }
   }
 </style>
 </head>
@@ -349,7 +331,7 @@
       <button id="btnTema" onclick="alternarTema()" title="Cambiar tema" class="btn-icon">☀️</button>
       <span id="letraCtrl" title="Tamaño de letra" style="display:inline-flex; align-items:center; gap:2px; border:1px solid var(--border); border-radius:8px; padding:2px 4px">
         <button onclick="cambiarLetra(-1)" class="btn-icon" title="Letra más pequeña" style="padding:4px 9px; font-size:13px">A−</button>
-        <span id="letraNivel" style="text-align:center; font-weight:700; font-size:13px">1</span>
+        <span id="letraNivel" style="min-width:14px; text-align:center; font-weight:700; font-size:13px">1</span>
         <button onclick="cambiarLetra(1)" class="btn-icon" title="Letra más grande" style="padding:4px 9px; font-size:19px">A+</button>
       </span>
     </div>
@@ -363,7 +345,6 @@
       <button data-vtab="cobrar" onclick="cambiarVTab('cobrar')">💰 Cobrar</button>
       <button data-vtab="devoluciones" onclick="cambiarVTab('devoluciones')">↩️ Devoluciones</button>
       <button data-vtab="historial" onclick="cambiarVTab('historial')">🕘 Historial</button>
-      <button data-vtab="mayoreo" id="vbtnMayoreo" onclick="cambiarVTab('mayoreo')" style="display:none">🏷️ Mayoreo</button>
       <button id="btnCambiarPuesto" onclick="cambiarPuestoComodin()" style="display:none">🔄 Cambiar de puesto</button>
       <button onclick="cerrarSesion()">🚪 Cerrar sesión</button>
     </div>
@@ -387,7 +368,6 @@
       <button data-tab="analisisprod" id="tabBtnAnalisisProd" style="display:none">📈 Análisis de productos</button>
       <button data-tab="mayoreo" id="tabBtnMayoreo" style="display:none">🏷️ Mayoreo</button>
       <button data-tab="cobraradmin" id="tabBtnCobrarAdmin" style="display:none">💰 Cobrar</button>
-      <button data-tab="errores" id="tabBtnErrores" style="display:none">🚨 Errores</button>
       <button onclick="cerrarSesion()">🚪 Cerrar sesión</button>
     </div>
   </div>
@@ -666,41 +646,6 @@
       <div id="recibidoEmpty" class="empty" style="display:none">Sin entradas registradas.</div>
     </div>
     </div>
-
-    <!-- MAYOREO (vendedor Tamy) -->
-    <div id="vtab-mayoreo" class="vtab" style="display:none">
-      <div class="card">
-        <h2>🏷️ Mayoreo</h2>
-        <div class="tabs" style="margin-bottom:0">
-          <button id="vmt-btn-vender" class="active" onclick="cambiarVMTab('vender')">🛒 Vender</button>
-          <button id="vmt-btn-reservas" onclick="cambiarVMTab('reservas')">📋 Reservas</button>
-        </div>
-      </div>
-
-      <div id="vmt-vender">
-        <div class="card">
-          <div id="tvAviso" class="msg"></div>
-          <div class="field">
-            <label>Producto</label>
-            <input type="text" id="tvBuscar" placeholder="🔎 Escribe para buscar…" oninput="tvFiltrar()" autocomplete="off">
-            <div id="tvSug" style="display:none; border:1px solid var(--border); border-radius:10px; margin-top:4px; max-height:220px; overflow-y:auto; background:var(--panel)"></div>
-            <input type="hidden" id="tvProd">
-            <div id="tvElegido" style="margin-top:6px; font-size:13px; color:var(--green); font-weight:700"></div>
-          </div>
-          <div class="row">
-            <div class="field"><label>Cantidad</label><input type="number" id="tvCant" inputmode="numeric" placeholder="0"></div>
-            <div class="field"><label>Precio (mayoreo)</label><input type="number" id="tvPrecio" inputmode="decimal" placeholder="0"></div>
-          </div>
-          <button class="primary" style="width:100%" onclick="tvAgregar()">+ Agregar</button>
-          <div id="tvCarritoBody" style="overflow-x:auto; margin-top:12px"></div>
-          <button class="primary" id="tvFinalizar" style="width:100%; margin-top:10px; display:none" onclick="tvVender()">✅ Cobrar venta</button>
-        </div>
-      </div>
-
-      <div id="vmt-reservas" style="display:none">
-        <div class="card"><h2>📋 Reservas de clientes</h2><div id="tvReservasBody" style="margin-top:8px"></div></div>
-      </div>
-    </div>
   </div>
 
 <!-- ===================== APP: GESTIÓN (rol administrador / dueño) ===================== -->
@@ -831,14 +776,12 @@
   <div id="tab-historial" class="tab" style="display:none">
     <div class="card">
       <h2>Historial de movimientos</h2>
-      <div style="overflow-x:auto; -webkit-overflow-scrolling:touch">
-      <table style="min-width:820px">
+      <table>
         <thead><tr>
           <th>Fecha</th><th>Tipo</th><th>Producto</th><th>Origen</th><th>Destino</th><th>Cant.</th><th>Antes → Después</th><th>Nota</th><th></th>
         </tr></thead>
         <tbody id="historialBody"></tbody>
       </table>
-      </div>
       <div id="historialMovEmpty" class="empty" style="display:none">Sin movimientos registrados todavía.</div>
       <div id="historialPie"></div>
     </div>
@@ -962,8 +905,6 @@
         <button id="mtab-btn-ganancias" onclick="cambiarMTab('ganancias')">💰 Ganancias</button>
         <button id="mtab-btn-dinero" onclick="cambiarMTab('dinero')">💵 Dinero</button>
         <button id="mtab-btn-reservas" onclick="cambiarMTab('reservas')">📋 Reservas</button>
-        <button id="mtab-btn-avisar" onclick="cambiarMTab('avisar')">📣 Avisar</button>
-        <button id="mtab-btn-clientes" onclick="cambiarMTab('clientes')">👥 Clientes</button>
         <button id="mtab-btn-historial" onclick="cambiarMTab('historial')">🕘 Historial</button>
       </div>
       <div id="mayAviso" class="msg"></div>
@@ -1045,39 +986,8 @@
     </div>
 
     <!-- RESERVAS (desde la web) -->
-    <!-- AVISAR NOVEDADES -->
-    <!-- CLIENTES -->
-    <div id="mtab-clientes" class="mtab" style="display:none">
-      <div class="card">
-        <h2>👥 Clientes</h2>
-        <div style="color:var(--muted);font-size:13px;margin-bottom:8px">Sus compras y si cumplen con las reservas. Toca un cliente para ver sus pedidos.</div>
-        <input type="text" id="cliBuscar" placeholder="🔎 Buscar por nombre o teléfono" oninput="renderClientes()" autocomplete="off">
-        <div id="mayClientesBody" style="margin-top:10px"></div>
-      </div>
-    </div>
-
-    <div id="mtab-avisar" class="mtab" style="display:none">
-      <div class="card">
-        <h2>📣 Avisar novedades</h2>
-        <div style="color:var(--muted);font-size:13px;margin-bottom:8px">Manda un aviso a los clientes que dejaron su WhatsApp al reservar. Uno por uno, o copia el mensaje y los números para una lista de difusión.</div>
-        <label>Mensaje</label>
-        <textarea id="avisarMsg" style="width:100%;min-height:90px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--panel2);color:var(--texto);font-family:inherit;font-size:15px"></textarea>
-        <div class="row" style="margin-top:8px">
-          <div class="field" style="display:flex;align-items:flex-end"><button class="ghost" style="width:100%" onclick="ponerNovedadesAvisar()">➕ Poner lo nuevo (7 días)</button></div>
-          <div class="field" style="display:flex;align-items:flex-end"><button class="ghost" style="width:100%" onclick="copiarTexto(document.getElementById('avisarMsg').value,'Mensaje copiado')">📋 Copiar mensaje</button></div>
-        </div>
-        <button class="ghost" style="width:100%;margin-top:8px" onclick="copiarNumerosAvisar()">📋 Copiar todos los números (para difusión)</button>
-        <div id="avisarMsgEstado" class="msg"></div>
-        <div id="avisarContactos" style="margin-top:10px"></div>
-      </div>
-    </div>
-
     <div id="mtab-reservas" class="mtab" style="display:none">
       <div class="card"><h2>📋 Reservas de clientes (web)</h2><div id="mayReservasBody" style="margin-top:8px"></div></div>
-      <div class="card">
-        <div onclick="verCumplimientoClientes()" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">✅ Cumplimiento por cliente</h2><button class="ghost" style="padding:6px 12px;font-size:13px">Ver</button></div>
-        <div id="mayCumplBody" style="margin-top:8px"></div>
-      </div>
     </div>
 
     <!-- HISTORIAL -->
@@ -1374,19 +1284,6 @@
     </div>
   </div>
 
-  <div id="tab-errores" class="tab" style="display:none">
-    <div class="card">
-      <h2>🚨 Errores</h2>
-      <p style="color:var(--muted); font-size:13px; margin-top:-6px">Aquí caen los fallos que le salen a cualquier usuario (ventas o movimientos que no suben, avisos rojos, cuelgues). Se guardan solos, aunque pasen en otro celular.</p>
-      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px">
-        <button class="primary" style="padding:8px 14px; font-size:13px" onclick="cargarErrores()">🔄 Actualizar</button>
-        <button class="ghost" style="padding:8px 14px; font-size:13px" onclick="borrarErroresResueltos()">🧹 Borrar resueltos</button>
-        <button class="ghost" style="padding:8px 14px; font-size:13px; color:var(--red); border-color:var(--red)" onclick="limpiarTodosErrores()">🗑 Limpiar todo</button>
-      </div>
-      <div id="erroresBody">Cargando…</div>
-    </div>
-  </div>
-
   <div id="tab-estadisticas" class="tab" style="display:none">
 
     <div class="card">
@@ -1488,7 +1385,6 @@ document.querySelectorAll('.tabs button').forEach(btn=>{
     if(btn.dataset.tab==='comisionadmin') cargarDinero();
     if(btn.dataset.tab==='usuarios') cargarUsuarios();
     if(btn.dataset.tab==='cobraradmin') cargarCobrosAdmin();
-    if(btn.dataset.tab==='errores') cargarErrores();
     if(btn.dataset.tab==='estadisticas'){ prepararSelectorEstadisticas(); cargarListaVentas(); }
     if(btn.dataset.tab==='compras') prepararCompras();
     if(btn.dataset.tab==='ventasvendedor') prepararVentasPorVendedor();
@@ -1863,7 +1759,7 @@ function prepararVentasPorVendedor(){
   const sel = document.getElementById('vvAlmacen');
   if(sel){
     sel.innerHTML = '<option value="">Todos los puestos</option>' +
-      ALMACENES.filter(a=>!esMayoreo(a)).map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
+      ALMACENES.map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
   }
   const hasta = document.getElementById('vvHasta');
   const desde = document.getElementById('vvDesde');
@@ -2068,14 +1964,8 @@ function renderInventario(){
     cont.innerHTML = '<div class="empty">No hay almacenes creados. Ve a la pestaña "Almacenes y Productos".</div>';
     return;
   }
-  const __almNormales = ALMACENES.filter(a=>!esMayoreo(a)); // MAYOREO no se muestra aquí
-  if(!__almNormales.length){
-    tabsEl.innerHTML = '';
-    cont.innerHTML = '<div class="empty">No hay almacenes (sin contar MAYOREO).</div>';
-    return;
-  }
-  if(almacenSeleccionado===null || !__almNormales.find(a=>a.id===almacenSeleccionado)){
-    almacenSeleccionado = __almNormales[0].id;
+  if(almacenSeleccionado===null || !ALMACENES.find(a=>a.id===almacenSeleccionado)){
+    almacenSeleccionado = ALMACENES[0].id;
   }
   tabsEl.innerHTML = ALMACENES.filter(a=>!esMayoreo(a)).map(a=>
     `<button class="${a.id===almacenSeleccionado?'active':''}" onclick="seleccionarAlmacen(${a.id})">${a.nombre}</button>`
@@ -2104,33 +1994,6 @@ function seleccionarAlmacen(id){
 }
 
 function num(n){ n=Number(n); return n%1===0 ? n.toString() : n.toFixed(2); }
-
-// --- Helpers de MAYOREO (definidos TEMPRANO: renderInventario y otros los usan antes) ---
-// ¿Este almacén es el de MAYOREO? (su nombre empieza con "mayoreo")
-function esMayoreo(a){ return /^mayoreo/i.test(((a&&a.nombre)||'').trim()); }
-// Copia del almacén MAYOREO traída directo del servidor, por si la cuenta (ej. la vendedora)
-// no lo tiene en su lista ALMACENES. Así almacenMayoreo() nunca queda vacío cuando el almacén existe.
-let __almMayCache=null;
-function almacenMayoreo(){ return (ALMACENES||[]).find(esMayoreo) || __almMayCache || null; }
-// Asegura tener el almacén MAYOREO: si no está en la lista, lo busca por nombre en el servidor
-// (igual que el catálogo) y lo deja cacheado. Devuelve el almacén o null.
-async function asegurarAlmacenMayoreo(){
-  const yaEnLista=(ALMACENES||[]).find(esMayoreo);
-  if(yaEnLista) return yaEnLista;
-  if(__almMayCache) return __almMayCache;
-  if(typeof navigator!=='undefined' && !navigator.onLine) return null;
-  try{
-    const r=await sb.from('almacenes').select('id,nombre').ilike('nombre','mayoreo%').limit(1);
-    if(!r.error && r.data && r.data[0]){
-      __almMayCache=r.data[0];
-      if(Array.isArray(ALMACENES) && !ALMACENES.find(a=>a.id===__almMayCache.id)) ALMACENES.push(__almMayCache);
-      return __almMayCache;
-    }
-  }catch(e){}
-  return null;
-}
-function idsMayoreo(){ return new Set((ALMACENES||[]).filter(esMayoreo).map(a=>a.id)); }
-function esAlmacenMayoreoId(id){ return idsMayoreo().has(Number(id)); }
 // Escapa un texto para meterlo con seguridad dentro de un atributo HTML (value="...").
 function escAttr(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -3193,33 +3056,9 @@ async function crearAlmacen(){
 
 async function eliminarAlmacen(id){
   if(usuarioActual.rol !== 'dueno'){ alert('Solo el dueño puede eliminar almacenes.'); return; }
-  if(!navigator.onLine){ alert('Necesitas internet para eliminar un almacén.'); return; }
-  const alm=(ALMACENES||[]).find(a=>a.id===id); const nom=alm?alm.nombre:'este almacén';
-  if(!confirm('¿Eliminar "'+nom+'"? Se borra su inventario. (No se borran las ventas ni movimientos ya registrados.)')) return;
-  try{
-    // 1) borrar primero el inventario de ese almacén (lo advertimos)
-    { const r=await sb.from('inventario').delete().eq('almacen_id', id); if(r.error) throw r.error; }
-    // 2) borrar el almacén y CONFIRMAR que de verdad se borró
-    const { data, error } = await sb.from('almacenes').delete().eq('id', id).select();
-    if(error) throw error;
-    if(!data || !data.length){
-      alert('El servidor no borró el almacén (permisos). Corre en Supabase el SQL "permisos_todas_tablas.sql" y vuelve a intentar.');
-      registrarError('almacenes','Borrado de almacén sin efecto (RLS)', 'almacen '+id);
-      return;
-    }
-    await cargarTodo();
-    alert('Almacén "'+nom+'" eliminado. ✓');
-  }catch(e){
-    const m=String((e&&e.message)||e);
-    if(/foreign key|violates|referenced|still referenced/i.test(m)){
-      alert('No se puede borrar "'+nom+'" porque tiene ventas o movimientos registrados, y borrarlo perdería ese historial. Si de verdad quieres eliminarlo por completo, dime y te preparo un borrado seguro que limpie también su historial.');
-    } else if(/permission|row-level|rls|not allowed/i.test(m)){
-      alert('No se pudo por permisos. Corre en Supabase el SQL "permisos_todas_tablas.sql".');
-    } else {
-      alert('No se pudo eliminar: '+m);
-    }
-    registrarError('almacenes','No se pudo eliminar almacén', m);
-  }
+  if(!confirm('¿Eliminar este almacén? Se perderá su inventario asociado.')) return;
+  await sb.from('almacenes').delete().eq('id', id);
+  await cargarTodo();
 }
 
 // ---------- ADMIN: PRODUCTOS ----------
@@ -5282,17 +5121,12 @@ async function revisarComisionesFaltantes(){
     for(const it of (items||[])){ (itemsPorDia[it.venta_dia_id]=itemsPorDia[it.venta_dia_id]||[]).push(it); }
 
     // Todas las comisiones de vendedor existentes (por vínculo a la venta y por clave)
-    const {data: comis} = await sb.from('deudas').select('id, venta_dia_id, clave_comision, nota, monto, persona').eq('tipo','debo');
+    const {data: comis} = await sb.from('deudas').select('id, venta_dia_id, clave_comision, nota, monto').eq('tipo','debo');
     const comisionPorVenta = new Set();
     const comisionPorClave = new Set();
-    const comisionPorPersonaFecha = new Set(); // respaldo: comisiones viejas o sin vínculo
     for(const c of (comis||[])){
       if(c.venta_dia_id!=null && (c.nota||'').includes('Comisión 15%')) comisionPorVenta.add(c.venta_dia_id);
       if(c.clave_comision) comisionPorClave.add(c.clave_comision);
-      if((c.nota||'').includes('Comisión 15%')){
-        const mf=(c.nota||'').match(/venta del (\d{4}-\d{2}-\d{2})/);
-        if(mf) comisionPorPersonaFecha.add(((c.persona||'').trim().toLowerCase())+'|'+mf[1]);
-      }
     }
 
     const faltantes = [];
@@ -5301,14 +5135,10 @@ async function revisarComisionesFaltantes(){
       const ganancia = reales.reduce((s,it)=> s + Number(it.cantidad)*(Number(it.precio_venta)-Number(it.costo)), 0);
       if(ganancia <= 0) continue; // sin ganancia no corresponde comisión
       const claveVta = 'comvta-' + (d.clave_local || d.id);
-      const alm = ALMACENES.find(a=>a.id===d.almacen_id);
-      const puesto = alm?alm.nombre:('#'+d.almacen_id);
-      const quien = (d.cobra_comision || puesto || '').trim().toLowerCase();
-      const tiene = comisionPorVenta.has(d.id)
-                 || comisionPorClave.has(claveVta)
-                 || comisionPorPersonaFecha.has(quien+'|'+d.fecha); // ya existe una de esa persona y fecha
+      const tiene = comisionPorVenta.has(d.id) || comisionPorClave.has(claveVta);
       if(!tiene){
-        faltantes.push({dia:d, ganancia, comision: redondearComision(ganancia*0.15), puesto});
+        const alm = ALMACENES.find(a=>a.id===d.almacen_id);
+        faltantes.push({dia:d, ganancia, comision: redondearComision(ganancia*0.15), puesto: alm?alm.nombre:('#'+d.almacen_id)});
       }
     }
 
@@ -5351,18 +5181,6 @@ async function generarComisionFaltante(ventaDiaId){
 
     const alm = ALMACENES.find(a=>a.id===dia.almacen_id);
     const puesto = alm?alm.nombre:('#'+dia.almacen_id);
-    const quienCobra = (dia.cobra_comision || puesto);
-    // PROTECCIÓN EXTRA: ¿ya hay una comisión de ESA persona y ESA fecha (aunque sin vínculo)?
-    // Evita pagar dos veces cuando la comisión vieja se guardó sin clave.
-    try{
-      const {data: mismas} = await sb.from('deudas').select('id,nota,monto').eq('tipo','debo').eq('persona', quienCobra);
-      const yaFecha = (mismas||[]).filter(c=>(c.nota||'').includes('Comisión 15%') && (c.nota||'').includes('venta del '+dia.fecha));
-      if(yaFecha.length>0){
-        const seguir = confirm('⚠️ OJO: '+quienCobra+' YA tiene una comisión registrada de la venta del '+dia.fecha+' (por $'+num(yaFecha[0].monto)+').\n\nSi generas otra, se le pagaría DOBLE.\n\n¿Seguro que quieres generarla de todos modos?');
-        if(!seguir){ msgEl.textContent='No se generó (ya existía una de esa fecha).'; msgEl.className='msg'; await revisarComisionesFaltantes(); return; }
-      }
-    }catch(e){}
-
     const comision = redondearComision(ganancia*0.15);
     const filaCom = {
       tipo:'debo', persona: (dia.cobra_comision || puesto), monto: comision,
@@ -5792,7 +5610,7 @@ function descartarPendienteAtascado(){
   else { pedidos.shift(); lsSet('vt_pending_pedidos', pedidos); }
   actualizarConexionUI();
 }
-window.addEventListener('online', ()=>{ actualizarConexionUI(); sincronizarPendientes(); actualizarConexionAdminUI(); sincronizarPendientesAdmin(); sincronizarRecepciones(); reintentarComisiones(); subirVentasMayoreo(); subirMovsMayoreo(); });
+window.addEventListener('online', ()=>{ actualizarConexionUI(); sincronizarPendientes(); actualizarConexionAdminUI(); sincronizarPendientesAdmin(); sincronizarRecepciones(); });
 window.addEventListener('offline', actualizarConexionUI);
 
 async function cargarCatalogoVentas(){
@@ -5857,186 +5675,6 @@ function cambiarVTab(tab){
   if(tab==='cobrar'){ cargarCobros(); }
   if(tab==='devoluciones'){ cargarDevolucionesTab(); }
   if(tab==='historial'){ cargarHistorialDias(); cargarMercanciaRecibida(); }
-  if(tab==='mayoreo'){ cambiarVMTab('vender'); }
-}
-
-// ===== MAYOREO en la cuenta del vendedor (Tamy): vender + ver reservas =====
-let __tvCarrito=[]; let __tvReservaEnVenta=null;
-// Stock FRESCO del almacén MAYOREO. La vista de la vendedora (Tamy) NO carga el
-// almacén MAYOREO en INVENTARIO, así que aquí lo pedimos directo a Supabase.
-// Mapa { producto_id: cantidad }. Si está null aún no se cargó.
-let __tvStockMayoreo=null;
-async function tvCargarStockMayoreo(){
-  const alm=await asegurarAlmacenMayoreo();
-  if(!alm){ __tvStockMayoreo=null; return; }
-  if(!navigator.onLine){ /* sin internet: se queda con lo último que tenga */ return; }
-  // 1) Vía función PROTEGIDA (stock_mayoreo): funciona aunque la cuenta de la
-  //    vendedora no tenga permiso directo de leer el almacén MAYOREO.
-  try{
-    const mapa={}; const PAGE=1000; let desde=0; let ok=false;
-    for(;;){
-      const r=await sb.rpc('stock_mayoreo',{p_almacen:alm.id}).range(desde, desde+PAGE-1);
-      if(r.error || !Array.isArray(r.data)) break;
-      ok=true;
-      r.data.forEach(row=>{ mapa[row.producto_id]=(mapa[row.producto_id]||0)+Number(row.cantidad||0); });
-      if(r.data.length < PAGE) break;
-      desde += PAGE;
-    }
-    if(ok){ __tvStockMayoreo=mapa; return; }
-  }catch(e){ /* si la función no está, cae al respaldo */ }
-  // 2) Respaldo: lectura directa (si aún no se instaló la función o RLS está abierto).
-  try{
-    const mapa={}; const PAGE=1000; let desde=0;
-    for(;;){
-      const r=await sb.from('inventario').select('producto_id, cantidad').eq('almacen_id', alm.id).order('id',{ascending:true}).range(desde, desde+PAGE-1);
-      if(r.error || !r.data) break;
-      r.data.forEach(row=>{ mapa[row.producto_id]=(mapa[row.producto_id]||0)+Number(row.cantidad||0); });
-      if(r.data.length < PAGE) break;
-      desde += PAGE;
-    }
-    __tvStockMayoreo=mapa;
-  }catch(e){ /* si falla, tvStockDe cae a INVENTARIO */ }
-}
-// Stock de un producto en MAYOREO: usa el mapa fresco si existe; si no, cae a INVENTARIO.
-function tvStockDe(pid){
-  if(__tvStockMayoreo){ return Number(__tvStockMayoreo[pid]||0); }
-  const alm=almacenMayoreo();
-  if(!alm) return 0;
-  return (INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
-}
-function cambiarVMTab(cual){
-  document.getElementById('vmt-vender').style.display = cual==='vender'?'block':'none';
-  document.getElementById('vmt-reservas').style.display = cual==='reservas'?'block':'none';
-  const bv=document.getElementById('vmt-btn-vender'), br=document.getElementById('vmt-btn-reservas');
-  if(bv) bv.classList.toggle('active', cual==='vender');
-  if(br) br.classList.toggle('active', cual==='reservas');
-  // Asegura el almacén MAYOREO (la cuenta de la vendedora no siempre lo tiene cargado) y
-  // luego refresca el stock; re-pinta cuando llega.
-  asegurarAlmacenMayoreo().then(()=>tvCargarStockMayoreo()).then(()=>{ try{ if(cual==='vender'){ tvPreparar(); tvRenderCarrito(); } }catch(e){} });
-  if(cual==='vender') tvPreparar();
-  if(cual==='reservas') tvCargarReservas();
-}
-function tvPreparar(){
-  const av=document.getElementById('tvAviso');
-  if(!almacenMayoreo()){ av.innerHTML='⚠️ Falta el almacén MAYOREO (que lo cree el dueño).'; av.className='msg err'; }
-  else { av.textContent=''; av.className='msg'; }
-  document.getElementById('tvBuscar').value=''; document.getElementById('tvProd').value='';
-  document.getElementById('tvElegido').textContent=''; document.getElementById('tvSug').style.display='none';
-  document.getElementById('tvCant').value=''; document.getElementById('tvPrecio').value='';
-  tvRenderCarrito();
-}
-function tvFiltrar(){
-  const q=(document.getElementById('tvBuscar').value||'').trim().toLowerCase();
-  const cont=document.getElementById('tvSug');
-  document.getElementById('tvProd').value=''; document.getElementById('tvElegido').textContent='';
-  const alm=almacenMayoreo();
-  if(q.length<1||!alm){ cont.style.display='none'; cont.innerHTML=''; return; }
-  const m=(PRODUCTOS||[]).filter(p=>(p.nombre||'').toLowerCase().includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre)).slice(0,15);
-  if(!m.length){ cont.style.display='block'; cont.innerHTML='<div style="padding:10px;color:var(--muted)">Sin coincidencias.</div>'; return; }
-  cont.innerHTML=m.map(p=>{ const h=tvStockDe(p.id); return `<div onclick="tvElegir(${p.id})" style="padding:12px;border-bottom:1px solid var(--border);cursor:pointer">${p.nombre} <span style="color:${h>0?'var(--green)':'var(--muted)'};font-size:13px">· hay ${num(h)}</span></div>`; }).join('');
-  cont.style.display='block';
-}
-function tvElegir(id){
-  const p=(PRODUCTOS||[]).find(x=>x.id===id); if(!p) return;
-  document.getElementById('tvProd').value=id;
-  document.getElementById('tvBuscar').value=p.nombre;
-  document.getElementById('tvElegido').textContent='✓ '+p.nombre;
-  document.getElementById('tvSug').style.display='none';
-  document.getElementById('tvPrecio').value=Number(p.precio_mayoreo||0);
-  const c=document.getElementById('tvCant'); if(c&&!c.value) c.value=1;
-}
-function tvAgregar(){
-  const pid=Number(document.getElementById('tvProd').value);
-  const cant=Number(document.getElementById('tvCant').value);
-  const precio=Number(document.getElementById('tvPrecio').value);
-  const p=(PRODUCTOS||[]).find(x=>x.id===pid);
-  if(!p){ alert('Elige un producto.'); return; }
-  if(!cant||cant<=0){ alert('Pon una cantidad.'); return; }
-  if(isNaN(precio)||precio<0){ alert('Precio no válido.'); return; }
-  const alm=almacenMayoreo();
-  if(!alm){ alert('Falta el almacén MAYOREO.'); return; }
-  const stock=tvStockDe(pid);
-  const ya=__tvCarrito.filter(x=>x.producto_id===pid).reduce((s,x)=>s+x.cantidad,0);
-  if(cant+ya>stock){ alert('No hay tanto. Hay '+num(stock)+' y ya llevas '+num(ya)+'.'); return; }
-  __tvCarrito.push({producto_id:pid, nombre:p.nombre, cantidad:cant, precio, costo:Number(p.costo_mayoreo||0)});
-  document.getElementById('tvBuscar').value=''; document.getElementById('tvProd').value='';
-  document.getElementById('tvElegido').textContent=''; document.getElementById('tvCant').value=''; document.getElementById('tvPrecio').value='';
-  tvRenderCarrito();
-}
-function tvQuitar(i){ __tvCarrito.splice(i,1); tvRenderCarrito(); }
-function tvRenderCarrito(){
-  const cont=document.getElementById('tvCarritoBody'); const btn=document.getElementById('tvFinalizar');
-  if(!__tvCarrito.length){ cont.innerHTML='<div class="empty">Carrito vacío.</div>'; btn.style.display='none'; return; }
-  const total=__tvCarrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
-  cont.innerHTML=`<table style="min-width:480px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th><th></th></tr></thead><tbody>
-  ${__tvCarrito.map((x,i)=>`<tr><td>${x.nombre}</td><td class="numcell">${num(x.cantidad)}</td><td class="numcell">$${num(x.precio)}</td><td class="numcell">$${num(x.cantidad*x.precio)}</td><td><button class="ghost" onclick="tvQuitar(${i})">✕</button></td></tr>`).join('')}
-  </tbody><tfoot><tr><td colspan="3" style="text-align:right;font-weight:700">TOTAL</td><td class="numcell" style="font-weight:800;color:var(--green)">$${num(total)}</td><td></td></tr></tfoot></table>`;
-  btn.style.display='block';
-}
-async function tvVender(){
-  if(!__tvCarrito.length) return;
-  const total=__tvCarrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
-  if(!confirm('Cobrar venta de mayoreo por $'+num(total)+'.\n\n¿Confirmar?')) return;
-  const btn=document.getElementById('tvFinalizar'); btn.disabled=true; btn.textContent='Cobrando…';
-  try{
-    await procesarVentaMayoreo(__tvCarrito, __tvReservaEnVenta); __tvReservaEnVenta=null;
-    __tvCarrito=[]; tvRenderCarrito();
-    alert(navigator.onLine ? 'Venta cobrada. ✓' : 'Venta guardada. Se subirá sola cuando vuelva el internet. ✓');
-    cambiarVMTab('reservas');
-  }catch(e){ alert('No se pudo: '+(e.message||e)); }
-  finally{ btn.disabled=false; btn.textContent='✅ Cobrar venta'; }
-}
-let __tvReservas={};
-async function tvCargarReservas(){
-  const cont=document.getElementById('tvReservasBody');
-  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
-  cont.textContent='Cargando…';
-  try{
-    const {data,error}=await sb.from('reservas_mayoreo').select('*').eq('estado','nueva').order('id',{ascending:false}).limit(100);
-    if(error) throw error;
-    __tvReservas={}; (data||[]).forEach(r=>{ __tvReservas[r.id]=r; });
-    if(!data||!data.length){ cont.innerHTML='<div class="empty">No hay reservas pendientes.</div>'; return; }
-    cont.innerHTML=data.map(r=>{ const items=Array.isArray(r.items)?r.items:[]; const tel=(r.telefono||'').replace(/[^0-9]/g,'');
-      const wa=tel?`<a class="ghost" style="display:inline-block;padding:8px 12px;border:1px solid var(--border);border-radius:8px;text-decoration:none;font-size:13px" href="https://wa.me/${tel}" target="_blank">💬</a>`:'';
-      return `<div style="border:2px solid var(--amber);border-radius:12px;padding:12px;margin-bottom:10px">
-        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${r.nombre||'(sin nombre)'}</b><span style="color:var(--muted);font-size:12px">${(r.creado_en||'').slice(0,16).replace('T',' ')}</span></div>
-        <div style="color:var(--muted);font-size:13px;margin:4px 0">📞 ${r.telefono||'—'} · total aprox $${num(r.total)}</div>
-        ${r.cita?`<div style="font-size:13px;margin:4px 0;color:#0a7d33;font-weight:700">📅 Recogida: ${fmtCita(r.cita)}</div>`:''}
-        <div style="font-size:14px;margin:6px 0">${items.map(it=>`${it.nombre} <b>×${num(it.cantidad)}</b>`).join('<br>')}</div>
-        <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
-          <button class="primary" style="padding:8px 12px;font-size:13px" onclick="tvVenderReserva(${r.id})">🛒 Vender</button>
-          ${wa}
-          <button class="ghost" style="padding:8px 12px;font-size:13px;color:var(--amber)" onclick="tvNoVino(${r.id})">🚫 No vino</button>
-        </div>
-      </div>`;
-    }).join('');
-  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
-}
-async function tvVenderReserva(id){
-  const r=__tvReservas[id]; if(!r) return;
-  const alm=await asegurarAlmacenMayoreo();
-  if(!alm){ alert('Falta el almacén MAYOREO.'); return; }
-  // Pide el stock FRESCO del MAYOREO antes de validar (la vista de Tamy no lo tiene en memoria).
-  await tvCargarStockMayoreo();
-  __tvCarrito=[]; let avisos=[];
-  (Array.isArray(r.items)?r.items:[]).forEach(it=>{
-    const p=(PRODUCTOS||[]).find(x=>x.id===it.producto_id);
-    if(!p){ avisos.push(it.nombre+' ya no existe'); return; }
-    let cant=Number(it.cantidad)||0;
-    const hay=tvStockDe(p.id);
-    if(cant>hay){ avisos.push('de "'+p.nombre+'" solo hay '+num(hay)+' (pedía '+num(cant)+')'); cant=hay; }
-    if(cant<=0) return;
-    __tvCarrito.push({producto_id:p.id, nombre:p.nombre, cantidad:cant, precio:Number(p.precio_mayoreo||it.precio||0), costo:Number(p.costo_mayoreo||0)});
-  });
-  __tvReservaEnVenta=id;
-  cambiarVMTab('vender'); tvRenderCarrito();
-  if(avisos.length) alert('Ojo: '+avisos.join(', ')+'.');
-}
-async function tvNoVino(id){
-  if(!confirm('¿Marcar que el cliente NO vino? Libera el stock.')) return;
-  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
-  try{ const {error}=await sb.from('reservas_mayoreo').update({estado:'no_vino'}).eq('id',id); if(error) throw error; tvCargarReservas(); }
-  catch(e){ alert('No se pudo: '+(e.message||e)); }
 }
 
 // ---------- VENTA DEL DÍA (abrir si no existe una abierta para hoy) ----------
@@ -7592,7 +7230,7 @@ async function finalizarDiaInterno(){
         }
         if(rCom.error){
           console.error('COMISIÓN NO CREADA al cerrar:', rCom.error.message, filaCom);
-          try{ const log=lsGet('com_fallidas',[]); log.push({fila:{tipo:'debo',persona:quienCobra,monto:comision,nota:filaCom.nota,clave_comision:claveComVta,venta_dia_id:ventaDiaAbiertaId}, fecha, persona:quienCobra, monto:comision, venta_dia_id:ventaDiaAbiertaId, error:rCom.error.message, ts:Date.now()}); lsSet('com_fallidas',log); }catch(e){}
+          try{ const log=lsGet('com_fallidas',[]); log.push({fecha, persona:quienCobra, monto:comision, venta_dia_id:ventaDiaAbiertaId, error:rCom.error.message, ts:Date.now()}); lsSet('com_fallidas',log); }catch(e){}
         }
       }
     }
@@ -7755,38 +7393,8 @@ async function finalizarDiaInterno(){
 // ============================================================
 let sincronizando = false;
 
-// Reintenta SOLO las comisiones que fallaron al subir (cola com_fallidas).
-// Corre sola al reconectar y cada 30s → la comisión nunca se pierde, sin buscar faltantes a mano.
-async function reintentarComisiones(){
-  if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
-  let cola=lsGet('com_fallidas',[]);
-  if(!cola.length) return;
-  const quedan=[];
-  for(const item of cola){
-    const fila = item.fila || {tipo:'debo', persona:item.persona, monto:item.monto, venta_dia_id:item.venta_dia_id,
-      clave_comision:(item.venta_dia_id!=null?('comvta-'+item.venta_dia_id):null),
-      nota:('Comisión 15% de ganancia ($'+num(item.monto)+') - venta del '+item.fecha)};
-    try{
-      // ¿ya existe? (por clave, o por persona+fecha) → no duplicar
-      let existe=false;
-      if(fila.clave_comision){ const {data}=await sb.from('deudas').select('id').eq('clave_comision',fila.clave_comision); existe = data && data.length>0; }
-      if(!existe){
-        const mf=(fila.nota||'').match(/venta del (\d{4}-\d{2}-\d{2})/);
-        if(mf){ const {data}=await sb.from('deudas').select('id,nota').eq('tipo','debo').eq('persona',fila.persona);
-          existe = (data||[]).some(c=>(c.nota||'').includes('Comisión 15%') && (c.nota||'').includes('venta del '+mf[1])); }
-      }
-      if(existe) continue; // ya está → se saca de la cola
-      // crear (con fallback si falta la columna clave_comision)
-      let r=await sb.from('deudas').insert(fila);
-      if(r.error && ((r.error.message||'').includes('clave_comision')||(r.error.message||'').includes('column'))){
-        const base=Object.assign({},fila); delete base.clave_comision; r=await sb.from('deudas').insert(base);
-      }
-      if(r.error){ quedan.push(item); }   // sigue fallando → se queda para el próximo intento
-    }catch(e){ quedan.push(item); }         // sin conexión a mitad → se queda
-  }
-  lsSet('com_fallidas', quedan);
-}
-async function sincronizarPendientes(){  if(sincronizando || !navigator.onLine) { actualizarConexionUI(); return; }
+async function sincronizarPendientes(){
+  if(sincronizando || !navigator.onLine) { actualizarConexionUI(); return; }
   sincronizando = true;
   try{
     await sincronizarPedidosPendientes();
@@ -8037,7 +7645,7 @@ async function sincronizarUnDia(dia){
       }
       if(rCom.error){
         console.error('COMISIÓN NO CREADA al sincronizar:', rCom.error.message, filaCom);
-        try{ const log=lsGet('com_fallidas',[]); log.push({fila:{tipo:'debo',persona:(dia.cobra_comision||dia.almacen_nombre),monto:comision,nota:filaCom.nota,clave_comision:claveComVta,venta_dia_id:nuevo.id}, fecha:dia.fecha, persona:(dia.cobra_comision||dia.almacen_nombre), monto:comision, venta_dia_id:nuevo.id, error:rCom.error.message, ts:Date.now()}); lsSet('com_fallidas',log); }catch(e){}
+        try{ const log=lsGet('com_fallidas',[]); log.push({fecha:dia.fecha, persona:(dia.cobra_comision||dia.almacen_nombre), monto:comision, venta_dia_id:nuevo.id, error:rCom.error.message, ts:Date.now()}); lsSet('com_fallidas',log); }catch(e){}
       }
     }
   }
@@ -8055,12 +7663,6 @@ async function sincronizarUnDia(dia){
 }
 
 setInterval(sincronizarPendientes, 30000);
-setInterval(reintentarComisiones, 30000);
-reintentarComisiones();
-setInterval(subirVentasMayoreo, 30000);
-subirVentasMayoreo();
-setInterval(subirMovsMayoreo, 30000);
-subirMovsMayoreo();
 setInterval(sincronizarPendientesAdmin, 30000);
 
 // ---------- HISTORIAL DE DÍAS (colapsable) ----------
@@ -8327,7 +7929,6 @@ async function entrarComo(usuario){
     document.getElementById('btnAbrirMenu').style.display='flex';
     document.getElementById('ventaDiaHeaderPill').style.display='inline';
     document.getElementById('drawerNavVentas').style.display='block';
-    { const b=document.getElementById('vbtnMayoreo'); if(b) b.style.display = puedeMayoreoVenta() ? 'block' : 'none'; }
     document.getElementById('drawerNavGestion').style.display='none';
     document.getElementById('appVentas').style.display='block';
     actualizarConexionUI();
@@ -8494,7 +8095,7 @@ function cargarMayoreo(){
 }
 
 function cambiarMTab(cual){
-  ['productos','inventario','vender','ganancias','dinero','historial','reservas','avisar','clientes'].forEach(t=>{
+  ['productos','inventario','vender','ganancias','dinero','historial','reservas'].forEach(t=>{
     const el=document.getElementById('mtab-'+t); if(el) el.style.display = (t===cual)?'block':'none';
     const b=document.getElementById('mtab-btn-'+t); if(b) b.classList.toggle('active', t===cual);
   });
@@ -8505,8 +8106,6 @@ function cambiarMTab(cual){
   if(cual==='dinero') cargarDineroMayoreo();
   if(cual==='historial') cambiarHTab('dinero');
   if(cual==='reservas') cargarReservasMayoreo();
-  if(cual==='avisar') cargarAvisarMayoreo();
-  if(cual==='clientes') cargarClientesMayoreo();
 }
 
 // Inventario del almacén MAYOREO
@@ -8522,7 +8121,7 @@ function renderInvMayoreo(){
   const total=filas.reduce((s,x)=>s+x.cant,0);
   if(!filas.length){ cont.innerHTML='<div class="empty">El almacén de mayoreo no tiene stock todavía. Métele con "📥 Entrada de mercancía".</div>'; return; }
   cont.innerHTML=`<div style="font-weight:700; margin-bottom:6px">${num(total)} uds.</div>
-  <table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">P. Mayoreo</th></tr></thead><tbody>
+  <table style="min-width:420px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">P. Mayoreo</th></tr></thead><tbody>
   ${filas.sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(x=>`<tr><td>${x.nombre}</td><td class="numcell">${num(x.cant)}</td><td class="numcell">$${num(x.pm)}</td></tr>`).join('')}
   </tbody></table>`;
 }
@@ -8535,16 +8134,13 @@ function renderPreciosMayoreo(){
   if(q) lista=lista.filter(p=>(p.nombre||'').toLowerCase().includes(q));
   lista=lista.slice(0,60);
   if(!lista.length){ cont.innerHTML='<div class="empty">Sin productos.</div>'; return; }
-  cont.innerHTML=`<table style="min-width:850px"><thead><tr><th>Producto (interno)</th><th>Nombre para la web</th><th class="numcell">Costo may.</th><th class="numcell">Precio may.</th><th class="numcell">Mín.</th><th class="numcell">Caja</th><th></th><th></th></tr></thead><tbody>
+  cont.innerHTML=`<table style="min-width:560px"><thead><tr><th>Producto</th><th class="numcell">Costo may.</th><th class="numcell">Precio may.</th><th></th><th></th></tr></thead><tbody>
   ${lista.map(p=>`<tr>
     <td>${p.nombre}</td>
-    <td><input type="text" id="maynw-${p.id}" value="${(p.nombre_web||'').replace(/"/g,'&quot;')}" placeholder="(igual que el interno)" style="width:170px"></td>
     <td class="numcell"><input type="number" id="mayco-${p.id}" value="${Number(p.costo_mayoreo)>0?Number(p.costo_mayoreo):''}" placeholder="0" inputmode="decimal" style="width:85px; text-align:right"></td>
     <td class="numcell"><input type="number" id="maypv-${p.id}" value="${Number(p.precio_mayoreo)>0?Number(p.precio_mayoreo):''}" placeholder="0" inputmode="decimal" style="width:85px; text-align:right"></td>
-    <td class="numcell"><input type="number" id="maymin-${p.id}" value="${Number(p.min_mayoreo)>1?Number(p.min_mayoreo):''}" placeholder="1" inputmode="numeric" style="width:60px; text-align:right"></td>
-    <td class="numcell"><input type="number" id="maymul-${p.id}" value="${Number(p.multiplo_mayoreo)>1?Number(p.multiplo_mayoreo):''}" placeholder="1" inputmode="numeric" style="width:60px; text-align:right"></td>
     <td><button class="ghost" onclick="guardarPrecioMayoreo(${p.id})">✓</button></td>
-    <td><button class="ghost" onclick="abrirFotosMayoreo(${p.id})">📷 Fotos</button> <button class="ghost" onclick="abrirSpecsMayoreo(${p.id})">📋 Especif.</button></td>
+    <td><button class="ghost" onclick="abrirFotosMayoreo(${p.id})">📷 Fotos</button></td>
   </tr>`).join('')}
   </tbody></table>
   <div id="mayFotosPanel" style="margin-top:12px"></div>`;
@@ -8553,42 +8149,22 @@ function renderPreciosMayoreo(){
 async function guardarPrecioMayoreo(pid){
   const pv=Number(document.getElementById('maypv-'+pid).value)||0;
   const co=Number(document.getElementById('mayco-'+pid).value)||0;
-  const nwEl=document.getElementById('maynw-'+pid);
-  const nw=nwEl?(nwEl.value||'').trim():'';
-  const minEl=document.getElementById('maymin-'+pid);
-  let mn=minEl?(parseInt(minEl.value)||1):1; if(mn<1)mn=1;
-  const mulEl=document.getElementById('maymul-'+pid);
-  let ml=mulEl?(parseInt(mulEl.value)||1):1; if(ml<1)ml=1;
   if(pv<0||co<0){ alert('Precio o costo no válido.'); return; }
   if(!navigator.onLine){ alert('Necesitas internet para guardar.'); return; }
   try{
-    let {data,error}=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co, nombre_web:nw||null, min_mayoreo:mn, multiplo_mayoreo:ml}).eq('id',pid).select();
-    if(error && (String(error.message||'').includes('multiplo_mayoreo'))){
-      const r0=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co, nombre_web:nw||null, min_mayoreo:mn}).eq('id',pid).select();
-      data=r0.data; error=r0.error;
-      if(!error){ alert('Guardé lo demás. Para la caja (múltiplo) corre el SQL "multiplo_mayoreo.sql".'); }
-    }
-    if(error && (String(error.message||'').includes('min_mayoreo'))){
-      const r0=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co, nombre_web:nw||null}).eq('id',pid).select();
-      data=r0.data; error=r0.error;
-      if(!error){ alert('Guardé lo demás. Para el mínimo corre el SQL "min_mayoreo.sql".'); }
-    }
-    if(error && (String(error.message||'').includes('nombre_web'))){
-      const r0=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co}).eq('id',pid).select();
-      data=r0.data; error=r0.error;
-      if(!error){ alert('Guardé precio y costo. Para el nombre web corre el SQL "nombre_web.sql".'); }
-    }
+    let {data,error}=await sb.from('productos').update({precio_mayoreo:pv, costo_mayoreo:co}).eq('id',pid).select();
     if(error && (String(error.message||'').includes('costo_mayoreo'))){
+      // Aún no existe la columna costo_mayoreo: guardamos al menos el precio.
       const r2=await sb.from('productos').update({precio_mayoreo:pv}).eq('id',pid).select();
       data=r2.data; error=r2.error;
       if(!error){ alert('Guardé el precio. El costo de mayoreo necesita correr el SQL "mayoreo_setup.sql".'); }
     }
     if(error) throw error;
     if(!data||!data.length){ alert('El servidor no aplicó el cambio (permisos).'); return; }
-    const p=(PRODUCTOS||[]).find(x=>x.id===pid); if(p){ p.precio_mayoreo=pv; p.costo_mayoreo=co; p.nombre_web=nw||null; p.min_mayoreo=mn; p.multiplo_mayoreo=ml; }
+    const p=(PRODUCTOS||[]).find(x=>x.id===pid); if(p){ p.precio_mayoreo=pv; p.costo_mayoreo=co; }
     lsSet('adm_cache_productos', PRODUCTOS);
     const btn=event&&event.target; if(btn){ const t=btn.textContent; btn.textContent='✓'; btn.style.color='var(--green)'; setTimeout(()=>{btn.textContent=t; btn.style.color='';},1200); }
-  }catch(e){ alert('No se pudo: '+(e.message||e)); registrarError('mayoreo/productos','No se pudo guardar precio/caja',(e&&e.message)||String(e)); }
+  }catch(e){ alert('No se pudo: '+(e.message||e)); }
 }
 
 // ----- ENTRADA DE MERCANCÍA A MAYOREO -----
@@ -8618,85 +8194,21 @@ async function entradaMayoreo(signo){
   if(!alm){ msg.textContent='Falta crear el almacén MAYOREO.'; msg.className='msg err'; return; }
   if(!pid){ msg.textContent='Elige un producto.'; msg.className='msg err'; return; }
   if(!cant||cant<=0){ msg.textContent='Pon una cantidad.'; msg.className='msg err'; return; }
-  const pr=(PRODUCTOS||[]).find(x=>x.id===pid);
-  // Si es EXTRACCIÓN, no dejar sacar más de lo que hay (en memoria)
-  if(signo<0){
-    const hay=(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
-    if(cant>hay){ msg.textContent='No hay tanto para extraer (hay '+num(hay)+').'; msg.className='msg err'; return; }
-  }
-  // 1) guardar el movimiento en la cola local (nunca se pierde)
-  const clave='maymov_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
-  const mov={ clave, almacen_id:alm.id, producto_id:pid, delta:signo*cant, nombre:(pr&&pr.nombre)||('#'+pid), ts:Date.now() };
-  try{ const cola=lsGet('may_movs_pendientes',[]); cola.push(mov); lsSet('may_movs_pendientes',cola); }catch(_){}
-  // 2) ajustar el stock en memoria al momento
-  { let row=(INVENTARIO||[]).find(i=>i.almacen_id===alm.id&&i.producto_id===pid); if(!row){ row={almacen_id:alm.id,producto_id:pid,cantidad:0}; INVENTARIO.push(row);} row.cantidad=Number(row.cantidad||0)+signo*cant; }
-  // 3) intentar subirlo (si falla, queda en cola y se reintenta solo)
-  await subirMovsMayoreo();
-  msg.textContent = (signo>0 ? 'Ingresó al mayoreo.' : 'Se extrajo del mayoreo.') + (navigator.onLine?' ✓':' (se subirá cuando vuelva el internet) ✓'); msg.className='msg ok';
-  document.getElementById('mayEbuscar').value=''; document.getElementById('mayEprod').value='';
-  document.getElementById('mayEelegido').textContent=''; document.getElementById('mayEcant').value='';
-  try{ renderInvMayoreo(); }catch(_){}
-}
-// Sube los movimientos de mercancía pendientes con el RPC atómico. Idempotente + reintento.
-async function subirMovsMayoreo(){
-  if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
-  let cola=lsGet('may_movs_pendientes',[]);
-  if(!cola.length) return;
-  const quedan=[];
-  for(const m of cola){
-    try{
-      const { error } = await sb.rpc('mover_mayoreo_atomico', { p_clave:m.clave, p_almacen:m.almacen_id, p_producto:m.producto_id, p_delta:m.delta, p_nombre:m.nombre||'' });
-      if(error){
-        if(String(error.message||'').includes('mover_mayoreo_atomico')){
-          if(!window.__avisoRpcMov){ window.__avisoRpcMov=true; try{ alert('Falta correr el SQL "mover_mayoreo_atomico.sql" en Supabase. El movimiento quedó guardado y se subirá cuando lo corras.'); }catch(_){} }
-        }
-        registrarError('mayoreo/movimiento','No subió el movimiento (queda en cola)', error.message);
-        quedan.push(m);
-      }
-    }catch(e){ quedan.push(m); }
-  }
-  lsSet('may_movs_pendientes', quedan);
+  if(!navigator.onLine){ msg.textContent='Necesitas internet.'; msg.className='msg err'; return; }
+  try{
+    const rr=await ajustarInventario(alm.id, pid, signo*cant);
+    const pr=(PRODUCTOS||[]).find(x=>x.id===pid);
+    try{ await sb.from('mayoreo_movimientos').insert({tipo: signo>0?'ingreso':'extraccion', producto_id:pid, nombre:(pr&&pr.nombre)||('#'+pid), cantidad:cant, cant_antes:rr.antes, cant_despues:rr.despues}); }catch(_){}
+    await cargarTodo();
+    msg.textContent = signo>0 ? 'Ingresó al mayoreo. ✓' : 'Se extrajo del mayoreo. ✓'; msg.className='msg ok';
+    document.getElementById('mayEbuscar').value=''; document.getElementById('mayEprod').value='';
+    document.getElementById('mayEelegido').textContent=''; document.getElementById('mayEcant').value='';
+  }catch(e){ msg.textContent='No se pudo: '+(e.message||e); msg.className='msg err'; }
 }
 
 // ----- FOTOS DE MAYOREO -----
 const MAY_BUCKET = 'fotos-mayoreo';
 
-// --- Especificaciones del producto (se ven en el catálogo web) ---
-function abrirSpecsMayoreo(pid){
-  const prod=(PRODUCTOS||[]).find(x=>x.id===pid); if(!prod) return;
-  const cont=document.getElementById('mayFotosPanel'); if(!cont) return;
-  const val=(prod.especificaciones||'').replace(/</g,'&lt;');
-  cont.innerHTML=`<div class="card" style="border:2px solid var(--blue)">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-      <h3 style="margin:0">📋 Especificaciones — ${prod.nombre}</h3>
-      <button class="ghost" onclick="document.getElementById('mayFotosPanel').innerHTML=''">Cerrar ✕</button>
-    </div>
-    <p style="color:var(--muted);font-size:13px;margin:6px 0">Una por línea. Se ven <b>tal como las escribas</b>. En el catálogo aparece un <b>!</b> al lado del nombre y al tocarlo se abren.</p>
-    <textarea id="specsTxt-${pid}" rows="7" style="width:100%;font-family:inherit;font-size:14px;padding:10px;border:1px solid var(--border);border-radius:9px" placeholder="Medida: 5 pulgadas&#10;Material: Acero&#10;Marca: Q7&#10;Contenido: 1000 piezas">${val}</textarea>
-    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-      <button class="primary" onclick="guardarSpecsMayoreo(${pid})">Guardar especificaciones</button>
-    </div>
-    <div id="specsMsg-${pid}" class="msg"></div>
-  </div>`;
-}
-async function guardarSpecsMayoreo(pid){
-  const ta=document.getElementById('specsTxt-'+pid); if(!ta) return;
-  const msg=document.getElementById('specsMsg-'+pid);
-  const txt=(ta.value||'').trim();
-  if(!navigator.onLine){ if(msg){msg.textContent='Necesitas internet.';msg.className='msg err';} return; }
-  try{
-    const {data,error}=await sb.from('productos').update({especificaciones: txt||null}).eq('id',pid).select();
-    if(error) throw error;
-    if(!data||!data.length){ if(msg){msg.textContent='El servidor no aplicó el cambio (permisos).';msg.className='msg err';} return; }
-    const p=(PRODUCTOS||[]).find(x=>x.id===pid); if(p) p.especificaciones=txt||null;
-    lsSet('adm_cache_productos', PRODUCTOS);
-    if(msg){ msg.textContent='Guardado ✓ (se ve en el catálogo web)'; msg.className='msg ok'; }
-  }catch(e){
-    const falta=String(e.message||'').includes('especificaciones');
-    if(msg){ msg.textContent = falta ? 'Falta correr el SQL "especificaciones.sql" en Supabase.' : ('No se pudo: '+(e.message||e)); msg.className='msg err'; }
-    registrarError('mayoreo/especificaciones','No se pudo guardar especificaciones',(e&&e.message)||String(e));
-  }
-}
 async function abrirFotosMayoreo(pid){
   const p=(PRODUCTOS||[]).find(x=>x.id===pid);
   const cont=document.getElementById('mayFotosPanel');
@@ -8725,7 +8237,7 @@ async function listarFotosMayoreo(pid){
       <div style="border:1px solid var(--border);border-radius:10px;padding:6px;width:120px">
         <img src="${f.url}" style="width:108px;height:108px;object-fit:cover;border-radius:8px" onerror="this.style.opacity=.3">
         <button class="ghost" style="width:100%;margin-top:4px;font-size:12px;padding:5px" onclick="toggleFotoWeb(${f.id}, ${f.mostrar_web}, ${pid})">${f.mostrar_web?'🌐 Web':'📄 Legal'}</button>
-        <button class="ghost" style="width:100%;margin-top:4px;font-size:12px;padding:5px;color:var(--red)" onclick="borrarFotoMayoreo(${f.id}, ${pid})">Borrar</button>
+        <button class="ghost" style="width:100%;margin-top:4px;font-size:12px;padding:5px;color:var(--red)" onclick="borrarFotoMayoreo(${f.id}, ${JSON.stringify(f.path||'')}, ${pid})">Borrar</button>
       </div>`).join('')}</div>`;
   }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
 }
@@ -8772,17 +8284,14 @@ async function toggleFotoWeb(fid, actual, pid){
   catch(e){ alert('No se pudo: '+(e.message||e)); }
 }
 
-async function borrarFotoMayoreo(fid, pid){
+async function borrarFotoMayoreo(fid, path, pid){
   if(!confirm('¿Borrar esta foto?')) return;
   if(!navigator.onLine){ alert('Necesitas internet.'); return; }
   try{
-    // buscar la ruta para borrarla también del almacenamiento (si falla, igual se borra el registro)
-    let path='';
-    try{ const {data}=await sb.from('fotos_mayoreo').select('path').eq('id',fid).single(); if(data) path=data.path||''; }catch(_){}
     if(path){ try{ await sb.storage.from(MAY_BUCKET).remove([path]); }catch(_){} }
     const {error}=await sb.from('fotos_mayoreo').delete().eq('id',fid); if(error) throw error;
     await listarFotosMayoreo(pid);
-  }catch(e){ alert('No se pudo: '+(e.message||e)); registrarError('mayoreo/fotos','No se pudo borrar la foto',(e&&e.message)||String(e)); }
+  }catch(e){ alert('No se pudo: '+(e.message||e)); }
 }
 
 // ----- VENDER -----
@@ -8828,7 +8337,6 @@ function agregarMayItem(){
   if(!cant||cant<=0){ alert('Pon una cantidad.'); return; }
   if(isNaN(precio)||precio<0){ alert('Precio no válido.'); return; }
   const alm=almacenMayoreo();
-  if(!alm){ alert('Falta el almacén MAYOREO.'); return; }
   const stock=(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
   const yaEnCarrito=__mayCarrito.filter(x=>x.producto_id===pid).reduce((s,x)=>s+x.cantidad,0);
   if(cant+yaEnCarrito>stock){ alert(`No hay tanto en mayoreo. Hay ${num(stock)} y ya llevas ${num(yaEnCarrito)}.`); return; }
@@ -8845,102 +8353,56 @@ function renderMayCarrito(){
   const btn=document.getElementById('mayFinalizarBtn');
   if(!__mayCarrito.length){ cont.innerHTML='<div class="empty">Carrito vacío.</div>'; btn.style.display='none'; return; }
   const total=__mayCarrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
-  cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th><th></th></tr></thead><tbody>
+  cont.innerHTML=`<table style="min-width:480px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th><th></th></tr></thead><tbody>
   ${__mayCarrito.map((x,i)=>`<tr><td>${x.nombre}</td><td class="numcell">${num(x.cantidad)}</td><td class="numcell">$${num(x.precio)}</td><td class="numcell">$${num(x.cantidad*x.precio)}</td><td><button class="ghost" onclick="quitarMayItem(${i})">✕</button></td></tr>`).join('')}
   </tbody><tfoot><tr><td colspan="3" style="text-align:right;font-weight:700">TOTAL</td><td class="numcell" style="font-weight:800;color:var(--green)">$${num(total)}</td><td></td></tr></tfoot></table>`;
   btn.style.display='block';
 }
 
-// NÚCLEO compartido de la venta de mayoreo (mismo dinero para dueño/Dariel y Tamy).
-// Venta de mayoreo A PRUEBA DE CAÍDAS:
-// 1) Se guarda PRIMERO en el teléfono (cola local) → nunca se pierde.
-// 2) Se descuenta el stock en memoria al momento (no se sobrevende).
-// 3) Se sube con el RPC atómico (o todo o nada). Si falla (sin internet, etc.)
-//    queda en la cola y se reintenta solo. Idempotente: no duplica.
-async function procesarVentaMayoreo(carrito, reservaId){
-  const alm=await asegurarAlmacenMayoreo(); if(!alm) throw new Error('Falta el almacén MAYOREO.');
-  if(!carrito||!carrito.length) throw new Error('Carrito vacío.');
-  const total=carrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
-  const ganancia=carrito.reduce((s,x)=>s+x.cantidad*(x.precio-x.costo),0);
-  // Validar stock con lo que hay DE VERDAD en el almacén MAYOREO (pedido fresco al
-  // servidor). La cuenta de la vendedora NO tiene ese almacén en memoria, por eso antes
-  // decía "hay 0". Si no se puede leer (sin internet), NO bloqueamos: la venta se encola
-  // y el servidor (RPC atómico) valida el stock igual al subirla.
-  let __stkFresco=null;
-  try{ await tvCargarStockMayoreo(); if(typeof __tvStockMayoreo!=='undefined' && __tvStockMayoreo) __stkFresco=__tvStockMayoreo; }catch(_){}
-  if(__stkFresco){
-    for(const it of carrito){
-      const hay=Number(__stkFresco[it.producto_id]||0);
-      if(it.cantidad>hay) throw new Error('No hay suficiente de "'+it.nombre+'" (hay '+num(hay)+').');
-    }
-  }
-  const clave='may_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
-  const venta={ clave, almacen_id:alm.id, items:carrito.map(x=>({producto_id:x.producto_id,nombre:x.nombre,cantidad:x.cantidad,precio:x.precio,costo:x.costo})), total, ganancia, usuario:(usuarioActual&&usuarioActual.nombre)||'', reserva_id:reservaId||null, ts:Date.now() };
-  // 1) guardar en la cola local (esto NUNCA falla ni se pierde)
-  try{ const cola=lsGet('may_ventas_pendientes',[]); cola.push(venta); lsSet('may_ventas_pendientes',cola); }catch(_){}
-  // 2) descontar stock en memoria de una vez (para que se vea al instante y no se sobrevenda)
-  carrito.forEach(it=>{ const row=(INVENTARIO||[]).find(i=>i.almacen_id===alm.id&&i.producto_id===it.producto_id); if(row) row.cantidad=Number(row.cantidad||0)-it.cantidad; });
-  if(reservaId){ if(__reservasMay&&__reservasMay[reservaId]) __reservasMay[reservaId].estado='atendida'; }
-  // 3) intentar subirla ya (si falla, queda en la cola y se reintenta solo)
-  await subirVentasMayoreo();
-  return {total, ganancia, encolada:true};
-}
-
-// Sube las ventas de mayoreo pendientes con el RPC atómico. Idempotente y con reintento.
-async function subirVentasMayoreo(){
-  if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
-  let cola=lsGet('may_ventas_pendientes',[]);
-  if(!cola.length) return;
-  const quedan=[];
-  for(const v of cola){
-    try{
-      const { data, error } = await sb.rpc('vender_mayoreo_atomico', {
-        p_clave:v.clave, p_almacen:v.almacen_id, p_items:v.items,
-        p_total:v.total, p_ganancia:v.ganancia, p_usuario:v.usuario||'', p_reserva_id:v.reserva_id||null
-      });
-      if(error){
-        // Si el RPC no existe todavía, avisar una vez (no perder la venta: queda en cola)
-        if(String(error.message||'').includes('vender_mayoreo_atomico')){
-          if(!window.__avisoRpcVenta){ window.__avisoRpcVenta=true; try{ alert('Falta correr el SQL "vender_mayoreo_atomico.sql" en Supabase. La venta quedó guardada y se subirá cuando lo corras.'); }catch(_){} }
-        }
-        registrarError('mayoreo/venta','No subió la venta (queda en cola para reintento)', error.message);
-        quedan.push(v); // se reintenta luego
-      }
-      // si no hay error (data 'ok' o 'ya_existe') → se saca de la cola
-    }catch(e){ quedan.push(v); } // sin conexión a mitad → se queda para el próximo intento
-  }
-  lsSet('may_ventas_pendientes', quedan);
-}
-
 async function finalizarVentaMayoreo(){
   if(!__mayCarrito.length) return;
-  if(!almacenMayoreo()){ alert('Falta el almacén MAYOREO.'); return; }
+  if(!navigator.onLine){ alert('Necesitas internet para cobrar la venta de mayoreo.'); return; }
+  const alm=almacenMayoreo(); if(!alm){ alert('Falta el almacén MAYOREO.'); return; }
   const total=__mayCarrito.reduce((s,x)=>s+x.cantidad*x.precio,0);
   const ganancia=__mayCarrito.reduce((s,x)=>s+x.cantidad*(x.precio-x.costo),0);
-  if(!confirm('Cobrar venta de mayoreo por $'+num(total)+' (ganancia $'+num(ganancia)+').\n\n¿Confirmar?')) return;
+  const costoTot=__mayCarrito.reduce((s,x)=>s+x.cantidad*(Number(x.costo)||0),0);
+  const rp=repartoMayoreoFull(costoTot, ganancia);
+  if(!confirm(`Cobrar venta de mayoreo por $${num(total)} (ganancia $${num(ganancia)}).\n\nDariel: $${num(rp.darielTotal)} (inversión $${num(rp.inversion)} + 50% $${num(rp.darielGan)})\nTamy: $${num(rp.vendedor)} · Admin jk: $${num(rp.adminJk)} · Dueño: $${num(rp.dueno)}\n\n¿Confirmar?`)) return;
   const btn=document.getElementById('mayFinalizarBtn'); btn.disabled=true; btn.textContent='Cobrando…';
+  const clave='may_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+  const descontados=[];
   try{
-    await procesarVentaMayoreo(__mayCarrito, __reservaEnVenta); __reservaEnVenta=null;
+    // 1) Descontar stock del almacén MAYOREO (guardando lo hecho para poder revertir si algo falla).
+    for(const it of __mayCarrito){ const rr=await ajustarInventario(alm.id, it.producto_id, -it.cantidad); descontados.push(it); try{ await sb.from('mayoreo_movimientos').insert({tipo:'venta', producto_id:it.producto_id, nombre:it.nombre, cantidad:it.cantidad, cant_antes:rr.antes, cant_despues:rr.despues, nota:'Venta mayoreo'}); }catch(_){} }
+    // 2) Registrar la venta de mayoreo (su historial va aquí, no en movimientos normales).
+    const vRes=await sb.from('ventas_mayoreo').insert({ items:__mayCarrito, total, ganancia, usuario:(usuarioActual&&usuarioActual.nombre)||'', clave_local:clave, fecha:fechaHoyLocal() });
+    if(vRes.error) throw vRes.error;
+    // El reparto NO crea deudas por venta: se acumula por persona y se paga desde Ganancias (Cobrar).
     __mayCarrito=[]; renderMayCarrito();
-    alert(navigator.onLine ? 'Venta de mayoreo cobrada. ✓' : 'Venta guardada. Se subirá sola cuando vuelva el internet. ✓');
-    try{ await cargarTodo(); }catch(_){}
+    if(__reservaEnVenta){ try{ await sb.from('reservas_mayoreo').update({estado:'atendida'}).eq('id',__reservaEnVenta); }catch(_){} __reservaEnVenta=null; }
+    await cargarTodo();
+    alert('Venta de mayoreo cobrada. ✓');
     cambiarMTab('historial');
-  }catch(e){ alert('No se pudo: '+(e.message||e)); }
+  }catch(e){
+    // Revertir el stock que ya se había descontado, para no perder mercancía.
+    for(const it of descontados){ try{ await ajustarInventario(alm.id, it.producto_id, it.cantidad); }catch(_){} }
+    alert('No se pudo completar la venta (se revirtió el stock). '+(e.message||e));
+  }
   finally{ btn.disabled=false; btn.textContent='✅ Cobrar venta de mayoreo'; }
 }
 
 // ----- GANANCIAS -----
 async function acumuladoMayoreo(){
   const ventas=[]; { let d=0; for(;;){ const r=await sb.from('ventas_mayoreo').select('total,ganancia').order('id',{ascending:true}).range(d,d+999); if(r.error) throw r.error; ventas.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
-  let vendido=0, gan=0, acc={Dariel:0,Tamy:0,jk:0,'Dueño':0}, darInv=0, darGan=0;
-  ventas.forEach(v=>{ const t=Number(v.total||0), g=Number(v.ganancia||0); const c=t-g; const rf=repartoMayoreoFull(c,g); vendido+=t; gan+=g; acc.Dariel+=rf.darielTotal; darInv+=rf.inversion; darGan+=rf.darielGan; acc.Tamy+=rf.vendedor; acc.jk+=rf.adminJk; acc['Dueño']+=rf.dueno; });
+  let vendido=0, gan=0, acc={Dariel:0,Tamy:0,jk:0,'Dueño':0};
+  ventas.forEach(v=>{ const t=Number(v.total||0), g=Number(v.ganancia||0); const c=t-g; const rf=repartoMayoreoFull(c,g); vendido+=t; gan+=g; acc.Dariel+=rf.darielTotal; acc.Tamy+=rf.vendedor; acc.jk+=rf.adminJk; acc['Dueño']+=rf.dueno; });
   let movs=[]; try{ let d=0; for(;;){ const r=await sb.from('mayoreo_caja').select('*').order('id',{ascending:true}).range(d,d+999); if(r.error) throw r.error; movs.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }catch(e){ movs=[]; }
   const cobrado={Dariel:0,Tamy:0,jk:0,'Dueño':0}; let ingManual=0, egrManual=0;
   movs.forEach(m=>{ if(m.tipo==='cobro'){ if(cobrado[m.persona]!=null) cobrado[m.persona]+=Number(m.monto||0); } else if(m.tipo==='ingreso'){ ingManual+=Number(m.monto||0); } else if(m.tipo==='egreso'){ egrManual+=Number(m.monto||0); } });
   const pend={}; Object.keys(acc).forEach(k=>pend[k]=Math.round((acc[k]-cobrado[k])*100)/100);
   const totalCobrado=Object.values(cobrado).reduce((a,b)=>a+b,0);
   const efectivo=Math.round((vendido + ingManual - egrManual - totalCobrado)*100)/100;
-  return { vendido, gan, acc, cobrado, pend, efectivo, dariel:{inv:Math.round(darInv*100)/100, gan:Math.round(darGan*100)/100} };
+  return { vendido, gan, acc, cobrado, pend, efectivo };
 }
 
 async function cargarGananciasMayoreo(){
@@ -8949,28 +8411,18 @@ async function cargarGananciasMayoreo(){
   cont.textContent='Cargando…';
   try{
     const a=await acumuladoMayoreo();
-    const fila=(clave,etq,desc,extra)=>{
+    const fila=(clave,etq,desc)=>{
       const p=a.pend[clave]||0;
       const btn=p>0.004?`<button class="primary" style="padding:8px 14px;font-size:13px" onclick="cobrarMayoreo('${clave}')">Cobrar $${num(p)}</button>`:'<span style="color:var(--muted);font-size:13px">Nada por cobrar</span>';
       return `<div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
           <div><b>${etq}</b><div style="color:var(--muted);font-size:12px">${desc}</div></div>
           <div style="text-align:right"><div style="font-weight:800;font-size:18px;color:var(--green)">$${num(p)}</div>${btn}</div>
-        </div>${extra||''}
+        </div>
       </div>`;
     };
-    // Desglose de Dariel: cuánto de lo pendiente es recuperar inversión y cuánto es su ganancia
-    let dExtra='';
-    { const pd=a.pend.Dariel||0, accD=a.acc.Dariel||0, inv=(a.dariel&&a.dariel.inv)||0, gan=(a.dariel&&a.dariel.gan)||0;
-      const pInv = accD>0 ? Math.round(pd*(inv/accD)*100)/100 : 0;
-      const pGan = Math.round((pd-pInv)*100)/100;
-      dExtra=`<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);display:flex;gap:14px;font-size:13px">
-        <div>📦 Inversión<br><b style="font-size:15px">$${num(pInv)}</b></div>
-        <div>📈 Ganancia<br><b style="font-size:15px;color:var(--green)">$${num(pGan)}</b></div>
-      </div>`;
-    }
     cont.innerHTML=`<div style="color:var(--muted);font-size:12px;margin-bottom:10px">Vendido $${num(a.vendido)} · Ganancia $${num(a.gan)}. Cada uno cobra TODO lo acumulado; luego vuelve a subir con nuevas ventas.</div>`
-      + fila('Dariel','👤 Dariel','Inversión + su parte de ganancia. Al cobrar solo sale el dinero.', dExtra)
+      + fila('Dariel','👤 Dariel','Inversión + su parte de ganancia. Al cobrar solo sale el dinero.')
       + fila('Dueño','🤵 Dueño (tú)','Al cobrar entra a la caja normal de LOPE.')
       + fila('jk','👥 Admin jk','Al cobrar se le pone en su cobro (Deudas).')
       + fila('Tamy','🛒 Tamy','Al cobrar se le pone en su cobro (Deudas).');
@@ -9031,118 +8483,9 @@ async function movCajaMayoreo(tipo){
     const r=await sb.from('mayoreo_caja').insert({tipo, monto, concepto: concepto||(tipo==='ingreso'?'Agregado a mano':'Sacado a mano')});
     if(r.error) throw r.error;
     cargarDineroMayoreo();
-  }catch(e){ msg.textContent='No se pudo: '+(e.message||e); msg.className='msg err'; registrarError('mayoreo/caja', 'No se pudo agregar/sacar dinero del mayoreo', (e&&e.message)||String(e)); }
+  }catch(e){ msg.textContent='No se pudo: '+(e.message||e); msg.className='msg err'; }
 }
 
-// 👥 CLIENTES: compras + cumplimiento de reservas
-let __clientesMay=[];
-async function cargarClientesMayoreo(){
-  const cont=document.getElementById('mayClientesBody');
-  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
-  cont.textContent='Cargando…';
-  try{
-    // Reservas (para compras + cumplimiento)
-    const rows=[]; { let d=0; for(;;){ const r=await sb.from('reservas_mayoreo').select('*').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; rows.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
-    // Cuentas registradas (por si alguno creó cuenta y no ha reservado)
-    let cuentas=[]; try{ const r=await sb.from('clientes').select('*').limit(1000); cuentas=r.data||[]; }catch(e){ cuentas=[]; }
-    const map={};
-    cuentas.forEach(c=>{ const tel=(c.telefono||'').replace(/[^0-9]/g,''); if(!tel)return; map[tel]={tel, nombre:c.usuario||c.nombre||'', total:0, atend:0, novino:0, nueva:0, reservas:[]}; });
-    rows.forEach(r=>{ const tel=(r.telefono||'').replace(/[^0-9]/g,'')||'(sin tel)'; if(!map[tel]) map[tel]={tel, nombre:r.nombre||'', total:0, atend:0, novino:0, nueva:0, reservas:[]}; if(r.nombre&&!map[tel].nombre)map[tel].nombre=r.nombre; const m=map[tel]; m.total++; if(r.estado==='atendida')m.atend++; else if(r.estado==='no_vino')m.novino++; else m.nueva++; m.reservas.push(r); });
-    __clientesMay=Object.values(map).sort((a,b)=> b.novino-a.novino || b.total-a.total);
-    renderClientes();
-  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+' (¿corriste clientes.sql / reservas_mayoreo.sql?)</div>'; }
-}
-function renderClientes(){
-  const cont=document.getElementById('mayClientesBody');
-  const q=(document.getElementById('cliBuscar').value||'').trim().toLowerCase();
-  let lista=__clientesMay;
-  if(q) lista=lista.filter(c=>(c.nombre||'').toLowerCase().includes(q)||c.tel.includes(q));
-  if(!lista.length){ cont.innerHTML='<div class="empty">Sin clientes.</div>'; return; }
-  cont.innerHTML=lista.map((c,i)=>{
-    const alerta = c.novino>0 ? `<span style="color:var(--red);font-weight:700">⚠ ${c.novino} no vino</span>` : `<span style="color:var(--green)">cumple</span>`;
-    const compras=c.reservas.map(r=>{ const items=(Array.isArray(r.items)?r.items:[]).map(it=>`${it.nombre} ×${num(it.cantidad)}`).join(', '); const est=r.estado==='atendida'?'✓':r.estado==='no_vino'?'🚫':'⏳'; return `<div style="font-size:13px;border-top:1px solid var(--border);padding:6px 0">${est} ${(r.creado_en||'').slice(0,10)} · $${num(r.total)}<div style="color:var(--muted)">${items}</div></div>`; }).join('');
-    return `<div style="border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px">
-      <div onclick="document.getElementById('cli-${i}').style.display=(document.getElementById('cli-${i}').style.display==='none'?'block':'none')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <div><b>${c.nombre||'(sin nombre)'}</b><div style="color:var(--muted);font-size:12px">${c.tel}</div></div>
-        <div style="text-align:right;font-size:12px">${c.total} reserva(s)<br>${alerta}</div>
-      </div>
-      <div id="cli-${i}" style="display:none;margin-top:8px">
-        <div style="font-size:12px;color:var(--muted)">✓ cumplió ${c.atend} · 🚫 no vino ${c.novino} · ⏳ pendiente ${c.nueva}</div>
-        ${compras||'<div style="color:var(--muted);font-size:13px;margin-top:6px">Sin compras aún.</div>'}
-      </div>
-    </div>`;
-  }).join('');
-}
-
-// 📣 AVISAR NOVEDADES a los clientes que dejaron su WhatsApp al reservar.
-const LINK_TIENDA_AVISO = 'https://catalogo-er.github.io/MAYOREO/';
-function copiarTexto(txt, ok){
-  try{ navigator.clipboard.writeText(txt).then(()=>{ const e=document.getElementById('avisarMsgEstado'); if(e){e.textContent=ok||'Copiado'; e.className='msg ok';} }); }
-  catch(_){ prompt('Copia esto:', txt); }
-}
-async function cargarAvisarMayoreo(){
-  const cont=document.getElementById('avisarContactos');
-  const ta=document.getElementById('avisarMsg');
-  if(ta && !ta.value){ ta.value='🆕 ¡Llegó mercancía nueva a LOPE! Mira el catálogo y aparta tu pedido: '+LINK_TIENDA_AVISO; }
-  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet para ver los contactos.</div>'; return; }
-  cont.textContent='Cargando contactos…';
-  try{
-    const rows=[]; { let d=0; for(;;){ const r=await sb.from('reservas_mayoreo').select('nombre,telefono,creado_en').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; rows.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
-    // Números únicos (el más reciente con su nombre)
-    const vistos={}; const contactos=[];
-    rows.forEach(r=>{ const tel=(r.telefono||'').replace(/[^0-9]/g,''); if(!tel) return; if(vistos[tel]) return; vistos[tel]=1; contactos.push({tel, nombre:r.nombre||''}); });
-    __avisarNumeros = contactos.map(c=>c.tel);
-    if(!contactos.length){ cont.innerHTML='<div class="empty">Todavía no hay teléfonos (aparecen cuando los clientes reservan en la web).</div>'; return; }
-    cont.innerHTML='<div style="color:var(--muted);font-size:12px;margin-bottom:6px">'+contactos.length+' contacto(s):</div>'+contactos.map(c=>{
-      return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;border-bottom:1px solid var(--border);padding:10px 2px">
-        <div><b>${c.nombre||'(sin nombre)'}</b><div style="color:var(--muted);font-size:12px">${c.tel}</div></div>
-        <button class="primary" style="padding:8px 14px;font-size:13px" onclick="enviarAvisoUno('${c.tel}')">💬 Enviar</button>
-      </div>`;
-    }).join('');
-  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
-}
-let __avisarNumeros=[];
-function enviarAvisoUno(tel){
-  const msg=encodeURIComponent(document.getElementById('avisarMsg').value||'');
-  window.open('https://wa.me/'+tel+'?text='+msg, '_blank');
-}
-function copiarNumerosAvisar(){
-  if(!__avisarNumeros.length){ alert('No hay números.'); return; }
-  copiarTexto(__avisarNumeros.join(', '), __avisarNumeros.length+' números copiados');
-}
-async function ponerNovedadesAvisar(){
-  const ta=document.getElementById('avisarMsg'); const est=document.getElementById('avisarMsgEstado');
-  if(!navigator.onLine){ est.textContent='Necesitas internet.'; est.className='msg err'; return; }
-  try{
-    const desde=new Date(); desde.setDate(desde.getDate()-7);
-    const iso=desde.toISOString();
-    const {data,error}=await sb.from('mayoreo_movimientos').select('nombre,tipo,creado_en').eq('tipo','ingreso').gte('creado_en',iso).order('id',{ascending:false}).limit(500);
-    if(error) throw error;
-    const nombres=[...new Set((data||[]).map(m=>m.nombre).filter(Boolean))].slice(0,30);
-    if(!nombres.length){ est.textContent='No hay ingresos nuevos en los últimos 7 días.'; est.className='msg'; return; }
-    ta.value='🆕 ¡Llegó a LOPE!\n• '+nombres.join('\n• ')+'\n\nMira el catálogo y aparta: '+LINK_TIENDA_AVISO;
-    est.textContent='Puse '+nombres.length+' producto(s) nuevos.'; est.className='msg ok';
-  }catch(e){ est.textContent='No se pudo: '+(e.message||e)+' (¿corriste mayoreo_movimientos.sql?)'; est.className='msg err'; }
-}
-
-// Formatea la cita (fecha+hora) para mostrarla bonita.
-function fmtCita(v){
-  if(!v) return '';
-  try{ const d=new Date(v); if(isNaN(d.getTime())) return v;
-    return d.toLocaleString('es',{weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
-  }catch(_){ return v; }
-}
-// El admin le pone (o cambia) fecha y hora de recogida a una reserva; el cliente la ve en el catálogo.
-async function guardarCitaReserva(id){
-  const inp=document.getElementById('cita-'+id); if(!inp) return;
-  const val=inp.value; // "2026-09-20T15:00" o ''
-  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
-  try{
-    const {error}=await sb.from('reservas_mayoreo').update({cita: val||null}).eq('id',id); if(error) throw error;
-    alert(val? ('Cita guardada: '+fmtCita(val)) : 'Cita borrada.');
-    cargarReservasMayoreo();
-  }catch(e){ alert('No se pudo: '+(e.message||e)); registrarError('mayoreo/reservas','No se pudo guardar la cita',(e&&e.message)||String(e)); }
-}
 async function cargarReservasMayoreo(){
   const cont=document.getElementById('mayReservasBody');
   if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
@@ -9150,7 +8493,7 @@ async function cargarReservasMayoreo(){
   try{
     const {data,error}=await sb.from('reservas_mayoreo').select('*').order('id',{ascending:false}).limit(100);
     if(error) throw error;
-    const nuevas=(data||[]).filter(r=>r.estado==='nueva');
+    const nuevas=(data||[]).filter(r=>r.estado!=='atendida');
     __reservasMay={}; nuevas.forEach(r=>{ __reservasMay[r.id]=r; });
     if(!nuevas.length){ cont.innerHTML='<div class="empty">No hay reservas nuevas.</div>'; return; }
     cont.innerHTML=nuevas.map(r=>{
@@ -9161,19 +8504,10 @@ async function cargarReservasMayoreo(){
         <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><b>${r.nombre||'(sin nombre)'}</b><span style="color:var(--muted);font-size:12px">${(r.creado_en||'').slice(0,16).replace('T',' ')}</span></div>
         <div style="color:var(--muted);font-size:13px;margin:4px 0">📞 ${r.telefono||'—'} · total aprox $${num(r.total)}</div>
         <div style="font-size:14px;margin:6px 0">${items.map(it=>`${it.nombre} <b>×${num(it.cantidad)}</b>`).join('<br>')}</div>
-        <div style="margin:8px 0;padding:9px;background:#f6f7f9;border-radius:9px">
-          <div style="font-size:12px;color:var(--muted);margin-bottom:5px">📅 Fecha y hora de recogida (la ve el cliente):</div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-            <input type="datetime-local" id="cita-${r.id}" value="${(r.cita||'').slice(0,16)}" style="flex:1;min-width:160px;padding:8px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px">
-            <button class="primary" style="padding:8px 12px;font-size:13px" onclick="guardarCitaReserva(${r.id})">Guardar cita</button>
-          </div>
-          ${r.cita?`<div style="font-size:12px;color:#0a7d33;margin-top:5px">✓ Cita: ${fmtCita(r.cita)}</div>`:'<div style="font-size:12px;color:var(--muted);margin-top:5px">Sin cita todavía</div>'}
-        </div>
         <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
           <button class="primary" style="padding:8px 12px;font-size:13px" onclick="venderReservaMayoreo(${r.id})">🛒 Vender</button>
           ${wa}
           <button class="ghost" style="padding:8px 12px;font-size:13px" onclick="marcarReservaAtendida(${r.id})">✓ Atendida</button>
-          <button class="ghost" style="padding:8px 12px;font-size:13px;color:var(--amber)" onclick="marcarReservaNoVino(${r.id})">🚫 No vino</button>
           <button class="ghost" style="padding:8px 12px;font-size:13px;color:var(--red)" onclick="quitarReservaMayoreo(${r.id})">🗑 Quitar</button>
         </div>
       </div>`;
@@ -9185,57 +8519,23 @@ let __reservasMay={};
 function venderReservaMayoreo(id){
   const r=__reservasMay[id]; if(!r) return;
   const items=Array.isArray(r.items)?r.items:[];
-  const alm=almacenMayoreo();
-  if(!alm){ alert('Falta el almacén MAYOREO.'); return; }
-  const stockDe=pid=>(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
   __mayCarrito=[];
   let avisos=[];
   items.forEach(it=>{
     const p=(PRODUCTOS||[]).find(x=>x.id===it.producto_id);
     if(!p){ avisos.push('"'+it.nombre+'" ya no existe'); return; }
-    let cant=Number(it.cantidad)||0;
-    const hay=stockDe(p.id);
-    if(cant>hay){ avisos.push('de "'+p.nombre+'" solo hay '+num(hay)+' (pedía '+num(cant)+')'); cant=hay; }
-    if(cant<=0) return;
-    __mayCarrito.push({producto_id:p.id, nombre:p.nombre, cantidad:cant, precio:Number(p.precio_mayoreo||it.precio||0), costo:Number(p.costo_mayoreo||0)});
+    __mayCarrito.push({producto_id:p.id, nombre:p.nombre, cantidad:Number(it.cantidad)||0, precio:Number(p.precio_mayoreo||it.precio||0), costo:Number(p.costo_mayoreo||0)});
   });
   __reservaEnVenta=id; // recordar cuál reserva se está cobrando (para marcarla atendida al cobrar)
   cambiarMTab('vender');
   renderMayCarrito();
-  if(avisos.length) alert('Aviso: '+avisos.join(', ')+'.');
+  if(avisos.length) alert('Aviso: '+avisos.join(', '));
 }
 async function quitarReservaMayoreo(id){
   if(!confirm('¿Quitar esta reserva? Se elimina de la lista.')) return;
   if(!navigator.onLine){ alert('Necesitas internet.'); return; }
   try{ const {error}=await sb.from('reservas_mayoreo').delete().eq('id',id); if(error) throw error; cargarReservasMayoreo(); }
   catch(e){ alert('No se pudo: '+(e.message||e)); }
-}
-async function marcarReservaNoVino(id){
-  if(!confirm('¿Marcar que este cliente NO vino? Se libera el stock y queda en su historial.')) return;
-  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
-  try{ const {error}=await sb.from('reservas_mayoreo').update({estado:'no_vino'}).eq('id',id); if(error) throw error; cargarReservasMayoreo(); }
-  catch(e){ alert('No se pudo: '+(e.message||e)); }
-}
-// Cumplimiento por cliente (para saber si queda bien con las reservas)
-async function verCumplimientoClientes(){
-  const cont=document.getElementById('mayCumplBody');
-  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet.</div>'; return; }
-  cont.textContent='Cargando…';
-  try{
-    const rows=[]; { let d=0; for(;;){ const r=await sb.from('reservas_mayoreo').select('nombre,telefono,estado').order('id',{ascending:false}).range(d,d+999); if(r.error) throw r.error; rows.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d+=1000; } }
-    const map={};
-    rows.forEach(r=>{ const tel=(r.telefono||'').replace(/[^0-9]/g,'')||'(sin tel)'; if(!map[tel]) map[tel]={nombre:r.nombre||'', tel, total:0, atend:0, novino:0, nueva:0}; map[tel].total++; if(r.estado==='atendida')map[tel].atend++; else if(r.estado==='no_vino')map[tel].novino++; else map[tel].nueva++; if(r.nombre) map[tel].nombre=r.nombre; });
-    const lista=Object.values(map).sort((a,b)=>b.novino-a.novino || b.total-a.total);
-    if(!lista.length){ cont.innerHTML='<div class="empty">Sin clientes todavía.</div>'; return; }
-    cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Cliente</th><th class="numcell">Reservas</th><th class="numcell">Cumplió</th><th class="numcell">No vino</th></tr></thead><tbody>
-    ${lista.map(c=>`<tr>
-      <td>${c.nombre||'(sin nombre)'}<div style="color:var(--muted);font-size:12px">${c.tel}</div></td>
-      <td class="numcell">${c.total}</td>
-      <td class="numcell" style="color:var(--green);font-weight:700">${c.atend}</td>
-      <td class="numcell" style="color:${c.novino>0?'var(--red)':'var(--muted)'};font-weight:700">${c.novino}</td>
-    </tr>`).join('')}
-    </tbody></table>`;
-  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
 }
 async function marcarReservaAtendida(id){
   if(!navigator.onLine){ alert('Necesitas internet.'); return; }
@@ -9267,7 +8567,7 @@ async function cargarHistDineroMayoreo(){
     movs.forEach(m=>filas.push({fecha:(m.creado_en||'').slice(0,16).replace('T',' '), concepto:m.concepto||m.tipo, signo:(m.tipo==='ingreso'?1:-1), monto:Number(m.monto||0)}));
     filas.sort((a,b)=>String(b.fecha).localeCompare(String(a.fecha)));
     if(!filas.length){ cont.innerHTML='<div class="empty">Sin movimientos de dinero todavía.</div>'; return; }
-    cont.innerHTML=`<table style="min-width:520px"><thead><tr><th>Fecha</th><th>Concepto</th><th class="numcell">Monto</th></tr></thead><tbody>
+    cont.innerHTML=`<table style="min-width:420px"><thead><tr><th>Fecha</th><th>Concepto</th><th class="numcell">Monto</th></tr></thead><tbody>
     ${filas.slice(0,200).map(f=>`<tr><td>${f.fecha}</td><td>${f.concepto}</td><td class="numcell" style="color:${f.signo>0?'var(--green)':'var(--red)'};font-weight:700">${f.signo>0?'+':'−'}$${num(f.monto)}</td></tr>`).join('')}
     </tbody></table>`;
   }catch(e){ cont.innerHTML='<div class="msg err">No se pudo: '+(e.message||e)+'</div>'; }
@@ -9311,7 +8611,7 @@ async function cargarHistorialMayoreo(){
         </div>
         <div id="mayHv-${idx}" style="display:none;margin-top:8px;border-top:1px solid var(--border);padding-top:8px">
           <div style="color:var(--muted);font-size:12px;margin-bottom:6px">Ganancia $${num(v.ganancia)}</div>
-          <table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th></tr></thead><tbody>
+          <table style="min-width:360px"><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th class="numcell">Precio</th><th class="numcell">Subtotal</th></tr></thead><tbody>
           ${items.map(it=>`<tr><td>${it.nombre}</td><td class="numcell">${num(it.cantidad)}</td><td class="numcell">$${num(it.precio)}</td><td class="numcell">$${num(it.cantidad*it.precio)}</td></tr>`).join('')}
           </tbody></table>
         </div>
@@ -9322,177 +8622,22 @@ async function cargarHistorialMayoreo(){
 
 // ---- MAYOREO ----// ---- MAYOREO ----
 // El almacén de mayoreo se reconoce por el nombre (empieza con "MAYOREO").
-// ================== CAPTURA DE ERRORES (para la pestaña 🚨 Errores del dueño) ==================
-// Guarda cada fallo en la tabla 'errores' de Supabase. Si no hay internet, lo deja en cola
-// local y lo sube solo cuando vuelve la conexión. Así el dueño ve fallos de cualquier celular.
-function registrarError(donde, mensaje, detalle){
-  try{
-    if(!mensaje) return;
-    const verEl=document.getElementById('versionApp');
-    const reg={
-      usuario: (usuarioActual&&usuarioActual.nombre)||'(sin sesión)',
-      donde: String(donde||'').slice(0,200),
-      mensaje: String(mensaje||'').slice(0,600),
-      detalle: detalle?String(detalle).slice(0,1500):null,
-      version: (verEl&&verEl.textContent)||'',
-      en_linea: !!navigator.onLine,
-      creado_en: new Date().toISOString()
-    };
-    let cola=lsGet('errores_cola', []);
-    // evita duplicar el mismo error repetido en menos de 4 segundos
-    const ultimo=cola[cola.length-1];
-    if(ultimo && ultimo.mensaje===reg.mensaje && ultimo.donde===reg.donde && (Date.parse(reg.creado_en)-Date.parse(ultimo.creado_en))<4000) return;
-    cola.push(reg); if(cola.length>300) cola=cola.slice(-300);
-    lsSet('errores_cola', cola);
-    flushErrores();
-  }catch(_){}
-}
-async function flushErrores(){
-  try{
-    if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
-    let cola=lsGet('errores_cola', []);
-    if(!cola.length) return;
-    const lote=cola.slice(0,50);
-    const { error }=await sb.from('errores').insert(lote.map(r=>({usuario:r.usuario, donde:r.donde, mensaje:r.mensaje, detalle:r.detalle, version:r.version, en_linea:r.en_linea, creado_en:r.creado_en})));
-    if(!error){ const resto=lsGet('errores_cola', []).slice(lote.length); lsSet('errores_cola', resto); if(resto.length) flushErrores(); }
-  }catch(_){}
-}
-// Cuelgues y promesas rechazadas que no atrapó ningún try/catch:
-window.addEventListener('error', function(e){ try{ registrarError('cuelgue', (e&&e.message)||'error', (e&&e.filename)?(e.filename+':'+e.lineno):''); }catch(_){} });
-window.addEventListener('unhandledrejection', function(e){ try{ const r=e&&e.reason; registrarError('promesa', (r&&r.message)||String(r||'rechazo'), (r&&r.stack)||''); }catch(_){} });
-window.addEventListener('online', function(){ flushErrores(); });
-// Captura automática de los avisos ROJOS (la mayoría de fallos usan alert("No se pudo…")):
-(function(){
-  if(window.__alertHook) return; window.__alertHook=true;
-  const _alert = window.alert ? window.alert.bind(window) : function(){};
-  const rxErr = /(no se pudo|no se completó|no se complet|se revirti|no se guard|no subi|servidor no aplic|necesitas internet|no se puede|falta (crear|el|la)|no aplicó el cambio)/i;
-  window.alert = function(m){ try{ if(m && rxErr.test(String(m))) registrarError('aviso', String(m)); }catch(_){} return _alert(m); };
-})();
-async function actualizarBadgeErrores(){
-  try{
-    if(!navigator.onLine || !sb) return;
-    const { count }=await sb.from('errores').select('id',{count:'exact', head:true}).eq('resuelto', false);
-    const b=document.getElementById('tabBtnErrores');
-    if(b){ const base='🚨 Errores'; b.textContent = (count&&count>0) ? (base+' ('+count+')') : base; }
-  }catch(_){}
-}
-// Traduce un error técnico a algo que el dueño entienda, con una pista de qué hacer.
-function explicarError(r){
-  const t=((r.mensaje||'')+' '+(r.detalle||'')).toLowerCase();
-  let titulo, pista;
-  if(/is not defined|referenceerror|is not a function|cannot read|null is not|undefined is not|typeerror|syntaxerror/.test(t)){
-    titulo='La app tropezó con un fallo interno';
-    pista='Es un error de programación (no es culpa del usuario). Mándame esta tarjeta y lo arreglo.';
-  } else if(/row-level security|rls|permission|not allowed|violates|policy/.test(t)){
-    titulo='La base de datos bloqueó la acción por permisos';
-    pista='Falta correr un SQL de permisos en Supabase (o volver a correr TODO_MAYOREO.sql).';
-  } else if(/could not find|column|does not exist|schema|relation .* does not exist|undefined column/.test(t)){
-    titulo='Falta una tabla o columna en la base de datos';
-    pista='Corre en Supabase el SQL que falta (TODO_MAYOREO.sql / errores.sql).';
-  } else if(/bucket not found|storage|object not found/.test(t)){
-    titulo='Problema al subir/ver una foto';
-    pista='Falta crear el bucket "fotos-mayoreo" (Público) en Storage, o correr permisos_storage_fotos.sql.';
-  } else if(/necesitas internet|failed to fetch|networkerror|network request failed|load failed|timeout|err_/.test(t)){
-    titulo='Se cayó el internet a mitad de la acción';
-    pista='El usuario estaba sin conexión. Que lo intente de nuevo con internet.';
-  } else if(/negativo|no se puede descontar|no hay tanto|no alcanza|se agotó|solo quedan/.test(t)){
-    titulo='No había suficiente mercancía';
-    pista='El inventario no alcanzaba para esa venta o extracción. Revisa el stock.';
-  } else if(/se revirti|no se completó la venta|no se complet/.test(t)){
-    titulo='Una venta no se pudo completar';
-    pista='La app devolvió el stock sola (no se perdió mercancía). Que la repitan; si sigue, mándame la tarjeta.';
-  } else if(/falta (crear )?el almac|almacén mayoreo/.test(t)){
-    titulo='Falta el almacén MAYOREO';
-    pista='Crea un almacén cuyo nombre empiece por "MAYOREO".';
-  } else {
-    titulo='Ocurrió un error';
-    pista='Si se repite, mándame esta tarjeta.';
-  }
-  return {titulo, pista};
-}
-async function cargarErrores(){
-  const cont=document.getElementById('erroresBody');
-  if(!cont) return;
-  if(!navigator.onLine){ cont.innerHTML='<div class="msg err">Necesitas internet para ver los errores.</div>'; return; }
-  cont.textContent='Cargando…';
-  try{
-    await flushErrores(); // por si este mismo celular tenía errores en cola
-    const { data, error }=await sb.from('errores').select('*').order('id',{ascending:false}).limit(300);
-    if(error) throw error;
-    const rows=data||[];
-    actualizarBadgeErrores();
-    if(!rows.length){ cont.innerHTML='<div class="empty">✅ Sin errores. Todo bien.</div>'; return; }
-    const pend=rows.filter(r=>!r.resuelto).length;
-    const fmt=iso=>{ try{ const d=new Date(iso); return d.toLocaleString('es',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}); }catch(_){ return iso||''; } };
-    cont.innerHTML='<div style="color:var(--muted);font-size:12px;margin-bottom:10px">'+rows.length+' en total · '+pend+' sin resolver</div>'+rows.map(r=>{
-      const resuelto=!!r.resuelto;
-      const ex=explicarError(r);
-      const dondeBonito = { 'mayoreo/venta':'Vender (mayoreo)','mayoreo/movimiento':'Ingresar/Extraer (mayoreo)','mayoreo/ingreso-extracción':'Ingresar/Extraer (mayoreo)','mayoreo/caja':'Dinero (mayoreo)','aviso':'Aviso en pantalla','cuelgue':'Fallo interno','promesa':'Fallo interno' }[r.donde] || (r.donde||'—');
-      const tecnico = ((r.mensaje||'')+(r.detalle?('\n'+r.detalle):'')).replace(/</g,'&lt;');
-      return `<div style="border:1px solid var(--border);border-left:4px solid ${resuelto?'var(--green)':'var(--red)'};border-radius:10px;padding:12px;margin-bottom:9px;opacity:${resuelto?'0.65':'1'}">
-        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline">
-          <b style="font-size:15px">${ex.titulo}</b>
-          <span style="color:var(--muted);font-size:12px;white-space:nowrap">${fmt(r.creado_en)}</span>
-        </div>
-        <div style="font-size:13px;margin-top:6px;background:var(--bg,#f6f7f9);border-radius:8px;padding:8px 10px">💡 ${ex.pista}</div>
-        <div style="color:var(--muted);font-size:12px;margin-top:8px">
-          👤 ${(r.usuario||'?').replace(/</g,'&lt;')} · 📍 ${dondeBonito} · ${r.en_linea?'🟢 tenía internet':'🔴 sin internet'} · ${r.version||''}
-        </div>
-        <details style="margin-top:8px">
-          <summary style="cursor:pointer;color:var(--muted);font-size:12px">Detalle técnico (para el programador)</summary>
-          <div style="color:var(--muted);font-size:11px;margin-top:5px;word-break:break-word;white-space:pre-wrap">${tecnico}</div>
-        </details>
-        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
-          ${resuelto?`<button class="ghost" style="padding:6px 12px;font-size:12px" onclick="marcarErrorResuelto(${r.id},false)">↩︎ Reabrir</button>`:`<button class="primary" style="padding:6px 12px;font-size:12px" onclick="marcarErrorResuelto(${r.id},true)">✓ Ya lo resolví</button>`}
-          <button class="ghost" style="padding:6px 12px;font-size:12px;color:var(--red)" onclick="borrarUnError(${r.id})">🗑 Borrar</button>
-        </div>
-      </div>`;
-    }).join('');
-  }catch(e){ cont.innerHTML='<div class="msg err">No se pudo cargar: '+(e.message||e)+' (¿corriste errores.sql?)</div>'; }
-}
-async function marcarErrorResuelto(id, val){
-  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
-  try{ const {error}=await sb.from('errores').update({resuelto:!!val}).eq('id',id); if(error) throw error; cargarErrores(); }
-  catch(e){ alert('No se pudo: '+(e.message||e)); }
-}
-async function borrarUnError(id){
-  if(!confirm('¿Borrar este error de la lista?')) return;
-  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
-  try{ const {error}=await sb.from('errores').delete().eq('id',id); if(error) throw error; cargarErrores(); }
-  catch(e){ alert('No se pudo: '+(e.message||e)); }
-}
-async function borrarErroresResueltos(){
-  if(!confirm('¿Borrar todos los errores YA marcados como resueltos?')) return;
-  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
-  try{ const {error}=await sb.from('errores').delete().eq('resuelto',true); if(error) throw error; cargarErrores(); }
-  catch(e){ alert('No se pudo: '+(e.message||e)); }
-}
-async function limpiarTodosErrores(){
-  if(!confirm('¿Borrar TODOS los errores (resueltos y sin resolver)? No se puede deshacer.')) return;
-  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
-  try{ const {error}=await sb.from('errores').delete().gte('id',0); if(error) throw error; lsSet('errores_cola', []); cargarErrores(); }
-  catch(e){ alert('No se pudo: '+(e.message||e)); }
-}
-
-
-// (esMayoreo / almacenMayoreo / idsMayoreo / esAlmacenMayoreoId se definen ARRIBA, antes de renderInventario)
+function esMayoreo(a){ return /^mayoreo/i.test(((a&&a.nombre)||'').trim()); }
+function almacenMayoreo(){ return (ALMACENES||[]).find(esMayoreo) || null; }
+// Conjunto de ids de almacenes de mayoreo — para EXCLUIRLOS de todo lo normal.
+function idsMayoreo(){ return new Set((ALMACENES||[]).filter(esMayoreo).map(a=>a.id)); }
+function esAlmacenMayoreoId(id){ return idsMayoreo().has(Number(id)); }
 // Quién puede administrar el mayoreo (dueño + Dariel) y quién solo vende (Tamy).
-// El nombre se compara sin tildes y por palabras, así "Dariel Pérez" o "TAMY R." también valen.
-function __nomUsuario(){ return (((usuarioActual&&usuarioActual.nombre)||'')+'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase(); }
-function __usuarioEs(nombre){ const s=__nomUsuario(); if(!s) return false; return s===nombre || s.split(/[^a-z0-9]+/).filter(Boolean).includes(nombre); }
-function puedeMayoreoAdmin(){ return !!usuarioActual && (usuarioActual.rol==='dueno' || __usuarioEs('dariel')); }
-// Tamy vende. Dariel también aparece aquí por si su cuenta quedó como vendedor: así nunca
-// se queda sin acceso al mayoreo (si es administrador, ve la pestaña completa).
-function puedeMayoreoVenta(){ return !!usuarioActual && (__usuarioEs('tamy') || __usuarioEs('dariel')); }
-// Reparto de ganancia del mayoreo: Dariel 60%; del 40% del dueño, vendedor 10% del pool,
+function puedeMayoreoAdmin(){ return usuarioActual && (usuarioActual.rol==='dueno' || (usuarioActual.nombre||'').trim().toLowerCase()==='dariel'); }
+function puedeMayoreoVenta(){ return usuarioActual && (usuarioActual.nombre||'').trim().toLowerCase()==='tamy'; }
+// Reparto de ganancia del mayoreo (probado): Dariel 50%; del 50% del dueño, vendedor 10% del pool,
 // del restante admin jk 20%, y el dueño se queda el resto.
 function repartoMayoreo(G){
   G = Number(G)||0;
   const r2 = n => Math.round(n*100)/100;
-  const pool = G*0.40; // lado del dueño (de aquí salen Tamy y jk)
-  const dariel   = r2(G*0.60);
-  const vendedor = r2(pool*0.10);
-  const adminJk  = r2((pool - pool*0.10)*0.20);
+  const dariel   = r2(G*0.50);
+  const vendedor = r2(G*0.50*0.10);
+  const adminJk  = r2((G*0.50 - G*0.50*0.10)*0.20);
   const dueno    = r2(G - dariel - vendedor - adminJk); // absorbe el redondeo → siempre suma G
   return { dariel, vendedor, adminJk, dueno };
 }
@@ -9500,17 +8645,13 @@ function repartoMayoreo(G){
 function repartoMayoreoFull(costo, ganancia){
   costo=Number(costo)||0; ganancia=Number(ganancia)||0;
   const r2=n=>Math.round(n*100)/100;
-  const PARTE_DARIEL = 0.60; // Dariel: 60% de la ganancia
-  const PARTE_DUENO  = 0.40; // Lado del dueño: 40% de la ganancia (de aquí salen Tamy y jk)
-  const total=r2(costo + ganancia);
   const inversion=r2(costo);
-  const darielGan=r2(ganancia*PARTE_DARIEL);
-  const darielTotal=r2(inversion + darielGan);
-  const pool = ganancia*PARTE_DUENO;
+  const darielGan=r2(ganancia*0.5);
+  const pool=ganancia*0.5;
   const vendedor=r2(pool*0.10);
-  const adminJk=r2((pool - pool*0.10)*0.20);
-  // El dueño absorbe TODO el redondeo: es lo que falta para llegar al total exacto.
-  const dueno=r2(total - darielTotal - vendedor - adminJk);
+  const adminJk=r2((pool-pool*0.10)*0.20);
+  const dueno=r2(pool - vendedor - adminJk);
+  const darielTotal=r2(inversion + darielGan);
   return {inversion, darielGan, darielTotal, vendedor, adminJk, dueno};
 }
 
@@ -9608,7 +8749,7 @@ function analizarNegocio(d){
   const invPorProdAlm = {};
   (inventario||[]).forEach(r=>{ (invPorProdAlm[r.producto_id]=invPorProdAlm[r.producto_id]||{})[r.almacen_id]=Number(r.cantidad||0); });
   const puestosIds = puntos.map(a=>a.id);
-  const bodegas = (almacenes||[]).filter(a=>!esPuntoVenta(a) && !esMayoreo(a)); // MAYOREO va aparte: nunca se mezcla con lo normal
+  const bodegas = (almacenes||[]).filter(a=>!esPuntoVenta(a));
   let reposicionFaltan = 0;
   Object.keys(invPorProdAlm).forEach(pid=>{
     const porAlm = invPorProdAlm[pid];
@@ -9733,7 +8874,7 @@ function analizarNegocio(d){
 
 // ---------- RENDER ----------
 function kpiHTML(label, valor, color, sub){
-  return `<div style="background:var(--panel2); border:1px solid var(--border); border-radius:12px; padding:12px 14px; flex:1">
+  return `<div style="background:var(--panel2); border:1px solid var(--border); border-radius:12px; padding:12px 14px; min-width:130px; flex:1">
     <div style="color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.03em">${label}</div>
     <div style="font-size:22px; font-weight:800; color:${color||'var(--text)'}; margin-top:2px">${valor}</div>
     ${sub?`<div style="color:var(--muted); font-size:12px; margin-top:2px">${sub}</div>`:''}
@@ -9919,7 +9060,7 @@ function analizarReposicion(d){
   const { inventario, productos, almacenes, umbral, puestoId } = d;
   const nombreProd = id => { const p=(productos||[]).find(x=>x.id===id); return p?p.nombre:('#'+id); };
   const U = Number(umbral)||0;
-  const bodegas = (almacenes||[]).filter(a=>!esPuntoVenta(a) && !esMayoreo(a)); // MAYOREO va aparte: nunca se mezcla con lo normal
+  const bodegas = (almacenes||[]).filter(a=>!esPuntoVenta(a));
   let puestos = (almacenes||[]).filter(esPuntoVenta);
   if(puestoId) puestos = puestos.filter(p=>String(p.id)===String(puestoId));
   const invMap = {};
@@ -9949,7 +9090,7 @@ function analizarReposicion(d){
 function sugerirReposicion(d){
   const { ventasPuestoProd, inventario, productos, almacenes, diasHistorial, diasCubrir, puestoId } = d;
   const nombreProd = id => { const p=(productos||[]).find(x=>x.id===id); return p?p.nombre:('#'+id); };
-  const bodegas = (almacenes||[]).filter(a=>!esPuntoVenta(a) && !esMayoreo(a)); // MAYOREO va aparte: nunca se mezcla con lo normal
+  const bodegas = (almacenes||[]).filter(a=>!esPuntoVenta(a));
   let puestos = (almacenes||[]).filter(esPuntoVenta);
   if(puestoId) puestos = puestos.filter(p=>String(p.id)===String(puestoId));
   const invMap = {};
@@ -11201,7 +10342,7 @@ async function cargarAnalisisProductos(){
     if(sugerencias.length){
       let h=`<div class="card"><h2>🏷️ Precios a actualizar (con tu visto bueno)</h2>
         <div style="color:var(--muted);font-size:12px;margin-bottom:8px">El precio del catálogo no coincide con el precio al que los vendedores están vendiendo de verdad. Aprueba uno por uno el que quieras cambiar.</div>
-        <div style="overflow-x:auto"><table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Catálogo</th><th class="numcell">Precio real</th><th class="numcell">Dif.</th><th></th></tr></thead><tbody>`;
+        <div style="overflow-x:auto"><table style="min-width:560px"><thead><tr><th>Producto</th><th class="numcell">Catálogo</th><th class="numcell">Precio real</th><th class="numcell">Dif.</th><th></th></tr></thead><tbody>`;
       h+=sugerencias.map(x=>`<tr>
         <td>${x.nombre}</td>
         <td class="numcell">${fmt(x.precioCat)}</td>
@@ -11244,7 +10385,6 @@ function aplicarRestriccionesDeRol(){
   document.getElementById('tabBtnAnalizador').style.display = esDueno ? 'inline-block' : 'none';
   { const b=document.getElementById('tabBtnAnalisisProd'); if(b) b.style.display = esDueno ? 'inline-block' : 'none'; }
   { const b=document.getElementById('tabBtnMayoreo'); if(b) b.style.display = puedeMayoreoAdmin() ? 'inline-block' : 'none'; }
-  { const b=document.getElementById('tabBtnErrores'); if(b){ b.style.display = esDueno ? 'inline-block' : 'none'; if(esDueno) actualizarBadgeErrores(); } }
   document.getElementById('tabBtnCobrarAdmin').style.display = usuarioActual.rol==='administrador' ? 'inline-block' : 'none';
   const cardComp = document.getElementById('cardComprobarInv');
   if(cardComp) cardComp.style.display = esDueno ? '' : 'none';
@@ -11253,7 +10393,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v139</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v107</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
