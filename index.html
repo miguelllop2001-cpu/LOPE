@@ -11351,7 +11351,7 @@ function aplicarRestriccionesDeRol(){
   document.getElementById('tabBtnEstadisticas').style.display = esDueno ? 'inline-block' : 'none';
   document.getElementById('tabBtnAnalizador').style.display = esDueno ? 'inline-block' : 'none';
   { const b=document.getElementById('tabBtnAnalisisProd'); if(b) b.style.display = esDueno ? 'inline-block' : 'none'; }
-  { const b=document.getElementById('tabBtnArticulo'); if(b) b.style.display = esDueno ? 'inline-block' : 'none'; }
+  { const b=document.getElementById('tabBtnArticulo'); if(b) b.style.display = (esDueno || __usuarioEs('jk')) ? 'inline-block' : 'none'; }
   { const b=document.getElementById('tabBtnMayoreo'); if(b) b.style.display = puedeMayoreoAdmin() ? 'inline-block' : 'none'; }
   { const b=document.getElementById('tabBtnErrores'); if(b){ b.style.display = esDueno ? 'inline-block' : 'none'; if(esDueno) actualizarBadgeErrores(); } }
   document.getElementById('tabBtnCobrarAdmin').style.display = usuarioActual.rol==='administrador' ? 'inline-block' : 'none';
@@ -11362,7 +11362,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v140</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v141</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
