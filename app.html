@@ -372,7 +372,7 @@
       <button data-tab="recepcion" class="solo-dueno" style="display:none">📥 Recepción vs envío</button>
       <button data-tab="compras">🛒 Compras</button>
       <button data-tab="pedidos">📝 Pedidos</button>
-      <button data-tab="ventasvendedor">🧾 Ventas por vendedor</button>
+      <button data-tab="ventasvendedor" id="tabBtnVentasVendedor">🧾 Ventas por vendedor</button>
       <button data-tab="articulo" id="tabBtnArticulo" style="display:none">🔎 Buscar artículo</button>
       <button data-tab="dinero">💵 Dinero</button>
       <button data-tab="deudas">🤝 Deudas</button>
@@ -2209,6 +2209,18 @@ function seleccionarAlmacen(id){
 }
 
 function num(n){ n=Number(n); return n%1===0 ? n.toString() : n.toFixed(2); }
+// Texto seguro para meter DENTRO de un botón: onclick="funcion(123, 'AQUI')".
+// Escapa la comilla simple (que cortaría el texto) y sobre todo la comilla DOBLE, que
+// cerraría el atributo y rompería el botón. Esto pasa con nombres de ferretería que
+// llevan pulgadas: TUBO 1/2" , CODO 3/4" , etc.
+function txtAttr(s){
+  return String(s==null?'':s)
+    .replace(/&/g,'&amp;')
+    .replace(/\\/g,'\\\\')
+    .replace(/'/g,"\\'")
+    .replace(/"/g,'&quot;')
+    .replace(/</g,'&lt;');
+}
 
 // --- Helpers de MAYOREO (definidos TEMPRANO: renderInventario y otros los usan antes) ---
 // ¿Este almacén es el de MAYOREO? (su nombre empieza con "mayoreo")
@@ -3342,6 +3354,16 @@ async function crearProducto(){
   };
 
   function guardarLocalYEncolar(){
+    // Evitar encolar DOS veces el mismo producto (toques repetidos sin internet): si ya existe
+    // local o ya está en la cola con ese nombre, no se agrega otra vez.
+    const nom = nombre.trim().toLowerCase();
+    const yaLocal = (PRODUCTOS||[]).some(x=>((x.nombre||'').trim().toLowerCase())===nom);
+    const colaAdm = lsGet('adm_pending_ops', []);
+    const yaEnCola = colaAdm.some(o=>o.tipo==='crear_producto' && (((o.payload&&o.payload.nombre)||'').trim().toLowerCase())===nom);
+    if(yaLocal || yaEnCola){
+      msgEl.textContent='Ese producto ya está (o ya quedó en cola para crearse). No se duplica.'; msgEl.className='msg';
+      limpiarCampos(); return;
+    }
     const tempId = -Date.now();
     PRODUCTOS.push({id:tempId, nombre, costo, precio_venta});
     lsSet('adm_cache_productos', PRODUCTOS);
@@ -4134,8 +4156,22 @@ async function procesarOperacionAdmin(op, colaCompleta){
   const p = op.payload;
   if(op.tipo === 'crear_producto'){
     const {data, error} = await sb.from('productos').insert({nombre:p.nombre, costo:p.costo, precio_venta:p.precio_venta}).select().single();
-    if(error) throw error;
-    if(p.tempId) reemplazarIdTemporalEnCola(colaCompleta, p.tempId, data.id);
+    if(error){
+      // Si ya existe un producto con ese nombre, NO es un fallo: el objetivo (que exista) ya se
+      // cumplió. Buscamos su id real, arreglamos la cola y damos la operación por HECHA
+      // (así se saca de pendientes y no se queda reintentando para siempre).
+      if(/duplicate|unique|already exists|23505/i.test(error.message||error.code||'')){
+        try{
+          const {data:ya} = await sb.from('productos').select('id').ilike('nombre', p.nombre).limit(1);
+          if(ya && ya[0] && p.tempId) reemplazarIdTemporalEnCola(colaCompleta, p.tempId, ya[0].id);
+        }catch(_){}
+        // no se lanza error: la operación se considera resuelta.
+      } else {
+        throw error;
+      }
+    } else {
+      if(p.tempId) reemplazarIdTemporalEnCola(colaCompleta, p.tempId, data.id);
+    }
 
   } else if(op.tipo === 'renombrar_producto'){
     await sb.from('productos').update({nombre: p.nombre}).eq('id', p.producto_id);
@@ -4561,8 +4597,8 @@ async function cargarDeudas(){
             <option value="efectivo" ${d.metodo==='efectivo'?'selected':''}>Efectivo</option>
             <option value="tarjeta" ${d.metodo==='tarjeta'?'selected':''}>Tarjeta</option>
           </select>
-          <button class="ghost" onclick="marcarDeudaPagada(${d.id}, '${d.tipo}', ${d.monto}, '${(d.persona||'').replace(/'/g,"\\'")}')">${botonTexto}</button>`
-      )}${usuarioActual.rol==='dueno' ? `<button class="ghost" style="padding:4px 8px; font-size:11px; border-color:var(--red); color:var(--red); margin-left:4px" onclick="borrarDeuda(${d.id}, '${(d.persona||'').replace(/'/g,"\\'")}', ${d.monto})">Borrar</button>` : ''}</td>
+          <button class="ghost" onclick="marcarDeudaPagada(${d.id}, '${d.tipo}', ${d.monto}, '${txtAttr(d.persona)}')">${botonTexto}</button>`
+      )}${usuarioActual.rol==='dueno' ? `<button class="ghost" style="padding:4px 8px; font-size:11px; border-color:var(--red); color:var(--red); margin-left:4px" onclick="borrarDeuda(${d.id}, '${txtAttr(d.persona)}', ${d.monto})">Borrar</button>` : ''}</td>
     </tr>`;
   }).join('');
 }
@@ -4625,7 +4661,7 @@ async function cargarCobrosAdmin(){
         <option value="tarjeta">Tarjeta</option>
       </select>
     </td>
-    <td><button class="primary" style="padding:8px 14px; font-size:13px" onclick="cobrarComoAdmin(${d.id}, ${d.monto}, '${(d.persona||'').replace(/'/g,"\\'")}')">Cobrar</button></td>
+    <td><button class="primary" style="padding:8px 14px; font-size:13px" onclick="cobrarComoAdmin(${d.id}, ${d.monto}, '${txtAttr(d.persona)}')">Cobrar</button></td>
   </tr>`).join('');
 }
 
@@ -5367,6 +5403,46 @@ async function confirmarEliminarVenta(id){
 // COMISIONES FALTANTES: detecta ventas cerradas (con ganancia) que quedaron SIN su comisión de
 // vendedor, y permite generarla. Útil cuando una venta se subió pero, por un corte al finalizar
 // o un costo mal puesto, no se creó el pago del trabajador.
+// RED DE SEGURIDAD: la cola de reintentos de comisiones vive en el teléfono de la vendedora.
+// Si ese teléfono se limpia, se reinstala la app o se cambia de celular, una comisión
+// pendiente se perdería sin que nadie se entere. Por eso, al abrir, el dueño/admin revisa
+// solo (contra el servidor) si falta alguna comisión de los últimos 60 días, y avisa.
+async function revisarComisionesAuto(){
+  try{
+    if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
+    if(!usuarioActual || (usuarioActual.rol!=='dueno' && usuarioActual.rol!=='administrador')) return;
+    try{ if(sessionStorage.getItem('com_auto_revisado')) return; }catch(e){}
+    const desde = new Date(Date.now()-60*86400000).toISOString().slice(0,10);
+    const {data: dias} = await sb.from('ventas_dia').select('*').eq('cerrado',true).gte('fecha',desde).limit(3000);
+    if(!dias || !dias.length) return;
+    const items = await traerItemsDe(dias.map(d=>d.id), '*');
+    const porDia={}; (items||[]).forEach(it=>{ (porDia[it.venta_dia_id]=porDia[it.venta_dia_id]||[]).push(it); });
+    const {data: comis} = await sb.from('deudas').select('id, venta_dia_id, clave_comision, nota, persona').eq('tipo','debo');
+    const porVenta=new Set(), porClave=new Set(), porPersonaFecha=new Set();
+    (comis||[]).forEach(c=>{
+      if(c.venta_dia_id!=null && (c.nota||'').includes('Comisión 15%')) porVenta.add(c.venta_dia_id);
+      if(c.clave_comision) porClave.add(c.clave_comision);
+      if((c.nota||'').includes('Comisión 15%')){ const mf=(c.nota||'').match(/venta del (\d{4}-\d{2}-\d{2})/); if(mf) porPersonaFecha.add(((c.persona||'').trim().toLowerCase())+'|'+mf[1]); }
+    });
+    let faltan=0;
+    for(const d of dias){
+      const reales=itemsRealesDeVenta(porDia[d.id]||[], d.total);
+      const g=reales.reduce((s,it)=>s+Number(it.cantidad)*(Number(it.precio_venta)-Number(it.costo)),0);
+      if(g<=0) continue;
+      const alm=(ALMACENES||[]).find(a=>a.id===d.almacen_id);
+      const quien=(d.cobra_comision||(alm?alm.nombre:'')||'').trim().toLowerCase();
+      if(porVenta.has(d.id) || porClave.has('comvta-'+(d.clave_local||d.id)) || porPersonaFecha.has(quien+'|'+d.fecha)) continue;
+      faltan++;
+    }
+    try{ sessionStorage.setItem('com_auto_revisado','1'); }catch(e){}
+    if(faltan>0){
+      const b=document.getElementById('tabBtnVentasVendedor');
+      if(b) b.innerHTML='🧾 Ventas por vendedor <span style="background:var(--red);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:700">'+faltan+'</span>';
+      alert('⚠️ Falta(n) '+faltan+' comisión(es) por generar.\n\nMenú → "Ventas por vendedor" → abajo: "Recuperar comisiones que faltan".');
+    }
+  }catch(e){ /* nunca debe estorbar el arranque */ }
+}
+
 async function revisarComisionesFaltantes(){
   const msgEl = document.getElementById('comFaltMsg');
   const bodyEl = document.getElementById('comFaltBody');
@@ -5780,9 +5856,9 @@ async function cargarUsuarios(){
       <td>${almacen?almacen.nombre:'—'}</td>
       <td>${u.activo?'<span class="badge ingreso">activo</span>':'<span class="badge extraccion">inactivo</span>'}</td>
       <td>
-        <button class="ghost" onclick="cambiarPasswordUsuario(${u.id}, '${u.nombre.replace(/'/g,"\\'")}')">Cambiar contraseña</button>
+        <button class="ghost" onclick="cambiarPasswordUsuario(${u.id}, '${txtAttr(u.nombre)}')">Cambiar contraseña</button>
         ${esYoMismo ? '' : `<button class="ghost" onclick="toggleActivoUsuario(${u.id}, ${!u.activo})">${u.activo?'Desactivar':'Activar'}</button>
-        <button class="ghost" style="color:var(--red)" onclick="eliminarUsuario(${u.id}, '${u.nombre.replace(/'/g,"\\'")}')">Eliminar</button>`}
+        <button class="ghost" style="color:var(--red)" onclick="eliminarUsuario(${u.id}, '${txtAttr(u.nombre)}')">Eliminar</button>`}
       </td>
     </tr>`;
   }).join('');
@@ -5949,6 +6025,18 @@ async function abrirPanelVenta(){
   await cargarHistorialDias();
   await cargarMiInventario();
   await cargarMisPedidos();
+  // Si alcanzó a tocar una pestaña mientras cargaba el puesto, quedó el aviso de "un momento".
+  // Ya hay puesto: la cargamos sola, sin que tenga que volver a tocar.
+  try{
+    const pend=document.getElementById('avisoSinPuesto');
+    if(pend){
+      const cont=pend.closest('.vtab');
+      const id=(cont&&cont.id&&cont.id.indexOf('vtab-')===0) ? cont.id.slice(5) : null;
+      pend.remove();
+      document.querySelectorAll('.vtab').forEach(el=>{ delete el.dataset.avisoPuesto; });
+      if(id) cambiarVTab(id);
+    }
+  }catch(e){}
 }
 function cambiarVTab(tab){
   document.querySelectorAll('.tabs button[data-vtab]').forEach(b=>b.classList.toggle('active', b.dataset.vtab===tab));
@@ -5956,6 +6044,18 @@ function cambiarVTab(tab){
   document.getElementById('vtab-'+tab).style.display='block';
   actualizarBotonVentaHeader(tab);
   cerrarMenu();
+  // El menú aparece ANTES de que termine de cargarse el puesto (se espera a la red y, si
+  // es comodín, a que elija en cuál trabaja). Si tocan una pestaña en esos segundos, el
+  // puesto todavía no existe: no cargamos nada y avisamos, en vez de colgar la app.
+  if(!puestoActual){
+    const av=document.getElementById('vtab-'+tab);
+    if(av && !av.dataset.avisoPuesto){
+      av.insertAdjacentHTML('afterbegin','<div class="msg" id="avisoSinPuesto" style="margin:10px 0">⏳ Un momento: todavía se está cargando tu puesto. Vuelve a tocar esta pestaña en unos segundos.</div>');
+      av.dataset.avisoPuesto='1';
+    }
+    return;
+  }
+  { const a=document.getElementById('avisoSinPuesto'); if(a) a.remove(); }
   if(tab==='inventario'){ cargarMiInventario(); }
   if(tab==='pedir'){ cargarMisPedidos(); cargarSugerenciasPedido(); }
   if(tab==='recepcion'){ cargarRecepcionesHoy(); }
@@ -6466,6 +6566,7 @@ function seleccionarProductoVenta(p){
 
 // ---------- CARRITO ----------
 function agregarAlCarrito(){
+  if(!puestoActual){ alert('Espera unos segundos: todavía se está cargando tu puesto.'); return; }
   const msgEl = document.getElementById('ventaMsg');
   const productoId = Number(acHidden.value);
   const cantidad = Number(document.getElementById('ventaCantidad').value);
@@ -6503,6 +6604,7 @@ function quitarDelCarrito(index){
 }
 
 function renderCarrito(){
+  if(!puestoActual) return; // aún no se ha cargado el puesto: no hacemos nada (evita el cuelgue)
   const body = document.getElementById('carritoBody');
   const empty = document.getElementById('carritoEmpty');
   if(puestoActual) lsSet('vt_carrito_'+puestoActual.id+'_'+usuarioActual.id, carrito); // respaldo local siempre, online u offline
@@ -6599,6 +6701,7 @@ function actualizarBotonVentaHeader(tab){
 // la pantalla para el siguiente cliente. No toca la base de datos — eso sigue pasando
 // solo con "Finalizar el día". Es solo para saber claramente cuánto cobrarle a cada persona.
 function finalizarVenta(){
+  if(!puestoActual){ alert('Espera unos segundos: todavía se está cargando tu puesto.'); return; }
   const totalVentaActual = carrito.slice(ventaActualInicio).reduce((s,it)=> s + it.cantidad*it.precio_venta, 0);
   if(totalVentaActual <= 0){ alert('Todavía no hay artículos en la venta actual.'); return; }
   ventaActualInicio = carrito.length;
@@ -6631,6 +6734,7 @@ async function guardarItemsEnDB(){
 let ultimoInventarioData = [];
 
 async function cargarMiInventario(){
+  if(!puestoActual) return; // aún no se ha cargado el puesto: no hacemos nada (evita el cuelgue)
   const cacheKey = 'vt_cache_inventario_'+puestoActual.id;
 
   let data = null;
@@ -6709,6 +6813,7 @@ document.addEventListener('click', e=>{ if(!e.target.closest('#pedidoProductoTex
 // artículo según qué tan rápido se vende en ESTE puesto. Así un artículo grande que casi
 // no se mueve no sale como urgente solo porque hay pocas unidades.
 async function cargarSugerenciasPedido(){
+  if(!puestoActual) return; // aún no se ha cargado el puesto: no hacemos nada (evita el cuelgue)
   const cont = document.getElementById('sugerenciasBody');
   const empty = document.getElementById('sugerenciasEmpty');
 
@@ -6776,7 +6881,7 @@ async function cargarSugerenciasPedido(){
           <td class="numcell">${s.promedioDiario.toFixed(1)}</td>
           <td class="numcell" style="color:${color}; font-weight:600">${s.diasRestantes===Infinity?'—':s.diasRestantes.toFixed(1)}</td>
           <td class="numcell"><input type="number" class="editPrice" id="sug-cant-${s.producto.id}" value="${s.sugerido}" min="0" step="any"></td>
-          <td><button class="primary" style="padding:7px 12px; font-size:13px" onclick="pedirDesdeSugerencia(${s.producto.id}, '${s.producto.nombre.replace(/'/g,"\\'")}')">Pedir</button></td>
+          <td><button class="primary" style="padding:7px 12px; font-size:13px" onclick="pedirDesdeSugerencia(${s.producto.id}, '${txtAttr(s.producto.nombre)}')">Pedir</button></td>
         </tr>`;
       }).join('')}</tbody>
     </table>`;
@@ -6822,6 +6927,7 @@ async function insertarPedido(productoId, cantidad, nota){
 }
 
 async function crearPedido(){
+  if(!puestoActual){ alert('Espera unos segundos: todavía se está cargando tu puesto.'); return; }
   const msgEl = document.getElementById('pedidoMsg');
   const productoId = Number(pedAcHidden.value);
   const cantidad = Number(document.getElementById('pedidoCantidad').value);
@@ -6839,6 +6945,7 @@ async function crearPedido(){
 }
 
 async function cargarMisPedidos(){
+  if(!puestoActual) return; // aún no se ha cargado el puesto: no hacemos nada (evita el cuelgue)
   const body = document.getElementById('misPedidosBody');
   if(!navigator.onLine){
     const pendientesLocal = lsGet('vt_pending_pedidos', []).filter(p=>p.almacen_id===puestoActual.id);
@@ -6871,6 +6978,7 @@ async function cargarMisPedidos(){
 let cobrosEnCarrito = []; // [{deudaId, monto}] — pendientes de aplicar, se procesan al Finalizar el día
 
 async function cargarCobros(){
+  if(!puestoActual) return; // aún no se ha cargado el puesto: no hacemos nada (evita el cuelgue)
   const body = document.getElementById('cobrarBody');
   const empty = document.getElementById('cobrarEmpty');
   const msgEl = document.getElementById('cobrarMsg');
@@ -6974,6 +7082,7 @@ function devPrecioPorDefecto(){
 }
 
 async function cargarDevolucionesDeHoy(){
+  if(!puestoActual) return; // aún no se ha cargado el puesto: no hacemos nada (evita el cuelgue)
   const body = document.getElementById('devHoyBody');
   const empty = document.getElementById('devHoyEmpty');
   const pendientes = lsGet('vt_pending_devoluciones', []).filter(d=>d.almacen_id===puestoActual.id);
@@ -6993,6 +7102,7 @@ async function cargarDevolucionesDeHoy(){
 }
 
 async function procesarDevolucion(){
+  if(!puestoActual){ alert('Espera unos segundos: todavía se está cargando tu puesto.'); return; }
   const msgEl = document.getElementById('devMsg');
   const productoId = Number(document.getElementById('devProducto').value);
   const cantidad = Number(document.getElementById('devCantidad').value);
@@ -7167,6 +7277,7 @@ async function sincronizarDevolucionesPendientes(){
 
 // ---------- MERCANCÍA RECIBIDA (rastro de lo que entra al puesto del vendedor) ----------
 async function cargarMercanciaRecibida(){
+  if(!puestoActual) return; // aún no se ha cargado el puesto: no hacemos nada (evita el cuelgue)
   const body = document.getElementById('recibidoBody');
   const empty = document.getElementById('recibidoEmpty');
   const cacheKey = 'vt_cache_recibido_' + puestoActual.id;
@@ -7302,6 +7413,7 @@ function tarjetaPendiente(titulo, sub, extra, articulos, errorTxt, faltantes, in
 }
 
 async function finalizarDia(){
+  if(!puestoActual){ alert('Espera unos segundos: todavía se está cargando tu puesto.'); return; }
   // Lógica: si el cierre ya está corriendo, el segundo toque no hace nada. Sin esto,
   // dos toques rápidos duplicaban el registro de caja y la comisión.
   if(finalizandoDia) return;
@@ -7690,14 +7802,22 @@ async function finalizarDiaInterno(){
           clave_comision: claveComVta,
           venta_dia_id: ventaDiaAbiertaId   // vínculo con la venta, para poder soltarla si se borra
         };
-        let rCom = await sb.from('deudas').insert(filaCom);
-        if(rCom.error && ((rCom.error.message||'').includes('clave_comision') || (rCom.error.message||'').includes('column'))){
-          delete filaCom.clave_comision;
-          rCom = await sb.from('deudas').insert(filaCom);
-        }
-        if(rCom.error){
-          console.error('COMISIÓN NO CREADA al cerrar:', rCom.error.message, filaCom);
-          try{ const log=lsGet('com_fallidas',[]); log.push({fila:{tipo:'debo',persona:quienCobra,monto:comision,nota:filaCom.nota,clave_comision:claveComVta,venta_dia_id:ventaDiaAbiertaId}, fecha, persona:quienCobra, monto:comision, venta_dia_id:ventaDiaAbiertaId, error:rCom.error.message, ts:Date.now()}); lsSet('com_fallidas',log); }catch(e){}
+        // OJO: el día YA quedó cerrado más arriba. Si aquí se cae la conexión, antes la
+        // excepción se escapaba y la comisión se perdía EN SILENCIO (no se creaba ni se
+        // encolaba). Ahora cualquier fallo — error del servidor O corte de internet —
+        // cae en el mismo sitio y la comisión queda en la cola para crearse sola.
+        try{
+          let rCom = await sb.from('deudas').insert(filaCom);
+          if(rCom.error && ((rCom.error.message||'').includes('clave_comision') || (rCom.error.message||'').includes('column'))){
+            delete filaCom.clave_comision;
+            rCom = await sb.from('deudas').insert(filaCom);
+          }
+          if(rCom.error) throw new Error(rCom.error.message||'error al crear la comisión');
+        }catch(eCom){
+          const motivo=(eCom&&eCom.message)||String(eCom);
+          console.error('COMISIÓN NO CREADA al cerrar:', motivo, filaCom);
+          try{ const log=lsGet('com_fallidas',[]); log.push({fila:{tipo:'debo',persona:quienCobra,monto:comision,nota:filaCom.nota,clave_comision:claveComVta,venta_dia_id:ventaDiaAbiertaId}, fecha, persona:quienCobra, monto:comision, venta_dia_id:ventaDiaAbiertaId, error:motivo, ts:Date.now()}); lsSet('com_fallidas',log); }catch(e){}
+          try{ registrarError('comision/cierre','No se pudo crear la comisión al cerrar el día (quedó en cola para reintentar)',motivo); }catch(e){}
         }
       }
     }
@@ -8135,14 +8255,20 @@ async function sincronizarUnDia(dia){
     }catch(e){ /* la columna aún no existe */ }
     if(!comisionYaExiste){
       const filaCom = {tipo:'debo', persona:(dia.cobra_comision || dia.almacen_nombre), monto:comision, nota:`Comisión 15% de ganancia ($${gananciaNeta.toFixed(2)})${gananciaDevuelta>0?` (ya restada ganancia devuelta $${gananciaDevuelta.toFixed(2)})`:''} - venta del ${dia.fecha}${dia.es_comodin?` (${dia.almacen_nombre})`:''} (sincronizada sin conexión)`, clave_comision: claveComVta, venta_dia_id: nuevo.id};
+      // Mismo blindaje que en el cierre normal: si se corta el internet justo aquí, la
+      // comisión NO se pierde — queda en la cola y se crea sola al volver la conexión.
+      try{
       let rCom = await sb.from('deudas').insert(filaCom);
       if(rCom.error && ((rCom.error.message||'').includes('clave_comision') || (rCom.error.message||'').includes('column'))){
         delete filaCom.clave_comision;
         rCom = await sb.from('deudas').insert(filaCom);
       }
-      if(rCom.error){
-        console.error('COMISIÓN NO CREADA al sincronizar:', rCom.error.message, filaCom);
-        try{ const log=lsGet('com_fallidas',[]); log.push({fila:{tipo:'debo',persona:(dia.cobra_comision||dia.almacen_nombre),monto:comision,nota:filaCom.nota,clave_comision:claveComVta,venta_dia_id:nuevo.id}, fecha:dia.fecha, persona:(dia.cobra_comision||dia.almacen_nombre), monto:comision, venta_dia_id:nuevo.id, error:rCom.error.message, ts:Date.now()}); lsSet('com_fallidas',log); }catch(e){}
+      if(rCom.error) throw new Error(rCom.error.message||'error al crear la comisión');
+      }catch(eCom){
+        const motivo=(eCom&&eCom.message)||String(eCom);
+        console.error('COMISIÓN NO CREADA al sincronizar:', motivo, filaCom);
+        try{ const log=lsGet('com_fallidas',[]); log.push({fila:{tipo:'debo',persona:(dia.cobra_comision||dia.almacen_nombre),monto:comision,nota:filaCom.nota,clave_comision:claveComVta,venta_dia_id:nuevo.id}, fecha:dia.fecha, persona:(dia.cobra_comision||dia.almacen_nombre), monto:comision, venta_dia_id:nuevo.id, error:motivo, ts:Date.now()}); lsSet('com_fallidas',log); }catch(e){}
+        try{ registrarError('comision/sincronizar','No se pudo crear la comisión al subir la venta (quedó en cola para reintentar)',motivo); }catch(e){}
       }
     }
   }
@@ -8180,6 +8306,7 @@ function toggleHistorialDias(){
 }
 
 async function cargarHistorialDias(){
+  if(!puestoActual) return; // aún no se ha cargado el puesto: no hacemos nada (evita el cuelgue)
   const cont = document.getElementById('historialDias');
   const empty = document.getElementById('historialEmpty');
   if(!navigator.onLine){
@@ -8479,6 +8606,7 @@ async function entrarComo(usuario){
     aplicarRestriccionesDeRol();
     actualizarConexionAdminUI();
     cargarTodo();
+    revisarComisionesAuto();   // avisa si quedó alguna comisión sin generar
   }
 }
 
@@ -8648,7 +8776,7 @@ function renderPreciosMayoreo(){
     <td class="numcell"><input type="number" id="maypv-${p.id}" value="${Number(p.precio_mayoreo)>0?Number(p.precio_mayoreo):''}" placeholder="0" inputmode="decimal" style="width:85px; text-align:right"></td>
     <td class="numcell"><input type="number" id="maymin-${p.id}" value="${Number(p.min_mayoreo)>1?Number(p.min_mayoreo):''}" placeholder="1" inputmode="numeric" style="width:60px; text-align:right"></td>
     <td class="numcell"><input type="number" id="maymul-${p.id}" value="${Number(p.multiplo_mayoreo)>1?Number(p.multiplo_mayoreo):''}" placeholder="1" inputmode="numeric" style="width:60px; text-align:right"></td>
-    <td><button class="ghost" onclick="guardarPrecioMayoreo(${p.id})">✓</button></td>
+    <td><button class="ghost" id="maybtn-${p.id}" onclick="guardarPrecioMayoreo(${p.id})">✓</button></td>
     <td><button class="ghost" onclick="abrirFotosMayoreo(${p.id})">📷 Fotos</button> <button class="ghost" onclick="abrirSpecsMayoreo(${p.id})">📋 Especif.</button></td>
   </tr>`).join('')}
   </tbody></table>
@@ -8692,7 +8820,9 @@ async function guardarPrecioMayoreo(pid){
     if(!data||!data.length){ alert('El servidor no aplicó el cambio (permisos).'); return; }
     const p=(PRODUCTOS||[]).find(x=>x.id===pid); if(p){ p.precio_mayoreo=pv; p.costo_mayoreo=co; p.nombre_web=nw||null; p.min_mayoreo=mn; p.multiplo_mayoreo=ml; }
     lsSet('adm_cache_productos', PRODUCTOS);
-    const btn=event&&event.target; if(btn){ const t=btn.textContent; btn.textContent='✓'; btn.style.color='var(--green)'; setTimeout(()=>{btn.textContent=t; btn.style.color='';},1200); }
+    // Buscamos el botón por su id (antes se usaba el "event" global, que queda vacío
+    // después de esperar al servidor, y por eso la palomita verde nunca se veía).
+    const btn=document.getElementById('maybtn-'+pid); if(btn){ const t=btn.textContent; btn.textContent='✓'; btn.style.color='var(--green)'; setTimeout(()=>{btn.textContent=t; btn.style.color='';},1200); }
   }catch(e){ alert('No se pudo: '+(e.message||e)); registrarError('mayoreo/productos','No se pudo guardar precio/caja',(e&&e.message)||String(e)); }
 }
 
@@ -10314,6 +10444,7 @@ if(recepAcInput){
 
 // El vendedor agrega un artículo recibido. Online: lo inserta; offline: lo encola.
 async function agregarRecepcion(){
+  if(!puestoActual){ alert('Espera unos segundos: todavía se está cargando tu puesto.'); return; }
   const msg = document.getElementById('recepMsg');
   const pid = Number(document.getElementById('recepProductoId').value)||0;
   const cant = Number(document.getElementById('recepCantidad').value)||0;
@@ -10369,6 +10500,7 @@ function borrarRecepcionPendiente(idx){
 
 // Muestra lo que el vendedor lleva anotado HOY en su puesto (subido + pendiente).
 async function cargarRecepcionesHoy(){
+  if(!puestoActual) return; // aún no se ha cargado el puesto: no hacemos nada (evita el cuelgue)
   const body = document.getElementById('recepBody');
   const hoy = fechaHoyLocal();
   const nombreProd = id => { const p=PRODUCTOS.find(x=>x.id===id); return p?p.nombre:('#'+id); };
@@ -11359,6 +11491,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v141</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v145</div>
 </body>
 </html>
