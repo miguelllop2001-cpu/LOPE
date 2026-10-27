@@ -5976,7 +5976,7 @@ function descartarPendienteAtascado(){
   else { pedidos.shift(); lsSet('vt_pending_pedidos', pedidos); }
   actualizarConexionUI();
 }
-window.addEventListener('online', ()=>{ actualizarConexionUI(); sincronizarPendientes(); actualizarConexionAdminUI(); sincronizarPendientesAdmin(); sincronizarRecepciones(); reintentarComisiones(); subirVentasMayoreo(); subirMovsMayoreo(); });
+window.addEventListener('online', ()=>{ actualizarConexionUI(); sincronizarPendientes(); actualizarConexionAdminUI(); sincronizarPendientesAdmin(); sincronizarRecepciones(); reintentarComisiones(); reintentarCobros(); subirVentasMayoreo(); subirMovsMayoreo(); });
 window.addEventListener('offline', actualizarConexionUI);
 
 async function cargarCatalogoVentas(){
@@ -6997,15 +6997,24 @@ async function cargarCobros(){
     // ¿Qué comisiones ve para cobrar?
     // - Comodín: las que están a nombre de ELLA (las ganó en cualquier puesto).
     // - Vendedora con puesto fijo: las que están a nombre de su puesto.
-    const nombreCobro = esComodin() ? usuarioActual.nombre : puestoActual.nombre;
+    // Antes se buscaba con el nombre EXACTO de una sola forma, y por eso a veces no le salía
+    // nada: la comisión podía estar guardada a nombre del PUESTO y ella ser comodín (o al
+    // revés), o diferir en mayúsculas/acentos/espacios. Ahora aceptamos su nombre Y el de su
+    // puesto, comparando sin distinguir mayúsculas, acentos ni espacios de más.
+    const normNom = s => (s==null?'':String(s)).normalize('NFD').replace(/[̀-ͯ]/g,'').trim().toLowerCase();
+    const misNombres = new Set([
+      (usuarioActual && usuarioActual.nombre) || '',
+      (puestoActual && puestoActual.nombre) || ''
+    ].map(normNom).filter(Boolean));
     const {data, error} = await sb.from('deudas').select('*')
-      .eq('tipo','debo').eq('persona', nombreCobro).eq('pagada', false)
-      .order('creado_en', {ascending:true});
+      .eq('tipo','debo').eq('pagada', false)
+      .order('creado_en', {ascending:true}).limit(3000);
     if(error) throw error;
+    const mias = (data || []).filter(d => misNombres.has(normNom(d.persona)));
 
     // No mostramos en la lista los que ya agregamos a la venta de hoy (para no agregarlos dos veces)
     const idsYaEnCarrito = new Set(cobrosEnCarrito.map(c=>c.deudaId));
-    const lista = (data || []).filter(d => !idsYaEnCarrito.has(d.id));
+    const lista = mias.filter(d => !idsYaEnCarrito.has(d.id));
     const totalPendiente = lista.reduce((s,d)=> s + Number(d.monto), 0);
     document.getElementById('cobrarTotalPendiente').textContent = num(totalPendiente);
 
@@ -7015,7 +7024,7 @@ async function cargarCobros(){
     body.innerHTML = lista.map(d => `<tr>
       <td>${new Date(d.creado_en).toLocaleDateString()}</td>
       <td class="numcell">$${num(d.monto)}</td>
-      <td><button class="primary" style="padding:8px 14px; font-size:13px" onclick="agregarCobroAlCarrito(${d.id}, ${d.monto})">Agregar</button></td>
+      <td><button class="primary" style="padding:8px 14px; font-size:13px" data-cobro="${d.id}" onclick="agregarCobroAlCarrito(${d.id}, ${d.monto})">Agregar</button></td>
     </tr>`).join('');
   }catch(err){
     console.error(err);
@@ -7023,11 +7032,15 @@ async function cargarCobros(){
   }
 }
 
-function agregarCobroAlCarrito(id, monto){
+async function agregarCobroAlCarrito(id, monto){
+  if(cobrosEnCarrito.some(c=>c.deudaId===id)) return; // ya estaba agregado: no se duplica
   cobrosEnCarrito.push({deudaId:id, monto:Number(monto)});
+  // Lo sacamos de la lista AL INSTANTE (sin esperar al servidor), para que vea enseguida
+  // que se movió al carrito y no lo toque dos veces creyendo que no funcionó.
+  try{ const b=document.querySelector('#cobrarBody button[data-cobro="'+id+'"]'); const fila=b&&b.closest('tr'); if(fila) fila.remove(); }catch(e){}
   renderCarrito();
-  cargarCobros(); // refresca la lista para que ya no aparezca ahí
   cambiarVTab('vender'); // lo lleva a ver la línea que se acaba de agregar
+  try{ await cargarCobros(); }catch(e){}  // y después se refresca la lista de verdad
 }
 
 function quitarCobroDelCarrito(index){
@@ -7824,15 +7837,25 @@ async function finalizarDiaInterno(){
         }
       }
     }
+    // Protegido: si esto falla, NO puede impedir que los cobros se marquen como pagados.
     for(const d of devsHoy){
-      await sb.from('devoluciones').update({aplicada:true}).eq('id', d.id);
+      try{ await sb.from('devoluciones').update({aplicada:true}).eq('id', d.id); }catch(e){ /* no crítico */ }
     }
 
     // Marcar como pagados los cobros que venían en el carrito (ya están descontados arriba, en el
     // efectivo/tarjeta netos — por eso aquí NO se crea un egreso aparte, sería restarlo dos veces).
     // Se vinculan a este día para que aparezcan también en el historial.
+    // Si se cae la conexión aquí, antes el cobro quedaba SIN marcar y le seguía apareciendo
+    // para cobrar otra vez. Ahora queda en cola y se marca solo al volver el internet.
     for(const c of cobrosAProcesar){
-      await sb.from('deudas').update({pagada:true, pagada_en:new Date().toISOString(), venta_dia_id: ventaDiaAbiertaId}).eq('id', c.deudaId);
+      try{
+        const rPag = await sb.from('deudas').update({pagada:true, pagada_en:new Date().toISOString(), venta_dia_id: ventaDiaAbiertaId}).eq('id', c.deudaId);
+        if(rPag && rPag.error) throw new Error(rPag.error.message||'no se pudo marcar el cobro');
+      }catch(eCob){
+        const motivo=(eCob&&eCob.message)||String(eCob);
+        try{ const q=lsGet('cobros_fallidos',[]); q.push({deudaId:c.deudaId, monto:c.monto, venta_dia_id:ventaDiaAbiertaId, ts:Date.now()}); lsSet('cobros_fallidos',q); }catch(e){}
+        try{ registrarError('cobro/cierre','No se pudo marcar el cobro como pagado (quedó en cola para reintentar)',motivo); }catch(e){}
+      }
     }
 
     // CONFIRMACIÓN VISUAL: pantalla completa verde con palomita que se quita sola
@@ -7985,6 +8008,23 @@ let sincronizando = false;
 
 // Reintenta SOLO las comisiones que fallaron al subir (cola com_fallidas).
 // Corre sola al reconectar y cada 30s → la comisión nunca se pierde, sin buscar faltantes a mano.
+// Reintenta marcar como PAGADOS los cobros que no se pudieron marcar al cerrar el día.
+// Sin esto, el cobro le vuelve a aparecer al trabajador como si no lo hubiera cobrado.
+async function reintentarCobros(){
+  if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
+  let cola=lsGet('cobros_fallidos',[]);
+  if(!cola.length) return;
+  const quedan=[];
+  for(const c of cola){
+    try{
+      const r=await sb.from('deudas').update({pagada:true, pagada_en:new Date().toISOString(), venta_dia_id:(c.venta_dia_id||null)}).eq('id', c.deudaId);
+      if(r && r.error) throw new Error(r.error.message);
+    }catch(e){ quedan.push(c); }   // sigue sin conexión → se queda para el próximo intento
+  }
+  lsSet('cobros_fallidos', quedan);
+  if(cola.length!==quedan.length){ try{ cargarCobros(); }catch(e){} }
+}
+
 async function reintentarComisiones(){
   if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
   let cola=lsGet('com_fallidas',[]);
@@ -8290,6 +8330,8 @@ async function sincronizarUnDia(dia){
 
 setInterval(sincronizarPendientes, 30000);
 setInterval(reintentarComisiones, 30000);
+setInterval(reintentarCobros, 30000);
+reintentarCobros();
 reintentarComisiones();
 setInterval(subirVentasMayoreo, 30000);
 subirVentasMayoreo();
@@ -11494,7 +11536,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v145</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v146</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
