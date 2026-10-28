@@ -5470,42 +5470,62 @@ async function datosConciliacion(desde, hasta){
   const items = await traerItemsDe(dias.map(d=>d.id), '*');
   const porDia={}; (items||[]).forEach(it=>{ (porDia[it.venta_dia_id]=porDia[it.venta_dia_id]||[]).push(it); });
 
-  // Entradas de caja. Las nuevas traen venta_dia_id; las viejas se reconocen por el
-  // concepto "Venta <puesto> - <fecha>".
+  // Se compara POR PUESTO Y DÍA, no venta por venta. Motivo: las entradas de caja viejas solo
+  // dicen "Venta <puesto> - <fecha>", sin decir a cuál venta pertenecen. Si un puesto cerró dos
+  // ventas el mismo día, repartirlas una por una es adivinar: a una le sobra dinero y a la otra
+  // le falta, y aparecían "ventas sin entrada de caja" que en realidad sí tenían su dinero.
+  const diaPorId={}; dias.forEach(d=>{ diaPorId[d.id]=d; });
+  const grupos={};
+  const grupo=(almacen_id, fecha)=>{
+    const k=almacen_id+'|'+fecha;
+    if(!grupos[k]) grupos[k]={almacen_id, fecha, venta:0, entro:0, cobrado:0, nVentas:0};
+    return grupos[k];
+  };
+  // 1) lo vendido
+  dias.forEach(d=>{
+    const g=grupo(d.almacen_id, d.fecha||'');
+    g.venta += totalRealDeVenta(d, porDia[d.id]||[]);
+    g.nVentas++;
+  });
+
+  // 2) lo que entró a caja (solo se suma a días que SÍ tienen venta en el rango)
   const caja=[]; { let d0=0; for(;;){ const r=await sb.from('caja_movimientos').select('*')
       .eq('tipo','ingreso').order('id',{ascending:true}).range(d0,d0+999);
     if(r.error) throw r.error; caja.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d0+=1000; } }
-  const cajaPorVenta={}, cajaPorPuestoFecha={};
   for(const m of caja){
     if(m.categoria!=='venta') continue;
     const monto=Number(m.monto||0);
-    if(m.venta_dia_id!=null){ cajaPorVenta[m.venta_dia_id]=(cajaPorVenta[m.venta_dia_id]||0)+monto; continue; }
-    const mm=(m.concepto||'').match(/^Venta\s+(.*?)\s+-\s+(\d{4}-\d{2}-\d{2})$/);
-    if(mm){ const k=(m.almacen_id!=null?m.almacen_id:mm[1])+'|'+mm[2]; cajaPorPuestoFecha[k]=(cajaPorPuestoFecha[k]||0)+monto; }
+    let almId=null, fec=null;
+    if(m.venta_dia_id!=null && diaPorId[m.venta_dia_id]){           // entradas nuevas: vínculo exacto
+      almId=diaPorId[m.venta_dia_id].almacen_id; fec=diaPorId[m.venta_dia_id].fecha||'';
+    } else {                                                         // entradas viejas: por el concepto
+      const mm=(m.concepto||'').match(/^Venta\s+(.*?)\s+-\s+(\d{4}-\d{2}-\d{2})$/);
+      if(!mm) continue;
+      fec=mm[2];
+      almId=(m.almacen_id!=null)?m.almacen_id:(((ALMACENES||[]).find(a=>(a.nombre||'').trim()===mm[1].trim())||{}).id);
+    }
+    if(almId==null||!fec) continue;
+    const k=almId+'|'+fec;
+    if(grupos[k]) grupos[k].entro += monto;   // si ese día no tiene venta en el rango, se ignora
   }
 
-  // Comisiones COBRADAS dentro de una venta (al marcarlas pagadas se les pone el venta_dia_id
-  // de la venta donde se cobraron).
+  // 3) comisiones cobradas dentro de esas ventas
   const {data: deu} = await sb.from('deudas').select('id, venta_dia_id, pagada, monto, nota, persona').eq('tipo','debo');
-  const cobradoEnVenta={};
   for(const c of (deu||[])){
     if(!c.pagada || c.venta_dia_id==null) continue;
     if(!(c.nota||'').includes('Comisi')) continue;
-    cobradoEnVenta[c.venta_dia_id]=(cobradoEnVenta[c.venta_dia_id]||0)+Number(c.monto||0);
+    const d=diaPorId[c.venta_dia_id]; if(!d) continue;
+    const k=d.almacen_id+'|'+(d.fecha||'');
+    if(grupos[k]) grupos[k].cobrado += Number(c.monto||0);
   }
 
-  const usados={};
-  const filas = dias.map(d=>{
-    const venta=totalRealDeVenta(d, porDia[d.id]||[]);
-    const alm=(ALMACENES||[]).find(a=>a.id===d.almacen_id);
-    const puesto=alm?alm.nombre:('#'+d.almacen_id);
-    let entro = cajaPorVenta[d.id];
-    if(entro==null){ const k=d.almacen_id+'|'+d.fecha; if(!usados[k]){ entro=cajaPorPuestoFecha[k]||0; usados[k]=true; } else entro=0; }
-    const cobrado = cobradoEnVenta[d.id]||0;
-    const dif = Math.round((venta-Number(entro||0))*100)/100;
-    const sinExplicar = Math.round((dif-cobrado)*100)/100;
-    return {id:d.id, fecha:d.fecha||'', puesto, venta, entro:Number(entro||0), cobrado, dif, sinExplicar,
-            sinCaja: (Number(entro||0)===0 && venta>0)};
+  const filas=Object.values(grupos).map(g=>{
+    const alm=(ALMACENES||[]).find(a=>a.id===g.almacen_id);
+    const dif=Math.round((g.venta-g.entro)*100)/100;
+    const sinExplicar=Math.round((dif-g.cobrado)*100)/100;
+    return {fecha:g.fecha, puesto: alm?alm.nombre:('#'+g.almacen_id), nVentas:g.nVentas,
+            venta:g.venta, entro:g.entro, cobrado:g.cobrado, dif, sinExplicar,
+            sinCaja: (g.entro===0 && g.venta>0)};
   });
   filas.sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||'') || a.puesto.localeCompare(b.puesto));
   return {filas};
@@ -5538,13 +5558,14 @@ async function cargarConciliacionCaja(){
       +'</div>';
     const orden=[...filas].sort((a,b)=> (b.sinCaja?1:0)-(a.sinCaja?1:0) || Math.abs(b.sinExplicar)-Math.abs(a.sinExplicar));
     body.innerHTML='<div class="card"><div style="overflow-x:auto"><table style="min-width:700px">'
-      +'<thead><tr><th>Fecha</th><th>Puesto</th><th class="numcell">Vendió</th><th class="numcell">Entró a caja</th><th class="numcell">Diferencia</th><th class="numcell">Comisión cobrada</th><th class="numcell">Sin explicar</th><th>Estado</th></tr></thead><tbody>'
+      +'<thead><tr><th>Fecha</th><th>Puesto</th><th class="numcell">Ventas</th><th class="numcell">Vendió</th><th class="numcell">Entró a caja</th><th class="numcell">Diferencia</th><th class="numcell">Comisión cobrada</th><th class="numcell">Sin explicar</th><th>Estado</th></tr></thead><tbody>'
       +orden.map(function(f){
         const estado = f.sinCaja ? '<span style="color:var(--red);font-weight:700">⚠ Sin entrada de caja</span>'
                       : (Math.abs(f.sinExplicar)<=1 ? '<span style="color:var(--green)">✓ Cuadra</span>'
                       : '<span style="color:var(--amber)">Revisar</span>');
         return '<tr'+(f.sinCaja?' style="background:rgba(220,53,69,0.10)"':'')+'>'
           +'<td>'+f.fecha+'</td><td>'+String(f.puesto||'').replace(/</g,'&lt;')+'</td>'
+          +'<td class="numcell">'+f.nVentas+'</td>'
           +'<td class="numcell">$'+num(f.venta)+'</td><td class="numcell">$'+num(f.entro)+'</td>'
           +'<td class="numcell">$'+num(f.dif)+'</td><td class="numcell">$'+num(f.cobrado)+'</td>'
           +'<td class="numcell">'+(Math.abs(f.sinExplicar)>1?'<b style="color:var(--red)">$'+num(f.sinExplicar)+'</b>':'—')+'</td>'
@@ -11833,6 +11854,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v148</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v149</div>
 </body>
 </html>
