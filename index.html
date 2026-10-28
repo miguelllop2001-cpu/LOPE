@@ -377,6 +377,7 @@
       <button data-tab="pedidos">📝 Pedidos</button>
       <button data-tab="ventasvendedor" id="tabBtnVentasVendedor">🧾 Ventas por vendedor</button>
       <button data-tab="articulo" id="tabBtnArticulo" style="display:none">🔎 Buscar artículo</button>
+      <button data-tab="conciliacion" id="tabBtnConciliacion" style="display:none">⚖️ Conciliación</button>
       <button data-tab="dinero">💵 Dinero</button>
       <button data-tab="deudas">🤝 Deudas</button>
       <button data-tab="comisionadmin" class="solo-dueno" style="display:none">📊 Cobro Admin</button>
@@ -953,6 +954,23 @@
     </div>
   </div>
 
+  <div id="tab-conciliacion" class="tab" style="display:none">
+    <div class="card">
+      <h2>⚖️ Conciliación de caja</h2>
+      <p style="color:var(--muted); font-size:13px; margin:0 0 14px">Compara, día por día y puesto por puesto, lo que se VENDIÓ contra lo que ENTRÓ a caja, y te dice si la diferencia está explicada por las comisiones que cobró el trabajador o si falta dinero por registrar.</p>
+      <div class="row">
+        <div class="field"><label>Desde</label><input type="date" id="concDesde"></div>
+        <div class="field"><label>Hasta</label><input type="date" id="concHasta"></div>
+        <div class="field" style="display:flex; align-items:flex-end">
+          <button class="primary" style="width:100%" onclick="cargarConciliacionCaja()">⚖️ Revisar</button>
+        </div>
+      </div>
+      <div id="concMsg" class="msg"></div>
+    </div>
+    <div id="concResumen"></div>
+    <div id="concBody"></div>
+  </div>
+
   <div id="tab-articulo" class="tab" style="display:none">
     <div class="card">
       <h2>🔎 Buscar artículo</h2>
@@ -1527,6 +1545,7 @@ document.querySelectorAll('.tabs button').forEach(btn=>{
     if(btn.dataset.tab==='compras') prepararCompras();
     if(btn.dataset.tab==='ventasvendedor') prepararVentasPorVendedor();
     if(btn.dataset.tab==='articulo') prepararBuscarArticulo();
+    if(btn.dataset.tab==='conciliacion') prepararConciliacion();
     if(btn.dataset.tab==='analizador' && usuarioActual.rol==='dueno') cargarAnalizador();
     if(btn.dataset.tab==='analisisprod' && usuarioActual.rol==='dueno') cargarAnalisisProductos();
     if(btn.dataset.tab==='mayoreo') cargarMayoreo();
@@ -4535,6 +4554,19 @@ async function crearDeuda(){
   await cargarDeudas();
 }
 
+// Muestra CUÁNDO se pagó una deuda y CON QUÉ VENTA se cobró. El dato ya se guardaba
+// (pagada_en y venta_dia_id), pero no se veía en pantalla: por eso parecía que los pagos
+// de comisiones no dejaban ningún rastro.
+function trazaDePago(d){
+  const partes=[];
+  if(d && d.pagada_en){
+    try{ partes.push(new Date(d.pagada_en).toLocaleDateString()); }catch(e){}
+  }
+  if(d && d.venta_dia_id!=null) partes.push('cobrada en la venta #'+d.venta_dia_id);
+  if(!partes.length) return '';
+  return '<div style="color:var(--muted);font-size:11px;margin-top:2px">'+partes.join(' · ')+'</div>';
+}
+
 async function cargarDeudas(){
   const body = document.getElementById('deudasBody');
   const empty = document.getElementById('deudasEmpty');
@@ -4592,7 +4624,7 @@ async function cargarDeudas(){
       <td>${etiquetaTipo}</td>
       <td>${d.persona}${mostrarNota?`<div style="color:var(--muted);font-size:12px">${d.nota}</div>`:''}</td>
       <td>${detalle}</td>
-      <td>${d.pagada?'<span class="badge ingreso">pagada</span>':'<span class="badge extraccion">pendiente</span>'}</td>
+      <td>${d.pagada?'<span class="badge ingreso">pagada</span>'+trazaDePago(d):'<span class="badge extraccion">pendiente</span>'}</td>
       <td>${d.pagada?'':(
         d.tipo_deuda==='articulo'
         ? `<button class="ghost" onclick="resolverDeudaArticulo(${d.id})">${botonTexto}</button>`
@@ -4708,7 +4740,18 @@ async function cobrarComoAdmin(deudaId, monto, persona){
     // Ya es nuestra: registramos el egreso UNA sola vez. Si falla, devolvemos la deuda a "sin pagar"
     // para no dejarla marcada como cobrada sin haber sacado el dinero.
     try{
-      const {error: e1} = await sb.from('caja_movimientos').insert({tipo:'egreso', metodo, categoria:'pago_mercancia', monto, concepto:'Pago de deuda a '+persona});
+      // Esto es el pago de una COMISIÓN, no una compra de mercancía. Antes se guardaba con
+      // la categoría 'pago_mercancia', que hacía parecer compras los pagos al administrador.
+      // Se intenta con la categoría correcta y, si la base todavía no la admite, se guarda
+      // como antes pero con el concepto claro (el dinero nunca se pierde).
+      let e1 = null;
+      {
+        const r1 = await sb.from('caja_movimientos').insert({tipo:'egreso', metodo, categoria:'comision', monto, concepto:'Pago de comisión a '+persona});
+        if(r1 && r1.error){
+          const r2 = await sb.from('caja_movimientos').insert({tipo:'egreso', metodo, categoria:'pago_mercancia', monto, concepto:'Pago de comisión a '+persona});
+          e1 = r2 && r2.error ? r2.error : null;
+        }
+      }
       if(e1) throw e1;
     }catch(eEgreso){
       await sb.from('deudas').update({pagada:false, pagada_en:null}).eq('id', deudaId);
@@ -5406,6 +5449,154 @@ async function confirmarEliminarVenta(id){
 // COMISIONES FALTANTES: detecta ventas cerradas (con ganancia) que quedaron SIN su comisión de
 // vendedor, y permite generarla. Útil cuando una venta se subió pero, por un corte al finalizar
 // o un costo mal puesto, no se creó el pago del trabajador.
+// ══════════════════════════════════════════════════════════════════════════════
+//  CONCILIACIÓN DE CAJA: vendido vs entrado a caja, día por día y puesto por puesto.
+//  La diferencia normal es lo que el trabajador se cobró de comisión (la app le deja
+//  entregar la venta MENOS su cobro). Lo que NO cuadra con eso es lo que hay que mirar.
+// ══════════════════════════════════════════════════════════════════════════════
+function prepararConciliacion(){
+  const h=document.getElementById('concHasta'), d=document.getElementById('concDesde');
+  if(h && !h.value) h.value = fechaHoyLocal();
+  if(d && !d.value){ const x=new Date(Date.now()-30*86400000); d.value = x.toISOString().slice(0,10); }
+  cargarConciliacionCaja();
+}
+
+// Junta los datos crudos. Lo usa la pantalla y también el aviso automático al dueño.
+async function datosConciliacion(desde, hasta){
+  let q = sb.from('ventas_dia').select('*').eq('cerrado', true);
+  if(desde) q = q.gte('fecha', desde);
+  if(hasta) q = q.lte('fecha', hasta);
+  const {data: dias, error} = await q.limit(5000);
+  if(error) throw error;
+  if(!dias || !dias.length) return {filas:[]};
+
+  const items = await traerItemsDe(dias.map(d=>d.id), '*');
+  const porDia={}; (items||[]).forEach(it=>{ (porDia[it.venta_dia_id]=porDia[it.venta_dia_id]||[]).push(it); });
+
+  // Entradas de caja. Las nuevas traen venta_dia_id; las viejas se reconocen por el
+  // concepto "Venta <puesto> - <fecha>".
+  const caja=[]; { let d0=0; for(;;){ const r=await sb.from('caja_movimientos').select('*')
+      .eq('tipo','ingreso').order('id',{ascending:true}).range(d0,d0+999);
+    if(r.error) throw r.error; caja.push(...(r.data||[])); if(!r.data||r.data.length<1000) break; d0+=1000; } }
+  const cajaPorVenta={}, cajaPorPuestoFecha={};
+  for(const m of caja){
+    if(m.categoria!=='venta') continue;
+    const monto=Number(m.monto||0);
+    if(m.venta_dia_id!=null){ cajaPorVenta[m.venta_dia_id]=(cajaPorVenta[m.venta_dia_id]||0)+monto; continue; }
+    const mm=(m.concepto||'').match(/^Venta\s+(.*?)\s+-\s+(\d{4}-\d{2}-\d{2})$/);
+    if(mm){ const k=(m.almacen_id!=null?m.almacen_id:mm[1])+'|'+mm[2]; cajaPorPuestoFecha[k]=(cajaPorPuestoFecha[k]||0)+monto; }
+  }
+
+  // Comisiones COBRADAS dentro de una venta (al marcarlas pagadas se les pone el venta_dia_id
+  // de la venta donde se cobraron).
+  const {data: deu} = await sb.from('deudas').select('id, venta_dia_id, pagada, monto, nota, persona').eq('tipo','debo');
+  const cobradoEnVenta={};
+  for(const c of (deu||[])){
+    if(!c.pagada || c.venta_dia_id==null) continue;
+    if(!(c.nota||'').includes('Comisi')) continue;
+    cobradoEnVenta[c.venta_dia_id]=(cobradoEnVenta[c.venta_dia_id]||0)+Number(c.monto||0);
+  }
+
+  const usados={};
+  const filas = dias.map(d=>{
+    const venta=totalRealDeVenta(d, porDia[d.id]||[]);
+    const alm=(ALMACENES||[]).find(a=>a.id===d.almacen_id);
+    const puesto=alm?alm.nombre:('#'+d.almacen_id);
+    let entro = cajaPorVenta[d.id];
+    if(entro==null){ const k=d.almacen_id+'|'+d.fecha; if(!usados[k]){ entro=cajaPorPuestoFecha[k]||0; usados[k]=true; } else entro=0; }
+    const cobrado = cobradoEnVenta[d.id]||0;
+    const dif = Math.round((venta-Number(entro||0))*100)/100;
+    const sinExplicar = Math.round((dif-cobrado)*100)/100;
+    return {id:d.id, fecha:d.fecha||'', puesto, venta, entro:Number(entro||0), cobrado, dif, sinExplicar,
+            sinCaja: (Number(entro||0)===0 && venta>0)};
+  });
+  filas.sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||'') || a.puesto.localeCompare(b.puesto));
+  return {filas};
+}
+
+async function cargarConciliacionCaja(){
+  const msg=document.getElementById('concMsg'), res=document.getElementById('concResumen'), body=document.getElementById('concBody');
+  msg.textContent='Revisando…'; msg.className='msg'; res.innerHTML=''; body.innerHTML='';
+  if(!navigator.onLine){ msg.textContent='Necesitas internet.'; msg.className='msg err'; return; }
+  try{
+    const desde=document.getElementById('concDesde').value, hasta=document.getElementById('concHasta').value;
+    const {filas} = await datosConciliacion(desde, hasta);
+    if(!filas.length){ msg.textContent='No hay ventas cerradas en ese rango.'; return; }
+    const tVenta=filas.reduce((s,f)=>s+f.venta,0), tEntro=filas.reduce((s,f)=>s+f.entro,0);
+    const tCobrado=filas.reduce((s,f)=>s+f.cobrado,0), tDif=Math.round((tVenta-tEntro)*100)/100;
+    const tSin=Math.round((tDif-tCobrado)*100)/100;
+    const sinCaja=filas.filter(f=>f.sinCaja);
+    const totalSinCaja=sinCaja.reduce((s,f)=>s+f.venta,0);
+    msg.textContent=''; msg.className='msg';
+    res.innerHTML='<div class="card"><div style="display:flex;gap:20px;flex-wrap:wrap">'
+      +'<div><div style="color:var(--muted);font-size:12px">Se vendió</div><div style="font-size:21px;font-weight:800">$'+num(tVenta)+'</div></div>'
+      +'<div><div style="color:var(--muted);font-size:12px">Entró a caja</div><div style="font-size:21px;font-weight:800">$'+num(tEntro)+'</div></div>'
+      +'<div><div style="color:var(--muted);font-size:12px">Diferencia</div><div style="font-size:21px;font-weight:800;color:var(--amber)">$'+num(tDif)+'</div></div>'
+      +'<div><div style="color:var(--muted);font-size:12px">Comisiones cobradas</div><div style="font-size:21px;font-weight:800;color:var(--green)">$'+num(tCobrado)+'</div></div>'
+      +'<div><div style="color:var(--muted);font-size:12px">Sin explicar</div><div style="font-size:21px;font-weight:800;color:'+(Math.abs(tSin)>1?'var(--red)':'var(--muted)')+'">$'+num(tSin)+'</div></div>'
+      +'</div>'
+      +(sinCaja.length
+        ? '<div class="msg err" style="margin-top:12px">⚠️ Hay '+sinCaja.length+' venta(s) por $'+num(totalSinCaja)+' que NO tienen NINGUNA entrada de caja. Salen primero en la lista.</div>'
+        : '<div class="msg ok" style="margin-top:12px">✓ Todas las ventas tienen su entrada de caja.</div>')
+      +'</div>';
+    const orden=[...filas].sort((a,b)=> (b.sinCaja?1:0)-(a.sinCaja?1:0) || Math.abs(b.sinExplicar)-Math.abs(a.sinExplicar));
+    body.innerHTML='<div class="card"><div style="overflow-x:auto"><table style="min-width:700px">'
+      +'<thead><tr><th>Fecha</th><th>Puesto</th><th class="numcell">Vendió</th><th class="numcell">Entró a caja</th><th class="numcell">Diferencia</th><th class="numcell">Comisión cobrada</th><th class="numcell">Sin explicar</th><th>Estado</th></tr></thead><tbody>'
+      +orden.map(function(f){
+        const estado = f.sinCaja ? '<span style="color:var(--red);font-weight:700">⚠ Sin entrada de caja</span>'
+                      : (Math.abs(f.sinExplicar)<=1 ? '<span style="color:var(--green)">✓ Cuadra</span>'
+                      : '<span style="color:var(--amber)">Revisar</span>');
+        return '<tr'+(f.sinCaja?' style="background:rgba(220,53,69,0.10)"':'')+'>'
+          +'<td>'+f.fecha+'</td><td>'+String(f.puesto||'').replace(/</g,'&lt;')+'</td>'
+          +'<td class="numcell">$'+num(f.venta)+'</td><td class="numcell">$'+num(f.entro)+'</td>'
+          +'<td class="numcell">$'+num(f.dif)+'</td><td class="numcell">$'+num(f.cobrado)+'</td>'
+          +'<td class="numcell">'+(Math.abs(f.sinExplicar)>1?'<b style="color:var(--red)">$'+num(f.sinExplicar)+'</b>':'—')+'</td>'
+          +'<td>'+estado+'</td></tr>';
+      }).join('')
+      +'</tbody></table></div></div>';
+  }catch(e){ msg.textContent='No se pudo revisar: '+(e.message||e); msg.className='msg err'; }
+}
+
+// AVISO AUTOMÁTICO AL DUEÑO/ADMIN al abrir la app: ventas sin dinero registrado y
+// ventas de días pasados que quedaron abiertas. Antes esto solo se veía auditando a mano.
+async function revisarCajaAuto(){
+  try{
+    if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
+    if(!usuarioActual || usuarioActual.rol!=='dueno') return;   // la conciliación de caja es SOLO del dueño
+    try{ if(sessionStorage.getItem('caja_auto_revisado')) return; }catch(e){}
+    const desde = new Date(Date.now()-60*86400000).toISOString().slice(0,10);
+    const avisos=[];
+
+    // 1) Ventas cerradas SIN ninguna entrada de caja (el fallo del P 110 del 26-oct).
+    let sinCaja=[];
+    try{
+      const {filas} = await datosConciliacion(desde, null);
+      sinCaja = filas.filter(f=>f.sinCaja);
+    }catch(e){}
+    if(sinCaja.length){
+      const tot=sinCaja.reduce((s,f)=>s+f.venta,0);
+      avisos.push('• '+sinCaja.length+' venta(s) por $'+num(tot)+' SIN entrada de caja (menú → ⚖️ Conciliación)');
+      const b=document.getElementById('tabBtnConciliacion');
+      if(b) b.innerHTML='⚖️ Conciliación <span style="background:var(--red);color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;font-weight:700">'+sinCaja.length+'</span>';
+    }
+
+    // 2) Ventas de días ANTERIORES que quedaron abiertas (nunca se cierran solas).
+    try{
+      const hoy = fechaHoyLocal();
+      const {data: abiertas} = await sb.from('ventas_dia').select('id, fecha, almacen_id, total')
+        .eq('cerrado', false).gte('fecha', desde).lt('fecha', hoy).limit(500);
+      const conImporte=(abiertas||[]).filter(d=>Number(d.total||0)>0);
+      if(conImporte.length){
+        const tot=conImporte.reduce((s,d)=>s+Number(d.total||0),0);
+        avisos.push('• '+conImporte.length+' venta(s) de días pasados quedaron SIN finalizar, por $'+num(tot)+' (menú → 🗂️ Ventas registradas)');
+      }
+    }catch(e){}
+
+    try{ sessionStorage.setItem('caja_auto_revisado','1'); }catch(e){}
+    if(avisos.length) alert('⚠️ Revisa esto:\n\n'+avisos.join('\n'));
+  }catch(e){ /* nunca debe estorbar el arranque */ }
+}
+
 // RED DE SEGURIDAD: la cola de reintentos de comisiones vive en el teléfono de la vendedora.
 // Si ese teléfono se limpia, se reinstala la app o se cambia de celular, una comisión
 // pendiente se perdería sin que nadie se entere. Por eso, al abrir, el dueño/admin revisa
@@ -5659,8 +5850,17 @@ async function calcularComisionAdmin(){
     }catch(e){ /* tabla aún no creada */ }
 
     const gananciaNeta = Math.max(0, gananciaTotal - gananciaDevuelta);
-    const pagoVendedores = redondearComision(gananciaNeta * 0.15);
-    const quedaTrasVendedores = gananciaNeta - pagoVendedores;
+    // La comisión de los vendedores se calcula POR PUESTO y se redondea por puesto, igual que
+    // cuando cada uno cierra su día. Antes se redondeaba UNA sola vez sobre la ganancia del día
+    // completo, y como el redondeo es hacia arriba al múltiplo de 5, no coincidía con la suma de
+    // las comisiones reales de Deudas (el 27-oct: $12,510 aquí contra $12,515 allá). Esa
+    // diferencia además inflaba la base sobre la que cobra el administrador.
+    const propDev = gananciaTotal > 0 ? (gananciaDevuelta / gananciaTotal) : 0;
+    const pagoVendedores = filasPuestos.reduce(function(s,p){
+      const netaPuesto = Math.max(0, p.ganancia * (1 - propDev));
+      return s + redondearComision(netaPuesto * 0.15);
+    }, 0);
+    const quedaTrasVendedores = Math.max(0, gananciaNeta - pagoVendedores);
     const comisionAdmin = redondearComision(quedaTrasVendedores * 0.20);
     const quedaTrasAdmin = quedaTrasVendedores - comisionAdmin;
 
@@ -5976,7 +6176,7 @@ function descartarPendienteAtascado(){
   else { pedidos.shift(); lsSet('vt_pending_pedidos', pedidos); }
   actualizarConexionUI();
 }
-window.addEventListener('online', ()=>{ actualizarConexionUI(); sincronizarPendientes(); actualizarConexionAdminUI(); sincronizarPendientesAdmin(); sincronizarRecepciones(); reintentarComisiones(); reintentarCobros(); subirVentasMayoreo(); subirMovsMayoreo(); });
+window.addEventListener('online', ()=>{ actualizarConexionUI(); sincronizarPendientes(); actualizarConexionAdminUI(); sincronizarPendientesAdmin(); sincronizarRecepciones(); reintentarComisiones(); reintentarCobros(); reintentarCaja(); subirVentasMayoreo(); subirMovsMayoreo(); });
 window.addEventListener('offline', actualizarConexionUI);
 
 async function cargarCatalogoVentas(){
@@ -7528,7 +7728,7 @@ async function finalizarDiaInterno(){
       usuario_id: usuarioActual.id, // el perfil dueño de esta venta (para que sea suya en cualquier teléfono)
       items: carrito.map(it=>({producto_id:it.producto_id, nombre:it.nombre, cantidad:it.cantidad, precio_venta:it.precio_venta, costo:it.costo})),
       cobros: cobrosAProcesar, // [{deudaId, monto}]
-      efectivo, tarjeta, total: totalProductos // el total bruto real de la venta (los cobros se aplican al sincronizar)
+      efectivo, tarjeta, sobrante, total: totalProductos // el total bruto real de la venta (los cobros se aplican al sincronizar)
     };
     pendientes.push(nuevoPendiente);
     lsSet('vt_pending_days', pendientes);
@@ -7746,26 +7946,11 @@ async function finalizarDiaInterno(){
 
     // Registrar el dinero en caja. Como "efectivo" y "tarjeta" ya vienen netos (con el cobro restado),
     // esto por sí solo refleja correctamente cuánto entró de verdad a la caja — sin duplicar el descuento.
-    if(efectivo > 0){
-      await sb.from('caja_movimientos').insert({tipo:'ingreso', metodo:'efectivo', categoria:'venta', monto:efectivo, concepto:`Venta ${puestoActual.nombre} - ${fecha}`, almacen_id:puestoActual.id});
-    }
-    if(tarjeta > 0){
-      await sb.from('caja_movimientos').insert({tipo:'ingreso', metodo:'tarjeta', categoria:'venta', monto:tarjeta, concepto:`Venta ${puestoActual.nombre} - ${fecha}`, almacen_id:puestoActual.id});
-    }
-
-    // SOBRANTE: dinero de más que entrega el vendedor. Se guarda aparte, como un fondo, para
-    // poder cubrir con él el valor de un artículo que falte en el almacén.
-    if(sobrante > 0){
-      // OJO: Supabase no lanza el error, lo DEVUELVE. Hay que revisarlo, si no el rechazo
-      // pasa en silencio y el sobrante se pierde sin aviso.
-      const rSob = await sb.from('caja_movimientos').insert({tipo:'ingreso', metodo:'efectivo', categoria:'sobrante', monto:sobrante, concepto:`Sobrante ${puestoActual.nombre} - ${fecha}`, almacen_id:puestoActual.id});
-      if(rSob && rSob.error){
-        // La base rechazó la categoría 'sobrante' (candado viejo). NO se pierde el dinero:
-        // se guarda como 'otro' con el concepto claro, y el fondo lo cuenta igual.
-        console.error('Sobrante rechazado por la base, guardando por respaldo:', rSob.error.message);
-        await sb.from('caja_movimientos').insert({tipo:'ingreso', metodo:'efectivo', categoria:'otro', monto:sobrante, concepto:`SOBRANTE ${puestoActual.nombre} - ${fecha}`, almacen_id:puestoActual.id});
-      }
-    }
+    // Va por registrarDineroDeVenta(): con clave única, sin duplicar y con cola de reintento.
+    await registrarDineroDeVenta({
+      venta_dia_id: ventaDiaAbiertaId, almacen_id: puestoActual.id,
+      nombre_puesto: puestoActual.nombre, fecha, efectivo, tarjeta, sobrante
+    });
 
     // Comisión: 15% de la ganancia del día (venta - costo) queda como deuda a nombre del puesto
     // (no se le muestra el detalle al vendedor, solo queda registrado para administración)
@@ -7973,7 +8158,7 @@ async function finalizarDiaInterno(){
       usuario_id: usuarioActual.id, // el perfil dueño de esta venta
       items: carrito.map(it=>({producto_id:it.producto_id, nombre:it.nombre, cantidad:it.cantidad, precio_venta:it.precio_venta, costo:it.costo, clave_local:it.clave_local, aplicado:it.aplicado===true})),
       cobros: cobrosAProcesar,
-      efectivo, tarjeta, total: totalProductos
+      efectivo, tarjeta, sobrante, total: totalProductos
     };
     pendientes.push(nuevoPend);
     lsSet('vt_pending_days', pendientes);
@@ -8008,6 +8193,91 @@ let sincronizando = false;
 
 // Reintenta SOLO las comisiones que fallaron al subir (cola com_fallidas).
 // Corre sola al reconectar y cada 30s → la comisión nunca se pierde, sin buscar faltantes a mano.
+// ══════════════════════════════════════════════════════════════════════════════
+//  EL DINERO DE UNA VENTA NUNCA SE PIERDE NI SE DUPLICA
+//  Antes, el día se cerraba y el dinero se registraba DESPUÉS. Si el internet se
+//  cortaba en ese tramo, la venta quedaba registrada y el dinero NO entraba a caja
+//  —y al reintentar, la app daba la venta por completa y ya no lo registraba nunca.
+//  (Es lo que pasó con el P 110 el 26-oct: $98,340 vendidos sin entrada de caja.)
+//  Ahora cada movimiento lleva una CLAVE ÚNICA: se puede preguntar "¿ya entró?",
+//  reintentar sin duplicar, y lo que falle queda en cola hasta que entre.
+// ══════════════════════════════════════════════════════════════════════════════
+function lineasDineroDeVenta(v){
+  const id = v.venta_dia_id, p = v.nombre_puesto || '', f = v.fecha || '';
+  const L = [];
+  if(Number(v.efectivo) > 0) L.push({sufijo:'ef',  metodo:'efectivo', categoria:'venta',    monto:Number(v.efectivo), concepto:`Venta ${p} - ${f}`});
+  if(Number(v.tarjeta)  > 0) L.push({sufijo:'tj',  metodo:'tarjeta',  categoria:'venta',    monto:Number(v.tarjeta),  concepto:`Venta ${p} - ${f}`});
+  if(Number(v.sobrante) > 0) L.push({sufijo:'sob', metodo:'efectivo', categoria:'sobrante', monto:Number(v.sobrante), concepto:`Sobrante ${p} - ${f}`});
+  return L.map(x=>Object.assign(x,{clave: id!=null ? ('vtacaja-'+id+'-'+x.sufijo) : null}));
+}
+
+// Mete UNA línea de dinero. Devuelve true si quedó registrada (o ya estaba).
+async function meterLineaDeCaja(linea, v){
+  const base = {tipo:'ingreso', metodo:linea.metodo, categoria:linea.categoria, monto:linea.monto,
+                concepto:linea.concepto, almacen_id:v.almacen_id};
+  // ¿Ya está? (por la clave única; si la columna aún no existe, se comprueba por parecido)
+  try{
+    if(linea.clave){
+      const {data, error} = await sb.from('caja_movimientos').select('id').eq('clave_caja', linea.clave).limit(1);
+      if(!error && data && data.length) return true;   // ya entró: no duplicar
+    } else {
+      const {data} = await sb.from('caja_movimientos').select('id')
+        .eq('almacen_id', v.almacen_id).eq('categoria', linea.categoria)
+        .eq('monto', linea.monto).eq('concepto', linea.concepto).limit(1);
+      if(data && data.length) return true;
+    }
+  }catch(e){ /* si no se puede comprobar, se intenta insertar igual */ }
+
+  const conClave = Object.assign({}, base, linea.clave ? {clave_caja: linea.clave, venta_dia_id: v.venta_dia_id} : {});
+  let r = await sb.from('caja_movimientos').insert(conClave);
+  // La base todavía no tiene las columnas nuevas (falta correr caja_trazable.sql): se guarda sin ellas.
+  if(r && r.error && /clave_caja|venta_dia_id|column/i.test(r.error.message||'')){
+    r = await sb.from('caja_movimientos').insert(base);
+  }
+  // La base rechaza la categoría 'sobrante' (candado viejo): se guarda como 'otro', sin perder el dinero.
+  if(r && r.error && linea.categoria==='sobrante'){
+    const alt = Object.assign({}, base, {categoria:'otro', concepto:'SOBRANTE '+(v.nombre_puesto||'')+' - '+(v.fecha||'')});
+    if(linea.clave){ alt.clave_caja = linea.clave; alt.venta_dia_id = v.venta_dia_id; }
+    r = await sb.from('caja_movimientos').insert(alt);
+    if(r && r.error && /clave_caja|venta_dia_id|column/i.test(r.error.message||'')){
+      delete alt.clave_caja; delete alt.venta_dia_id;
+      r = await sb.from('caja_movimientos').insert(alt);
+    }
+  }
+  // Si chocó con la clave única, es que ya estaba: lo damos por bueno.
+  if(r && r.error && /duplicate|unique|23505/i.test(r.error.message||'')) return true;
+  if(r && r.error) throw new Error(r.error.message||'no se pudo registrar el dinero');
+  return true;
+}
+
+// Registra TODO el dinero de una venta. Lo que no entre queda en cola y se reintenta solo.
+async function registrarDineroDeVenta(v){
+  const lineas = lineasDineroDeVenta(v);
+  if(!lineas.length) return;
+  for(const linea of lineas){
+    try{
+      await meterLineaDeCaja(linea, v);
+    }catch(e){
+      const motivo=(e&&e.message)||String(e);
+      try{ const q=lsGet('caja_fallidas',[]); q.push({linea, v, error:motivo, ts:Date.now()}); lsSet('caja_fallidas',q); }catch(_){}
+      try{ registrarError('caja/venta','No se pudo registrar el dinero de la venta (quedó en cola para reintentar)',motivo); }catch(_){}
+    }
+  }
+}
+
+// Reintenta el dinero que no pudo entrar. Corre al volver el internet y cada 30s.
+async function reintentarCaja(){
+  if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
+  let cola=lsGet('caja_fallidas',[]);
+  if(!cola.length) return;
+  const quedan=[];
+  for(const item of cola){
+    try{ await meterLineaDeCaja(item.linea, item.v); }
+    catch(e){ quedan.push(item); }
+  }
+  lsSet('caja_fallidas', quedan);
+}
+
 // Reintenta marcar como PAGADOS los cobros que no se pudieron marcar al cerrar el día.
 // Sin esto, el cobro le vuelve a aparecer al trabajador como si no lo hubiera cobrado.
 async function reintentarCobros(){
@@ -8132,7 +8402,19 @@ async function sincronizarUnDia(dia){
       const {data: m} = await sb.from('movimientos').select('id').eq('venta_dia_id', filaPrevia.id).limit(1);
       tieneMovs = !!(m && m.length);
     }catch(e){}
-    if(filaPrevia.cerrado && tieneMovs) return; // completa de verdad: no duplicar
+    // ANTES aquí decía: if(filaPrevia.cerrado && tieneMovs) return;
+    // Ese candado solo miraba el inventario. Si el internet se cortaba después de cerrar el
+    // día pero ANTES de registrar el dinero, al reintentar daba la venta por completa y la
+    // entrada de caja NO se creaba nunca más. Ahora, aunque la venta ya esté completa, se
+    // sigue adelante hasta el registro del dinero y la comisión, que son idempotentes
+    // (tienen clave única: si ya están, no se duplican).
+    if(filaPrevia.cerrado && tieneMovs){
+      await registrarDineroDeVenta({
+        venta_dia_id: filaPrevia.id, almacen_id: dia.almacen_id, nombre_puesto: dia.almacen_nombre,
+        fecha: dia.fecha, efectivo: dia.efectivo, tarjeta: dia.tarjeta, sobrante: dia.sobrante
+      });
+      return;
+    }
   }
 
   // IDEMPOTENCIA 2 (contra duplicados por subida manual): aunque no coincida la clave_local,
@@ -8270,8 +8552,12 @@ async function sincronizarUnDia(dia){
     await sb.from('ventas_dia').update({cerrado:true, total:dia.total, cerrado_en:new Date().toISOString(), clave_local: dia.clave_local || null}).eq('id', nuevo.id);
   }
 
-  if(dia.efectivo>0) await sb.from('caja_movimientos').insert({tipo:'ingreso', metodo:'efectivo', categoria:'venta', monto:dia.efectivo, concepto:`Venta ${dia.almacen_nombre} - ${dia.fecha}`, almacen_id:dia.almacen_id});
-  if(dia.tarjeta>0) await sb.from('caja_movimientos').insert({tipo:'ingreso', metodo:'tarjeta', categoria:'venta', monto:dia.tarjeta, concepto:`Venta ${dia.almacen_nombre} - ${dia.fecha}`, almacen_id:dia.almacen_id});
+  // Mismo registro de dinero que en el cierre normal: con clave única, sin duplicar y
+  // con cola de reintento si falla.
+  await registrarDineroDeVenta({
+    venta_dia_id: nuevo.id, almacen_id: dia.almacen_id, nombre_puesto: dia.almacen_nombre,
+    fecha: dia.fecha, efectivo: dia.efectivo, tarjeta: dia.tarjeta, sobrante: dia.sobrante
+  });
 
   let costoTotal = 0;
   for(const it of dia.items) costoTotal += it.cantidad*it.costo;
@@ -8315,15 +8601,25 @@ async function sincronizarUnDia(dia){
       }
     }
   }
+  // Protegido: si esto falla, NO puede impedir que los cobros se marquen como pagados.
   for(const d of devsDia){
-    await sb.from('devoluciones').update({aplicada:true}).eq('id', d.id);
+    try{ await sb.from('devoluciones').update({aplicada:true}).eq('id', d.id); }catch(e){ /* no crítico */ }
   }
 
   // Marcar como pagados los cobros que se agregaron al carrito antes de quedarse sin conexión
   // (el efectivo/tarjeta ya vienen netos, así que no se crea un egreso aparte para no restarlo dos veces).
+  // Si se cae la conexión aquí, el cobro quedaría SIN marcar y le volvería a aparecer al
+  // trabajador para cobrarlo otra vez. Por eso queda en cola y se marca solo al volver el internet.
   if(dia.cobros && dia.cobros.length>0){
     for(const c of dia.cobros){
-      await sb.from('deudas').update({pagada:true, pagada_en:new Date().toISOString(), venta_dia_id: nuevo.id}).eq('id', c.deudaId);
+      try{
+        const rPag = await sb.from('deudas').update({pagada:true, pagada_en:new Date().toISOString(), venta_dia_id: nuevo.id}).eq('id', c.deudaId);
+        if(rPag && rPag.error) throw new Error(rPag.error.message||'no se pudo marcar el cobro');
+      }catch(eCob){
+        const motivo=(eCob&&eCob.message)||String(eCob);
+        try{ const q=lsGet('cobros_fallidos',[]); q.push({deudaId:c.deudaId, monto:c.monto, venta_dia_id:nuevo.id, ts:Date.now()}); lsSet('cobros_fallidos',q); }catch(e){}
+        try{ registrarError('cobro/sincronizar','No se pudo marcar el cobro como pagado al subir la venta (quedó en cola)',motivo); }catch(e){}
+      }
     }
   }
 }
@@ -8331,6 +8627,8 @@ async function sincronizarUnDia(dia){
 setInterval(sincronizarPendientes, 30000);
 setInterval(reintentarComisiones, 30000);
 setInterval(reintentarCobros, 30000);
+setInterval(reintentarCaja, 30000);
+reintentarCaja();
 reintentarCobros();
 reintentarComisiones();
 setInterval(subirVentasMayoreo, 30000);
@@ -8652,6 +8950,7 @@ async function entrarComo(usuario){
     actualizarConexionAdminUI();
     cargarTodo();
     revisarComisionesAuto();   // avisa si quedó alguna comisión sin generar
+    revisarCajaAuto();         // avisa si falta dinero por registrar o hay ventas sin cerrar
   }
 }
 
@@ -11526,6 +11825,7 @@ function aplicarRestriccionesDeRol(){
   document.getElementById('tabBtnAnalizador').style.display = esDueno ? 'inline-block' : 'none';
   { const b=document.getElementById('tabBtnAnalisisProd'); if(b) b.style.display = esDueno ? 'inline-block' : 'none'; }
   { const b=document.getElementById('tabBtnArticulo'); if(b) b.style.display = (esDueno || __usuarioEs('jk')) ? 'inline-block' : 'none'; }
+  { const b=document.getElementById('tabBtnConciliacion'); if(b) b.style.display = esDueno ? 'inline-block' : 'none'; }  // SOLO el dueño
   { const b=document.getElementById('tabBtnMayoreo'); if(b) b.style.display = puedeMayoreoAdmin() ? 'inline-block' : 'none'; }
   { const b=document.getElementById('tabBtnErrores'); if(b){ b.style.display = esDueno ? 'inline-block' : 'none'; if(esDueno) actualizarBadgeErrores(); } }
   document.getElementById('tabBtnCobrarAdmin').style.display = usuarioActual.rol==='administrador' ? 'inline-block' : 'none';
@@ -11536,7 +11836,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v146</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v148</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
