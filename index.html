@@ -5472,12 +5472,16 @@ async function datosConciliacion(desde, hasta){
 
   const items = await traerItemsDe(dias.map(d=>d.id), '*');
   const porDia={}; (items||[]).forEach(it=>{ (porDia[it.venta_dia_id]=porDia[it.venta_dia_id]||[]).push(it); });
+  // Hay ventas CERRADAS repetidas (la misma venta subida dos veces). Si se cuentan las dos,
+  // el "vendió" sale inflado y aparece una diferencia enorme que no existe.
+  let diasUsar = dias;
+  try{ const r = descartarDiasDuplicados(dias, items||[]); if(r && r.conservados) diasUsar = r.conservados; }catch(e){}
 
   // Se compara POR PUESTO Y DÍA, no venta por venta. Motivo: las entradas de caja viejas solo
   // dicen "Venta <puesto> - <fecha>", sin decir a cuál venta pertenecen. Si un puesto cerró dos
   // ventas el mismo día, repartirlas una por una es adivinar: a una le sobra dinero y a la otra
   // le falta, y aparecían "ventas sin entrada de caja" que en realidad sí tenían su dinero.
-  const diaPorId={}; dias.forEach(d=>{ diaPorId[d.id]=d; });
+  const diaPorId={}; diasUsar.forEach(d=>{ diaPorId[d.id]=d; });
   const grupos={};
   const grupo=(almacen_id, fecha)=>{
     const k=almacen_id+'|'+fecha;
@@ -5485,7 +5489,7 @@ async function datosConciliacion(desde, hasta){
     return grupos[k];
   };
   // 1) lo vendido
-  dias.forEach(d=>{
+  diasUsar.forEach(d=>{
     const g=grupo(d.almacen_id, d.fecha||'');
     g.venta += totalRealDeVenta(d, porDia[d.id]||[]);
     g.nVentas++;
@@ -5518,6 +5522,20 @@ async function datosConciliacion(desde, hasta){
     if(!c.pagada || c.venta_dia_id==null) continue;
     if(!(c.nota||'').includes('Comisi')) continue;
     const d=diaPorId[c.venta_dia_id]; if(!d) continue;
+    // IMPORTANTE: aquí solo cuentan las comisiones que el trabajador se COBRÓ de la venta
+    // (se quedó con ese efectivo en vez de entregarlo). Las que pagó el dueño aparte, en
+    // efectivo, NO reducen lo que entró a caja ese día y no deben contarse: si se cuentan,
+    // sale un "sin explicar" NEGATIVO, que es imposible.
+    // Cómo se distinguen: la clave 'comvta-<venta>' dice en qué venta se GANÓ. Si la comisión
+    // sigue apuntando a su propia venta, no se cobró de ninguna otra: se pagó por otra vía.
+    const mOrig=(c.clave_comision||'').match(/^comvta-(.+)$/);
+    if(mOrig && String(c.venta_dia_id)===String(mOrig[1])) continue;
+    if(!mOrig){
+      // Comisiones viejas sin clave: si la nota dice la MISMA fecha de esta venta, es su
+      // propia comisión (no un cobro hecho dentro de ella).
+      const mf=(c.nota||'').match(/venta del (\d{4}-\d{2}-\d{2})/);
+      if(mf && mf[1]===(d.fecha||'')) continue;
+    }
     const k=d.almacen_id+'|'+(d.fecha||'');
     if(grupos[k]) grupos[k].cobrado += Number(c.monto||0);
   }
@@ -11857,7 +11875,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v149</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v150</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
