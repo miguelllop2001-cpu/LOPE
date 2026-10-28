@@ -965,6 +965,7 @@
       <div id="concMsg" class="msg"></div>
     </div>
     <div id="concResumen"></div>
+    <div id="concDetalle" style="display:none"></div>
     <div id="concBody"></div>
   </div>
 
@@ -4174,19 +4175,7 @@ async function sincronizarPendientesAdmin(){
   try{
     const cola = lsGet('adm_pending_ops', []);
     if(cola.length===0){ actualizarConexionAdminUI(); return; }
-    const restantes = [];
-    let algoSincronizo = false;
-    for(const op of cola){
-      try{
-        await procesarOperacionAdmin(op, cola);
-        algoSincronizo = true;
-      }catch(err){
-        console.error('Operación pendiente del admin no se pudo sincronizar todavía:', op.tipo, err);
-        op._ultimoError = err.message || String(err);
-        restantes.push(op);
-      }
-    }
-    lsSet('adm_pending_ops', restantes);
+    const algoSincronizo = await drenarCola('adm_pending_ops', async op => { await procesarOperacionAdmin(op, cola); });
     if(algoSincronizo && usuarioActual && usuarioActual.rol!=='vendedor'){
       await cargarTodo();
     }
@@ -5508,7 +5497,16 @@ async function registrarDineroFaltante(i){
   const f = __concFilas[i];
   if(!f){ alert('No encontré esa fila. Dale a Revisar otra vez.'); return; }
   if(!navigator.onLine){ alert('Necesitas internet.'); return; }
-  const sugerido = Math.round(Math.abs(f.sinExplicar));
+  // Este botón SOLO sirve cuando FALTA dinero. Si en caja hay de más, meter más lo empeora.
+  if(!(f.falta > 1)){
+    alert('Aquí no falta dinero.\n\n'+f.puesto+' — '+f.fecha+'\n'+
+          (f.sobra>1 ? 'Al contrario: en caja hay $'+num(f.sobra)+' DE MÁS para esa venta.\n\n'+
+                       'Eso casi siempre es un ingreso escrito dos veces, o un sobrante metido como venta.\n'+
+                       'Usa "🔎 Ver caja" en esa fila para encontrarlo y borrarlo.'
+                     : 'Esa fila ya cuadra.'));
+    return;
+  }
+  const sugerido = Math.round(f.falta);
   const txt = prompt(
     'Registrar dinero de la venta\n\n'+
     f.puesto+' — '+f.fecha+'\n'+
@@ -5522,7 +5520,7 @@ async function registrarDineroFaltante(i){
   if(txt===null) return;
   const monto = Math.round(Number(String(txt).replace(/[^0-9.\-]/g,''))*100)/100;
   if(!monto || monto<=0){ alert('Monto no válido.'); return; }
-  if(monto > f.venta + 1){ alert('Ese monto es mayor que lo que se vendió ese día ($'+num(f.venta)+'). Revísalo.'); return; }
+  if(monto > f.falta + 1){ alert('Ese monto es mayor que lo que falta ese día ($'+num(f.falta)+').\n\nSi metes más, a esa venta le va a SOBRAR dinero en caja. Revísalo.'); return; }
   if(!confirm('¿Registrar $'+num(monto)+' como entrada de caja de '+f.puesto+' del '+f.fecha+'?\n\nEsto SOLO se hace si el dinero sí se entregó.')) return;
   try{
     await meterMovimientoCajaUnico({
@@ -5534,6 +5532,70 @@ async function registrarDineroFaltante(i){
   }catch(e){
     alert('No se pudo: '+((e&&e.message)||e));
   }
+}
+
+// Muestra TODAS las entradas de caja de ese puesto y ese día, para encontrar la repetida.
+// Es lo que arregla el caso contrario: cuando en caja hay dinero DE MÁS.
+async function verCajaDeEseDia(i){
+  const f = __concFilas[i];
+  if(!f){ alert('No encontré esa fila. Dale a Revisar otra vez.'); return; }
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  const cont = document.getElementById('concDetalle');
+  if(cont){ cont.innerHTML = '<div class="card">Buscando…</div>'; cont.style.display='block'; }
+  try{
+    const {data, error} = await sb.from('caja_movimientos').select('*')
+      .eq('almacen_id', f.almacen_id).eq('tipo','ingreso').order('id',{ascending:true}).limit(2000);
+    if(error) throw error;
+    const delDia = (data||[]).filter(m => (m.concepto||'').includes(f.fecha));
+    __concCaja = delDia;
+    if(!delDia.length){
+      cont.innerHTML = '<div class="card"><b>'+f.puesto+' — '+f.fecha+'</b><div class="msg">No encontré entradas de caja de ese día para ese puesto.</div>'
+        +'<button onclick="cerrarDetalleConc()">Cerrar</button></div>';
+      return;
+    }
+    // marcar las que se repiten (mismo monto y mismo concepto)
+    const cuenta={}; delDia.forEach(m=>{ const k=(m.concepto||'')+'|'+Number(m.monto||0); cuenta[k]=(cuenta[k]||0)+1; });
+    const total = delDia.reduce((s,m)=>s+Number(m.monto||0),0);
+    cont.innerHTML = '<div class="card">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
+      +'<b>Entradas de caja — '+String(f.puesto||'').replace(/</g,'&lt;')+' · '+f.fecha+'</b>'
+      +'<button onclick="cerrarDetalleConc()">Cerrar</button></div>'
+      +'<div class="msg" style="margin-top:8px">Esa venta fue de <b>$'+num(f.venta)+'</b> y en caja hay <b>$'+num(total)+'</b>. '
+      +'Sobran <b>$'+num(f.sobra)+'</b>. Busca abajo la línea repetida y bórrala.</div>'
+      +'<div style="overflow-x:auto"><table style="min-width:620px"><thead><tr>'
+      +'<th>#</th><th>Concepto</th><th>Método</th><th>Categoría</th><th class="numcell">Monto</th><th></th></tr></thead><tbody>'
+      + delDia.map(function(m, j){
+          const k=(m.concepto||'')+'|'+Number(m.monto||0);
+          const rep = cuenta[k] > 1;
+          return '<tr'+(rep?' style="background:rgba(255,193,7,0.14)"':'')+'>'
+            +'<td>'+m.id+'</td>'
+            +'<td>'+String(m.concepto||'').replace(/</g,'&lt;')+(rep?' <b style="color:var(--amber)">· repetida</b>':'')+'</td>'
+            +'<td>'+String(m.metodo||'').replace(/</g,'&lt;')+'</td>'
+            +'<td>'+String(m.categoria||'').replace(/</g,'&lt;')+'</td>'
+            +'<td class="numcell">$'+num(m.monto)+'</td>'
+            +'<td><button style="padding:6px 10px;font-size:13px" onclick="borrarEntradaCaja('+j+')">🗑 Borrar</button></td></tr>';
+        }).join('')
+      +'</tbody></table></div></div>';
+    cont.scrollIntoView({behavior:'smooth', block:'start'});
+  }catch(e){
+    if(cont) cont.innerHTML='<div class="card"><div class="msg err">No se pudo: '+((e&&e.message)||e)+'</div><button onclick="cerrarDetalleConc()">Cerrar</button></div>';
+  }
+}
+let __concCaja = [];
+function cerrarDetalleConc(){ const c=document.getElementById('concDetalle'); if(c){ c.innerHTML=''; c.style.display='none'; } }
+async function borrarEntradaCaja(j){
+  const m = __concCaja[j];
+  if(!m){ alert('No encontré esa línea.'); return; }
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  if(!confirm('¿Borrar esta entrada de caja?\n\n'+(m.concepto||'')+'\n$'+num(m.monto)+'\n\nEsto quita ese dinero de la caja. Hazlo SOLO si está repetida o es un error.')) return;
+  try{
+    const {error} = await sb.from('caja_movimientos').delete().eq('id', m.id);
+    if(error) throw error;
+    alert('Borrada. ✓');
+    cerrarDetalleConc();
+    await cargarConciliacionCaja();
+    try{ if(typeof cargarDinero==='function') await cargarDinero(); }catch(e){}
+  }catch(e){ alert('No se pudo: '+((e&&e.message)||e)); }
 }
 
 function prepararConciliacion(){
@@ -5625,9 +5687,17 @@ async function datosConciliacion(desde, hasta){
   const filas=Object.values(grupos).map(g=>{
     const alm=(ALMACENES||[]).find(a=>a.id===g.almacen_id);
     const dif=Math.round((g.venta-g.entro)*100)/100;
-    const sinExplicar=Math.round((dif-g.cobrado)*100)/100;
+    // TOPE: de un día solo se puede haber cobrado, en efectivo de ESE día, como máximo
+    // lo que falta de ese día. Si la comisión que aparece es mayor, el resto se pagó por
+    // otra vía (el dueño se la pagó aparte) y NO sale del dinero de esta venta. Sin este
+    // tope salía un "sin explicar" NEGATIVO, que no existe en la vida real.
+    const cobradoDeAqui = Math.min(g.cobrado, Math.max(0, dif));
+    const cobradoAparte = Math.round((g.cobrado - cobradoDeAqui)*100)/100;
+    const sinExplicar=Math.round((dif-cobradoDeAqui)*100)/100;
     return {fecha:g.fecha, almacen_id:g.almacen_id, puesto: alm?alm.nombre:('#'+g.almacen_id), nVentas:g.nVentas,
-            venta:g.venta, entro:g.entro, cobrado:g.cobrado, dif, sinExplicar,
+            venta:g.venta, entro:g.entro, cobrado:cobradoDeAqui, cobradoAparte, dif, sinExplicar,
+            falta: sinExplicar > 1 ? sinExplicar : 0,          // dinero que NO entró
+            sobra: sinExplicar < -1 ? -sinExplicar : 0,        // entró de MÁS
             sinCaja: (g.entro===0 && g.venta>0)};
   });
   filas.sort((a,b)=> (b.fecha||'').localeCompare(a.fecha||'') || a.puesto.localeCompare(b.puesto));
@@ -5637,6 +5707,7 @@ async function datosConciliacion(desde, hasta){
 async function cargarConciliacionCaja(){
   const msg=document.getElementById('concMsg'), res=document.getElementById('concResumen'), body=document.getElementById('concBody');
   msg.textContent='Revisando…'; msg.className='msg'; res.innerHTML=''; body.innerHTML='';
+  try{ cerrarDetalleConc(); }catch(e){}
   if(!navigator.onLine){ msg.textContent='Necesitas internet.'; msg.className='msg err'; return; }
   try{
     const desde=document.getElementById('concDesde').value, hasta=document.getElementById('concHasta').value;
@@ -5644,39 +5715,57 @@ async function cargarConciliacionCaja(){
     if(!filas.length){ msg.textContent='No hay ventas cerradas en ese rango.'; return; }
     const tVenta=filas.reduce((s,f)=>s+f.venta,0), tEntro=filas.reduce((s,f)=>s+f.entro,0);
     const tCobrado=filas.reduce((s,f)=>s+f.cobrado,0), tDif=Math.round((tVenta-tEntro)*100)/100;
-    const tSin=Math.round((tDif-tCobrado)*100)/100;
+    const tFalta=Math.round(filas.reduce((s,f)=>s+f.falta,0)*100)/100;
+    const tSobra=Math.round(filas.reduce((s,f)=>s+f.sobra,0)*100)/100;
     const sinCaja=filas.filter(f=>f.sinCaja);
     const totalSinCaja=sinCaja.reduce((s,f)=>s+f.venta,0);
+    const nFalta=filas.filter(f=>f.falta>0).length, nSobra=filas.filter(f=>f.sobra>0).length;
     msg.textContent=''; msg.className='msg';
     res.innerHTML='<div class="card"><div style="display:flex;gap:20px;flex-wrap:wrap">'
       +'<div><div style="color:var(--muted);font-size:12px">Se vendió</div><div style="font-size:21px;font-weight:800">$'+num(tVenta)+'</div></div>'
       +'<div><div style="color:var(--muted);font-size:12px">Entró a caja</div><div style="font-size:21px;font-weight:800">$'+num(tEntro)+'</div></div>'
       +'<div><div style="color:var(--muted);font-size:12px">Diferencia</div><div style="font-size:21px;font-weight:800;color:var(--amber)">$'+num(tDif)+'</div></div>'
       +'<div><div style="color:var(--muted);font-size:12px">Comisiones cobradas</div><div style="font-size:21px;font-weight:800;color:var(--green)">$'+num(tCobrado)+'</div></div>'
-      +'<div><div style="color:var(--muted);font-size:12px">Sin explicar</div><div style="font-size:21px;font-weight:800;color:'+(Math.abs(tSin)>1?'var(--red)':'var(--muted)')+'">$'+num(tSin)+'</div></div>'
+      +'<div><div style="color:var(--muted);font-size:12px">Falta por entrar</div><div style="font-size:21px;font-weight:800;color:'+(tFalta>1?'var(--red)':'var(--muted)')+'">$'+num(tFalta)+'</div></div>'
+      +'<div><div style="color:var(--muted);font-size:12px">Entró de más</div><div style="font-size:21px;font-weight:800;color:'+(tSobra>1?'var(--amber)':'var(--muted)')+'">$'+num(tSobra)+'</div></div>'
+      +'</div>'
+      +'<div style="margin-top:10px;color:var(--muted);font-size:12px;line-height:1.5">'
+        +'Se vendió − Entró a caja = Diferencia. De esa diferencia, lo que los trabajadores se cobraron de comisión está explicado. '
+        +'Lo que sobra de ahí es <b>Falta por entrar</b> (dinero vendido que nunca llegó a caja). '
+        +'<b>Entró de más</b> es lo contrario: caja tiene más de lo que esa venta justifica.'
       +'</div>'
       +(sinCaja.length
         ? '<div class="msg err" style="margin-top:12px">⚠️ Hay '+sinCaja.length+' venta(s) por $'+num(totalSinCaja)+' que NO tienen NINGUNA entrada de caja. Salen primero en la lista.</div>'
-        : '<div class="msg ok" style="margin-top:12px">✓ Todas las ventas tienen su entrada de caja.</div>')
+        : (tFalta>1
+          ? '<div class="msg err" style="margin-top:12px">⚠️ Hay '+nFalta+' día(s) donde falta dinero por entrar ($'+num(tFalta)+' en total). Usa el botón 💵 Registrar en esas filas, SOLO si el dinero sí se entregó.</div>'
+          : '<div class="msg ok" style="margin-top:12px">✓ No falta dinero por entrar.</div>'))
+      +(tSobra>1
+        ? '<div class="msg" style="margin-top:8px;background:rgba(255,193,7,0.12)">ℹ️ Hay '+nSobra+' día(s) con $'+num(tSobra)+' de más en caja. Eso NO se arregla con el botón (meter más dinero lo empeora). Casi siempre es un ingreso escrito dos veces o un sobrante metido como venta: búscalo en Caja ese día y bórralo.</div>'
+        : '')
       +'</div>';
-    const orden=[...filas].sort((a,b)=> (b.sinCaja?1:0)-(a.sinCaja?1:0) || Math.abs(b.sinExplicar)-Math.abs(a.sinExplicar));
+    const orden=[...filas].sort((a,b)=> (b.sinCaja?1:0)-(a.sinCaja?1:0) || (b.falta-a.falta) || (b.sobra-a.sobra));
     __concFilas = orden;   // se guardan para poder arreglar una fila con un botón
-    body.innerHTML='<div class="card"><div style="overflow-x:auto"><table style="min-width:700px">'
-      +'<thead><tr><th>Fecha</th><th>Puesto</th><th class="numcell">Ventas</th><th class="numcell">Vendió</th><th class="numcell">Entró a caja</th><th class="numcell">Diferencia</th><th class="numcell">Comisión cobrada</th><th class="numcell">Sin explicar</th><th>Estado</th><th></th></tr></thead><tbody>'
+    body.innerHTML='<div class="card"><div style="overflow-x:auto"><table style="min-width:760px">'
+      +'<thead><tr><th>Fecha</th><th>Puesto</th><th class="numcell">Ventas</th><th class="numcell">Vendió</th><th class="numcell">Entró a caja</th><th class="numcell">Diferencia</th><th class="numcell">Comisión cobrada</th><th class="numcell">Falta</th><th class="numcell">Sobra</th><th>Estado</th><th></th></tr></thead><tbody>'
       +orden.map(function(f,i){
         const estado = f.sinCaja ? '<span style="color:var(--red);font-weight:700">⚠ Sin entrada de caja</span>'
-                      : (Math.abs(f.sinExplicar)<=1 ? '<span style="color:var(--green)">✓ Cuadra</span>'
-                      : '<span style="color:var(--amber)">Revisar</span>');
-        return '<tr'+(f.sinCaja?' style="background:rgba(220,53,69,0.10)"':'')+'>'
+                      : (f.falta>1 ? '<span style="color:var(--red);font-weight:700">Falta dinero</span>'
+                      : (f.sobra>1 ? '<span style="color:var(--amber)">Entró de más</span>'
+                      : '<span style="color:var(--green)">✓ Cuadra</span>'));
+        return '<tr'+(f.sinCaja?' style="background:rgba(220,53,69,0.10)"':(f.sobra>1?' style="background:rgba(255,193,7,0.08)"':''))+'>'
           +'<td>'+f.fecha+'</td><td>'+String(f.puesto||'').replace(/</g,'&lt;')+'</td>'
           +'<td class="numcell">'+f.nVentas+'</td>'
           +'<td class="numcell">$'+num(f.venta)+'</td><td class="numcell">$'+num(f.entro)+'</td>'
-          +'<td class="numcell">$'+num(f.dif)+'</td><td class="numcell">$'+num(f.cobrado)+'</td>'
-          +'<td class="numcell">'+(Math.abs(f.sinExplicar)>1?'<b style="color:var(--red)">$'+num(f.sinExplicar)+'</b>':'—')+'</td>'
+          +'<td class="numcell">$'+num(f.dif)+'</td>'
+          +'<td class="numcell">$'+num(f.cobrado)+(f.cobradoAparte>1?'<div style="color:var(--muted);font-size:11px">+$'+num(f.cobradoAparte)+' pagada aparte</div>':'')+'</td>'
+          +'<td class="numcell">'+(f.falta>1?'<b style="color:var(--red)">$'+num(f.falta)+'</b>':'—')+'</td>'
+          +'<td class="numcell">'+(f.sobra>1?'<b style="color:var(--amber)">$'+num(f.sobra)+'</b>':'—')+'</td>'
           +'<td>'+estado+'</td>'
-          +'<td>'+(Math.abs(f.sinExplicar)>1
+          +'<td>'+(f.falta>1
               ? '<button class="primary" style="padding:6px 12px;font-size:13px;white-space:nowrap" onclick="registrarDineroFaltante('+i+')">💵 Registrar</button>'
-              : '')+'</td></tr>';
+              : (f.sobra>1
+                ? '<button style="padding:6px 12px;font-size:13px;white-space:nowrap" onclick="verCajaDeEseDia('+i+')">🔎 Ver caja</button>'
+                : ''))+'</td></tr>';
       }).join('')
       +'</tbody></table></div></div>';
   }catch(e){ msg.textContent='No se pudo revisar: '+(e.message||e); msg.className='msg err'; }
@@ -7597,23 +7686,12 @@ async function aplicarDevolucionEnServidor(d){
 }
 
 async function sincronizarDevolucionesPendientes(){
-  const q = lsGet('vt_pending_devoluciones', []);
-  if(q.length===0) return;
-  const restantes = [];
-  for(const d of q){
-    try{
-      const saldo = await obtenerSaldoMetodo(d.metodo);
-      const monto = d.cantidad * d.precio_venta;
-      if(saldo < monto) throw new Error(`No hay suficiente ${d.metodo} en caja para devolver $${monto.toFixed(2)}.`);
-      await aplicarDevolucionEnServidor(d);
-    }catch(err){
-      console.error('Devolución pendiente no sincronizada todavía:', err);
-      d._ultimoError = err.message || String(err);
-      d._intentos = (d._intentos || 0) + 1;
-      restantes.push(d);
-    }
-  }
-  lsSet('vt_pending_devoluciones', restantes);
+  await drenarCola('vt_pending_devoluciones', async d => {
+    const saldo = await obtenerSaldoMetodo(d.metodo);
+    const monto = d.cantidad * d.precio_venta;
+    if(saldo < monto) throw new Error(`No hay suficiente ${d.metodo} en caja para devolver $${monto.toFixed(2)}.`);
+    await aplicarDevolucionEnServidor(d);
+  });
 }
 
 // ---------- MERCANCÍA RECIBIDA (rastro de lo que entra al puesto del vendedor) ----------
@@ -8340,18 +8418,27 @@ function lineasDineroDeVenta(v){
 async function meterLineaDeCaja(linea, v){
   const base = {tipo:'ingreso', metodo:linea.metodo, categoria:linea.categoria, monto:linea.monto,
                 concepto:linea.concepto, almacen_id:v.almacen_id};
-  // ¿Ya está? (por la clave única; si la columna aún no existe, se comprueba por parecido)
-  try{
-    if(linea.clave){
-      const {data, error} = await sb.from('caja_movimientos').select('id').eq('clave_caja', linea.clave).limit(1);
-      if(!error && data && data.length) return true;   // ya entró: no duplicar
-    } else {
+  // ¿Ya está? Primero por la clave única. Si la base todavía NO tiene esa columna
+  // (falta correr caja_trazable.sql), esa comprobación falla: en ese caso hay que
+  // comprobar por parecido igual, porque si no un reintento DUPLICARÍA el dinero.
+  const yaEstaPorParecido = async()=>{
+    try{
       const {data} = await sb.from('caja_movimientos').select('id')
         .eq('almacen_id', v.almacen_id).eq('categoria', linea.categoria)
         .eq('monto', linea.monto).eq('concepto', linea.concepto).limit(1);
-      if(data && data.length) return true;
-    }
-  }catch(e){ /* si no se puede comprobar, se intenta insertar igual */ }
+      return !!(data && data.length);
+    }catch(e){ return false; }
+  };
+  if(linea.clave){
+    let seLogro=false;
+    try{
+      const {data, error} = await sb.from('caja_movimientos').select('id').eq('clave_caja', linea.clave).limit(1);
+      if(!error){ seLogro=true; if(data && data.length) return true; }
+    }catch(e){}
+    if(!seLogro && await yaEstaPorParecido()) return true;   // sin la columna: se comprueba igual
+  } else {
+    if(await yaEstaPorParecido()) return true;
+  }
 
   const conClave = Object.assign({}, base, linea.clave ? {clave_caja: linea.clave, venta_dia_id: v.venta_dia_id} : {});
   let r = await sb.from('caja_movimientos').insert(conClave);
@@ -8390,64 +8477,90 @@ async function registrarDineroDeVenta(v){
   }
 }
 
+// ── MOTOR SEGURO PARA VACIAR COLAS ──────────────────────────────────────────
+// Dos peligros que esto evita (los dos probados):
+//  1) Que la misma cola se vacíe DOS VECES A LA VEZ (el intervalo de 30s y el
+//     evento "volvió el internet" pueden caer juntos). Las dos pasadas leían la
+//     misma lista y metían el mismo dinero dos veces. → Candado por cola.
+//  2) Que se pierda algo que entró a la cola MIENTRAS se estaba vaciando (se
+//     cierra un día justo en ese momento). Antes se sobrescribía la lista
+//     entera. → Ahora se vuelve a leer al final y solo se sacan los que de
+//     verdad se lograron, por su número propio.
+const __colasOcupadas = {};
+function __sellarCola(nombre){            // le pone número propio a lo que no lo tenga
+  let cola = lsGet(nombre, []);
+  if(!Array.isArray(cola)) cola = [];     // si el guardado se corrompió, se empieza limpio
+  const limpia = cola.filter(it => it && typeof it === 'object' && !Array.isArray(it));  // basura o huecos: fuera
+  let cambio = limpia.length !== cola.length;
+  for(const it of limpia){ if(it.__cid==null){ it.__cid = 'c'+Date.now()+'-'+Math.random().toString(36).slice(2,8); cambio = true; } }
+  if(cambio) lsSet(nombre, limpia);       // sin await en el medio: nada se puede colar aquí
+  return limpia;
+}
+async function drenarCola(nombre, intentar){
+  if(!navigator.onLine || typeof sb==='undefined' || !sb) return 0;
+  if(__colasOcupadas[nombre]) return 0;   // ya hay otra pasada corriendo
+  __colasOcupadas[nombre] = true;
+  let logrados = 0;
+  try{
+    const cola = __sellarCola(nombre);
+    if(!cola.length) return 0;
+    const hechos = [], fallos = {};
+    for(const item of cola){
+      try{ await intentar(item); hechos.push(item.__cid); logrados++; }
+      catch(e){ fallos[item.__cid] = { msg:((e && e.message) || String(e)), faltantes:((e && e.faltantes) || null) }; }  // sigue fallando → se queda
+    }
+    if(hechos.length || Object.keys(fallos).length){
+      const ahora = lsGet(nombre, []);    // se vuelve a leer: puede haber entrado algo nuevo
+      const nueva = (Array.isArray(ahora)?ahora:[]).filter(it => it && typeof it==='object' && !Array.isArray(it) && !hechos.includes(it.__cid));
+      for(const it of nueva){             // deja anotado por qué falló y cuántas veces
+        if(it && fallos[it.__cid]!=null){
+          it._ultimoError = fallos[it.__cid].msg;
+          it._faltantes   = fallos[it.__cid].faltantes;
+          it._intentos    = (it._intentos||0)+1;
+        }
+      }
+      lsSet(nombre, nueva);
+    }
+  } finally { __colasOcupadas[nombre] = false; }
+  return logrados;
+}
+
 // Reintenta el dinero que no pudo entrar. Corre al volver el internet y cada 30s.
 async function reintentarCaja(){
-  if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
-  let cola=lsGet('caja_fallidas',[]);
-  if(!cola.length) return;
-  const quedan=[];
-  for(const item of cola){
-    try{ await meterLineaDeCaja(item.linea, item.v); }
-    catch(e){ quedan.push(item); }
-  }
-  lsSet('caja_fallidas', quedan);
+  await drenarCola('caja_fallidas', async item => { await meterLineaDeCaja(item.linea, item.v); });
 }
 
 // Reintenta marcar como PAGADOS los cobros que no se pudieron marcar al cerrar el día.
 // Sin esto, el cobro le vuelve a aparecer al trabajador como si no lo hubiera cobrado.
 async function reintentarCobros(){
-  if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
-  let cola=lsGet('cobros_fallidos',[]);
-  if(!cola.length) return;
-  const quedan=[];
-  for(const c of cola){
-    try{
-      const r=await sb.from('deudas').update({pagada:true, pagada_en:new Date().toISOString(), venta_dia_id:(c.venta_dia_id||null)}).eq('id', c.deudaId);
-      if(r && r.error) throw new Error(r.error.message);
-    }catch(e){ quedan.push(c); }   // sigue sin conexión → se queda para el próximo intento
-  }
-  lsSet('cobros_fallidos', quedan);
-  if(cola.length!==quedan.length){ try{ cargarCobros(); }catch(e){} }
+  const n = await drenarCola('cobros_fallidos', async c => {
+    const r = await sb.from('deudas').update({pagada:true, pagada_en:new Date().toISOString(), venta_dia_id:(c.venta_dia_id||null)}).eq('id', c.deudaId);
+    if(r && r.error) throw new Error(r.error.message);
+  });
+  if(n) { try{ cargarCobros(); }catch(e){} }
 }
 
 async function reintentarComisiones(){
-  if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
-  let cola=lsGet('com_fallidas',[]);
-  if(!cola.length) return;
-  const quedan=[];
-  for(const item of cola){
+  await drenarCola('com_fallidas', async item => {
     const fila = item.fila || {tipo:'debo', persona:item.persona, monto:item.monto, venta_dia_id:item.venta_dia_id,
       clave_comision:(item.venta_dia_id!=null?('comvta-'+item.venta_dia_id):null),
       nota:('Comisión 15% de ganancia ($'+num(item.monto)+') - venta del '+item.fecha)};
-    try{
-      // ¿ya existe? (por clave, o por persona+fecha) → no duplicar
-      let existe=false;
-      if(fila.clave_comision){ const {data}=await sb.from('deudas').select('id').eq('clave_comision',fila.clave_comision); existe = data && data.length>0; }
-      if(!existe){
-        const mf=(fila.nota||'').match(/venta del (\d{4}-\d{2}-\d{2})/);
-        if(mf){ const {data}=await sb.from('deudas').select('id,nota').eq('tipo','debo').eq('persona',fila.persona);
-          existe = (data||[]).some(c=>(c.nota||'').includes('Comisión 15%') && (c.nota||'').includes('venta del '+mf[1])); }
-      }
-      if(existe) continue; // ya está → se saca de la cola
-      // crear (con fallback si falta la columna clave_comision)
-      let r=await sb.from('deudas').insert(fila);
-      if(r.error && ((r.error.message||'').includes('clave_comision')||(r.error.message||'').includes('column'))){
-        const base=Object.assign({},fila); delete base.clave_comision; r=await sb.from('deudas').insert(base);
-      }
-      if(r.error){ quedan.push(item); }   // sigue fallando → se queda para el próximo intento
-    }catch(e){ quedan.push(item); }         // sin conexión a mitad → se queda
-  }
-  lsSet('com_fallidas', quedan);
+    // ¿ya existe? (por clave, o por persona+fecha) → no duplicar
+    let existe=false;
+    if(fila.clave_comision){ const {data}=await sb.from('deudas').select('id').eq('clave_comision',fila.clave_comision); existe = data && data.length>0; }
+    if(!existe){
+      const mf=(fila.nota||'').match(/venta del (\d{4}-\d{2}-\d{2})/);
+      if(mf){ const {data}=await sb.from('deudas').select('id,nota').eq('tipo','debo').eq('persona',fila.persona);
+        existe = (data||[]).some(c=>(c.nota||'').includes('Comisión 15%') && (c.nota||'').includes('venta del '+mf[1])); }
+    }
+    if(existe) return;  // ya está → se saca de la cola
+    // crear (con fallback si falta la columna clave_comision)
+    let r=await sb.from('deudas').insert(fila);
+    if(r.error && ((r.error.message||'').includes('clave_comision')||(r.error.message||'').includes('column'))){
+      const base=Object.assign({},fila); delete base.clave_comision; r=await sb.from('deudas').insert(base);
+    }
+    if(r.error) throw new Error(r.error.message);   // sigue fallando → se queda para el próximo intento
+  });
 }
 async function sincronizarPendientes(){  if(sincronizando || !navigator.onLine) { actualizarConexionUI(); return; }
   sincronizando = true;
@@ -8462,41 +8575,15 @@ async function sincronizarPendientes(){  if(sincronizando || !navigator.onLine) 
 }
 
 async function sincronizarPedidosPendientes(){
-  const pendientes = lsGet('vt_pending_pedidos', []);
-  if(pendientes.length===0) return;
-  const restantes = [];
-  for(const p of pendientes){
-    try{
-      const {error} = await sb.from('pedidos').insert({almacen_id:p.almacen_id, producto_id:p.producto_id, cantidad:p.cantidad, nota:p.nota});
-      if(error) throw error;
-    }catch(err){
-      console.error('Pedido pendiente no sincronizado todavía:', err);
-      p._ultimoError = err.message || String(err);
-      restantes.push(p);
-    }
-  }
-  lsSet('vt_pending_pedidos', restantes);
-  if(puestoActual && restantes.length < pendientes.length) await cargarMisPedidos();
+  const n = await drenarCola('vt_pending_pedidos', async p => {
+    const {error} = await sb.from('pedidos').insert({almacen_id:p.almacen_id, producto_id:p.producto_id, cantidad:p.cantidad, nota:p.nota});
+    if(error) throw error;
+  });
+  if(puestoActual && n) await cargarMisPedidos();
 }
 
 async function sincronizarDiasPendientes(){
-  const dias = lsGet('vt_pending_days', []);
-  if(dias.length===0) return;
-  const restantes = [];
-  let algunoOk = false;
-  for(const dia of dias){
-    try{
-      await sincronizarUnDia(dia);
-      algunoOk = true;
-    }catch(err){
-      console.error('Día pendiente no se pudo sincronizar todavía:', err);
-      dia._ultimoError = err.message || String(err);
-      dia._faltantes = (err && err.faltantes) ? err.faltantes : null;
-      dia._intentos = (dia._intentos || 0) + 1;
-      restantes.push(dia);
-    }
-  }
-  lsSet('vt_pending_days', restantes);
+  const algunoOk = await drenarCola('vt_pending_days', async dia => { await sincronizarUnDia(dia); });
   if(algunoOk && puestoActual){
     // PALOMITA: confirmación visual cuando las ventas pendientes sincronizaron
     pantallaExito('¡Sincronizado!', 'Tu venta se guardó en el sistema.');
@@ -9343,23 +9430,16 @@ async function entradaMayoreo(signo){
 }
 // Sube los movimientos de mercancía pendientes con el RPC atómico. Idempotente + reintento.
 async function subirMovsMayoreo(){
-  if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
-  let cola=lsGet('may_movs_pendientes',[]);
-  if(!cola.length) return;
-  const quedan=[];
-  for(const m of cola){
-    try{
-      const { error } = await sb.rpc('mover_mayoreo_atomico', { p_clave:m.clave, p_almacen:m.almacen_id, p_producto:m.producto_id, p_delta:m.delta, p_nombre:m.nombre||'' });
-      if(error){
-        if(String(error.message||'').includes('mover_mayoreo_atomico')){
-          if(!window.__avisoRpcMov){ window.__avisoRpcMov=true; try{ alert('Falta correr el SQL "mover_mayoreo_atomico.sql" en Supabase. El movimiento quedó guardado y se subirá cuando lo corras.'); }catch(_){} }
-        }
-        registrarError('mayoreo/movimiento','No subió el movimiento (queda en cola)', error.message);
-        quedan.push(m);
+  await drenarCola('may_movs_pendientes', async m => {
+    const { error } = await sb.rpc('mover_mayoreo_atomico', { p_clave:m.clave, p_almacen:m.almacen_id, p_producto:m.producto_id, p_delta:m.delta, p_nombre:m.nombre||'' });
+    if(error){
+      if(String(error.message||'').includes('mover_mayoreo_atomico')){
+        if(!window.__avisoRpcMov){ window.__avisoRpcMov=true; try{ alert('Falta correr el SQL "mover_mayoreo_atomico.sql" en Supabase. El movimiento quedó guardado y se subirá cuando lo corras.'); }catch(_){} }
       }
-    }catch(e){ quedan.push(m); }
-  }
-  lsSet('may_movs_pendientes', quedan);
+      registrarError('mayoreo/movimiento','No subió el movimiento (queda en cola)', error.message);
+      throw new Error(error.message);
+    }
+  });
 }
 
 // ----- FOTOS DE MAYOREO -----
@@ -9592,28 +9672,21 @@ async function procesarVentaMayoreo(carrito, reservaId){
 
 // Sube las ventas de mayoreo pendientes con el RPC atómico. Idempotente y con reintento.
 async function subirVentasMayoreo(){
-  if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
-  let cola=lsGet('may_ventas_pendientes',[]);
-  if(!cola.length) return;
-  const quedan=[];
-  for(const v of cola){
-    try{
-      const { data, error } = await sb.rpc('vender_mayoreo_atomico', {
-        p_clave:v.clave, p_almacen:v.almacen_id, p_items:v.items,
-        p_total:v.total, p_ganancia:v.ganancia, p_usuario:v.usuario||'', p_reserva_id:v.reserva_id||null
-      });
-      if(error){
-        // Si el RPC no existe todavía, avisar una vez (no perder la venta: queda en cola)
-        if(String(error.message||'').includes('vender_mayoreo_atomico')){
-          if(!window.__avisoRpcVenta){ window.__avisoRpcVenta=true; try{ alert('Falta correr el SQL "vender_mayoreo_atomico.sql" en Supabase. La venta quedó guardada y se subirá cuando lo corras.'); }catch(_){} }
-        }
-        registrarError('mayoreo/venta','No subió la venta (queda en cola para reintento)', error.message);
-        quedan.push(v); // se reintenta luego
+  await drenarCola('may_ventas_pendientes', async v => {
+    const { error } = await sb.rpc('vender_mayoreo_atomico', {
+      p_clave:v.clave, p_almacen:v.almacen_id, p_items:v.items,
+      p_total:v.total, p_ganancia:v.ganancia, p_usuario:v.usuario||'', p_reserva_id:v.reserva_id||null
+    });
+    if(error){
+      // Si el RPC no existe todavía, avisar una vez (no perder la venta: queda en cola)
+      if(String(error.message||'').includes('vender_mayoreo_atomico')){
+        if(!window.__avisoRpcVenta){ window.__avisoRpcVenta=true; try{ alert('Falta correr el SQL "vender_mayoreo_atomico.sql" en Supabase. La venta quedó guardada y se subirá cuando lo corras.'); }catch(_){} }
       }
-      // si no hay error (data 'ok' o 'ya_existe') → se saca de la cola
-    }catch(e){ quedan.push(v); } // sin conexión a mitad → se queda para el próximo intento
-  }
-  lsSet('may_ventas_pendientes', quedan);
+      registrarError('mayoreo/venta','No subió la venta (queda en cola para reintento)', error.message);
+      throw new Error(error.message); // se reintenta luego
+    }
+    // si no hay error (data 'ok' o 'ya_existe') → se saca de la cola
+  });
 }
 
 async function finalizarVentaMayoreo(){
@@ -10052,14 +10125,20 @@ function registrarError(donde, mensaje, detalle){
   }catch(_){}
 }
 async function flushErrores(){
+  if(__colasOcupadas['errores_cola']) return;   // que no corran dos a la vez y se borren avisos sin subir
+  __colasOcupadas['errores_cola'] = true;
   try{
     if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
     let cola=lsGet('errores_cola', []);
     if(!cola.length) return;
     const lote=cola.slice(0,50);
     const { error }=await sb.from('errores').insert(lote.map(r=>({usuario:r.usuario, donde:r.donde, mensaje:r.mensaje, detalle:r.detalle, version:r.version, en_linea:r.en_linea, creado_en:r.creado_en})));
-    if(!error){ const resto=lsGet('errores_cola', []).slice(lote.length); lsSet('errores_cola', resto); if(resto.length) flushErrores(); }
+    if(!error){
+      const resto=lsGet('errores_cola', []).slice(lote.length); lsSet('errores_cola', resto);
+      if(resto.length){ __colasOcupadas['errores_cola'] = false; return flushErrores(); }
+    }
   }catch(_){}
+  finally{ __colasOcupadas['errores_cola'] = false; }
 }
 // Cuelgues y promesas rechazadas que no atrapó ningún try/catch:
 window.addEventListener('error', function(e){ try{ registrarError('cuelgue', (e&&e.message)||'error', (e&&e.filename)?(e.filename+':'+e.lineno):''); }catch(_){} });
@@ -10944,14 +11023,12 @@ async function agregarRecepcion(){
 
 // Sube lo que quedó en la cola (se llama al volver el internet).
 async function sincronizarRecepciones(){
-  let cola = lsGet('recep_pending', []);
-  if(!cola.length || !navigator.onLine) return;
-  const quedan = [];
-  for(const fila of cola){
-    try{ const { error } = await sb.from('recepciones').insert(fila); if(error) throw error; }
-    catch(e){ quedan.push(fila); }
-  }
-  lsSet('recep_pending', quedan);
+  const n = await drenarCola('recep_pending', async fila => {
+    const envio = Object.assign({}, fila); delete envio.__cid;   // la marca interna no va a la base
+    const { error } = await sb.from('recepciones').insert(envio);
+    if(error) throw error;
+  });
+  if(!n) return;
   const tab = document.getElementById('vtab-recepcion');
   if(tab && tab.style.display!=='none') cargarRecepcionesHoy();
 }
@@ -11961,6 +12038,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v152</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v154</div>
 </body>
 </html>
