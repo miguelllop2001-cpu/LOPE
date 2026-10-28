@@ -2691,6 +2691,42 @@ function renderListaMovimientos(){
 // veces, la cantidad NUNCA se suma dos o tres veces.
 // Recuerda en el teléfono qué líneas ya se aplicaron. Así la protección contra duplicados
 // funciona SIEMPRE, aunque la base de datos todavía no tenga la columna 'clave_local'.
+// Ejecuta un PASO una sola vez, aunque la operación entera se reintente. Sirve para los
+// pasos que NO se pueden repetir sin hacer daño (descontar mercancía, crear una deuda).
+// Sin esto, si una operación se aplicaba a medias y fallaba, al reintentarla la mercancía
+// se descontaba DOS veces.
+// Mete UN movimiento de caja con clave única del servidor: si se reintenta, la base
+// rechaza el repetido en vez de duplicar el dinero. Si la base todavía no tiene la columna
+// (falta correr caja_trazable.sql), se guarda igual pero comprobando antes por parecido.
+async function meterMovimientoCajaUnico(fila, clave){
+  try{
+    if(clave){
+      const {data, error} = await sb.from('caja_movimientos').select('id').eq('clave_caja', clave).limit(1);
+      if(!error && data && data.length) return true;   // ya estaba: no duplicar
+    }
+  }catch(e){}
+  let r = await sb.from('caja_movimientos').insert(Object.assign({}, fila, clave?{clave_caja:clave}:{}));
+  if(r && r.error && /clave_caja|column/i.test(r.error.message||'')){
+    // Sin la columna: se comprueba por parecido para no duplicar, y se guarda sin clave.
+    try{
+      const {data} = await sb.from('caja_movimientos').select('id')
+        .eq('tipo',fila.tipo).eq('monto',fila.monto).eq('concepto',fila.concepto).limit(1);
+      if(data && data.length) return true;
+    }catch(e){}
+    r = await sb.from('caja_movimientos').insert(fila);
+  }
+  if(r && r.error && /duplicate|unique|23505/i.test(r.error.message||'')) return true;
+  if(r && r.error) throw r.error;
+  return true;
+}
+
+async function pasoUnaVez(clave, fn){
+  if(clave && claveMovYaAplicada(clave)) return false;
+  await fn();
+  if(clave) marcarClaveMovAplicada(clave);
+  return true;
+}
+
 function claveMovYaAplicada(clave){
   if(!clave) return false;
   return lsGet('mov_aplicadas', []).includes(clave);
@@ -4248,28 +4284,38 @@ async function procesarOperacionAdmin(op, colaCompleta){
       const saldo = await obtenerSaldoMetodo(p.metodo);
       if(saldo < p.monto) throw new Error(`Sin suficiente ${p.metodo} para este egreso (hay $${saldo.toFixed(2)})`);
     }
-    await sb.from('caja_movimientos').insert({tipo:p.tipo, metodo:p.metodo, categoria:p.categoria, monto:p.monto, concepto:p.concepto});
+    // Clave única: si se reintenta, la base rechaza el repetido en vez de duplicar el dinero.
+    await meterMovimientoCajaUnico({tipo:p.tipo, metodo:p.metodo, categoria:p.categoria, monto:p.monto, concepto:p.concepto}, 'opcaja-'+op.id);
 
   } else if(op.tipo === 'crear_deuda_dinero'){
     if(p.tipo==='me_deben'){
       const saldo = await obtenerSaldoMetodo(p.metodo);
       if(saldo < p.monto) throw new Error(`Sin suficiente ${p.metodo} para prestar (hay $${saldo.toFixed(2)})`);
     }
-    await sb.from('deudas').insert({tipo:p.tipo, tipo_deuda:'dinero', persona:p.persona, monto:p.monto, nota:p.nota, metodo:p.metodo||null});
+    await pasoUnaVez('opdeuda-'+op.id, async()=>{
+      const r=await sb.from('deudas').insert({tipo:p.tipo, tipo_deuda:'dinero', persona:p.persona, monto:p.monto, nota:p.nota, metodo:p.metodo||null});
+      if(r && r.error) throw r.error;
+    });
     if(p.tipo==='me_deben'){
-      await sb.from('caja_movimientos').insert({tipo:'egreso', metodo:p.metodo, categoria:'otro', monto:p.monto, concepto:`Préstamo de dinero a ${p.persona}`});
+      await meterMovimientoCajaUnico({tipo:'egreso', metodo:p.metodo, categoria:'otro', monto:p.monto, concepto:`Préstamo de dinero a ${p.persona}`}, 'opcaja-'+op.id);
     }
 
   } else if(op.tipo === 'crear_deuda_articulo'){
-    if(p.tipo === 'me_deben'){
-      await verificarStock(p.almacenId, p.productoId, p.cantidad);
-      await ajustarInventario(p.almacenId, p.productoId, -p.cantidad);
-      await sb.from('movimientos').insert({tipo:'extraccion', producto_id:p.productoId, almacen_origen_id:p.almacenId, cantidad:p.cantidad, nota:`Préstamo de artículo a ${p.persona}`});
-    } else {
-      await ajustarInventario(p.almacenId, p.productoId, p.cantidad);
-      await sb.from('movimientos').insert({tipo:'ingreso', producto_id:p.productoId, almacen_destino_id:p.almacenId, cantidad:p.cantidad, nota:`Préstamo de artículo recibido de ${p.persona}`});
-    }
-    await sb.from('deudas').insert({tipo:p.tipo, tipo_deuda:'articulo', persona:p.persona, producto_id:p.productoId, cantidad:p.cantidad, almacen_id:p.almacenId, monto:0, nota:p.nota});
+    // La mercancía se mueve UNA sola vez aunque esto se reintente.
+    await pasoUnaVez('opinv-'+op.id, async()=>{
+      if(p.tipo === 'me_deben'){
+        await verificarStock(p.almacenId, p.productoId, p.cantidad);
+        await ajustarInventario(p.almacenId, p.productoId, -p.cantidad);
+        await insertarMovimiento({tipo:'extraccion', producto_id:p.productoId, almacen_origen_id:p.almacenId, cantidad:p.cantidad, nota:`Préstamo de artículo a ${p.persona}`, clave_local:'opinv-'+op.id});
+      } else {
+        await ajustarInventario(p.almacenId, p.productoId, p.cantidad);
+        await insertarMovimiento({tipo:'ingreso', producto_id:p.productoId, almacen_destino_id:p.almacenId, cantidad:p.cantidad, nota:`Préstamo de artículo recibido de ${p.persona}`, clave_local:'opinv-'+op.id});
+      }
+    });
+    await pasoUnaVez('opdeuda-'+op.id, async()=>{
+      const r=await sb.from('deudas').insert({tipo:p.tipo, tipo_deuda:'articulo', persona:p.persona, producto_id:p.productoId, cantidad:p.cantidad, almacen_id:p.almacenId, monto:0, nota:p.nota});
+      if(r && r.error) throw r.error;
+    });
 
   } else if(op.tipo === 'pagar_deuda_dinero'){
     const tipoCaja = p.tipo==='debo' ? 'egreso' : 'ingreso';
@@ -4285,7 +4331,8 @@ async function procesarOperacionAdmin(op, colaCompleta){
       .update({pagada:true, pagada_en:new Date().toISOString()}).eq('id', p.deudaId).eq('pagada', false).select();
     if(reclamada && reclamada.length > 0){
       try{
-        await sb.from('caja_movimientos').insert({tipo:tipoCaja, metodo:p.metodo, categoria, monto:p.monto, concepto});
+        // Clave única: si se reintenta, no se duplica el movimiento de dinero.
+        await meterMovimientoCajaUnico({tipo:tipoCaja, metodo:p.metodo, categoria, monto:p.monto, concepto}, 'opcaja-'+op.id);
       }catch(eMov){
         await sb.from('deudas').update({pagada:false, pagada_en:null}).eq('id', p.deudaId);
         throw eMov;
@@ -4293,14 +4340,17 @@ async function procesarOperacionAdmin(op, colaCompleta){
     }
 
   } else if(op.tipo === 'resolver_prestamo_articulo'){
-    if(p.tipoOriginal === 'me_deben'){
-      await ajustarInventario(p.almacenId, p.productoId, p.cantidad);
-      await sb.from('movimientos').insert({tipo:'ingreso', producto_id:p.productoId, almacen_destino_id:p.almacenId, cantidad:p.cantidad, nota:`Devolución de préstamo — ${p.persona}`});
-    } else {
-      await verificarStock(p.almacenId, p.productoId, p.cantidad);
-      await ajustarInventario(p.almacenId, p.productoId, -p.cantidad);
-      await sb.from('movimientos').insert({tipo:'extraccion', producto_id:p.productoId, almacen_origen_id:p.almacenId, cantidad:p.cantidad, nota:`Devolución de préstamo — ${p.persona}`});
-    }
+    // La mercancía se mueve UNA sola vez aunque esto se reintente.
+    await pasoUnaVez('opinv-'+op.id, async()=>{
+      if(p.tipoOriginal === 'me_deben'){
+        await ajustarInventario(p.almacenId, p.productoId, p.cantidad);
+        await insertarMovimiento({tipo:'ingreso', producto_id:p.productoId, almacen_destino_id:p.almacenId, cantidad:p.cantidad, nota:`Devolución de préstamo — ${p.persona}`, clave_local:'opinv-'+op.id});
+      } else {
+        await verificarStock(p.almacenId, p.productoId, p.cantidad);
+        await ajustarInventario(p.almacenId, p.productoId, -p.cantidad);
+        await insertarMovimiento({tipo:'extraccion', producto_id:p.productoId, almacen_origen_id:p.almacenId, cantidad:p.cantidad, nota:`Devolución de préstamo — ${p.persona}`, clave_local:'opinv-'+op.id});
+      }
+    });
     await sb.from('deudas').update({pagada:true, pagada_en:new Date().toISOString()}).eq('id', p.deudaId);
   }
 }
@@ -5454,6 +5504,41 @@ async function confirmarEliminarVenta(id){
 //  La diferencia normal es lo que el trabajador se cobró de comisión (la app le deja
 //  entregar la venta MENOS su cobro). Lo que NO cuadra con eso es lo que hay que mirar.
 // ══════════════════════════════════════════════════════════════════════════════
+// Arregla una fila de la conciliación: registra en caja el dinero que falta de ese día
+// y ese puesto, con el concepto y la clave correctos para que la fila quede en verde.
+let __concFilas = [];
+async function registrarDineroFaltante(i){
+  const f = __concFilas[i];
+  if(!f){ alert('No encontré esa fila. Dale a Revisar otra vez.'); return; }
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  const sugerido = Math.round(Math.abs(f.sinExplicar));
+  const txt = prompt(
+    'Registrar dinero de la venta\n\n'+
+    f.puesto+' — '+f.fecha+'\n'+
+    'Vendió: $'+num(f.venta)+'\n'+
+    'Ya entró a caja: $'+num(f.entro)+'\n'+
+    'Comisión cobrada: $'+num(f.cobrado)+'\n\n'+
+    'Falta por registrar: $'+num(sugerido)+'\n\n'+
+    'Escribe el monto que SÍ se entregó (puedes cambiarlo):',
+    String(sugerido)
+  );
+  if(txt===null) return;
+  const monto = Math.round(Number(String(txt).replace(/[^0-9.\-]/g,''))*100)/100;
+  if(!monto || monto<=0){ alert('Monto no válido.'); return; }
+  if(monto > f.venta + 1){ alert('Ese monto es mayor que lo que se vendió ese día ($'+num(f.venta)+'). Revísalo.'); return; }
+  if(!confirm('¿Registrar $'+num(monto)+' como entrada de caja de '+f.puesto+' del '+f.fecha+'?\n\nEsto SOLO se hace si el dinero sí se entregó.')) return;
+  try{
+    await meterMovimientoCajaUnico({
+      tipo:'ingreso', metodo:'efectivo', categoria:'venta', monto:monto,
+      concepto:'Venta '+f.puesto+' - '+f.fecha, almacen_id:f.almacen_id
+    }, 'concfix-'+f.almacen_id+'-'+f.fecha+'-'+monto);
+    alert('Registrado. ✓');
+    await cargarConciliacionCaja();
+  }catch(e){
+    alert('No se pudo: '+((e&&e.message)||e));
+  }
+}
+
 function prepararConciliacion(){
   const h=document.getElementById('concHasta'), d=document.getElementById('concDesde');
   if(h && !h.value) h.value = fechaHoyLocal();
@@ -5544,7 +5629,7 @@ async function datosConciliacion(desde, hasta){
     const alm=(ALMACENES||[]).find(a=>a.id===g.almacen_id);
     const dif=Math.round((g.venta-g.entro)*100)/100;
     const sinExplicar=Math.round((dif-g.cobrado)*100)/100;
-    return {fecha:g.fecha, puesto: alm?alm.nombre:('#'+g.almacen_id), nVentas:g.nVentas,
+    return {fecha:g.fecha, almacen_id:g.almacen_id, puesto: alm?alm.nombre:('#'+g.almacen_id), nVentas:g.nVentas,
             venta:g.venta, entro:g.entro, cobrado:g.cobrado, dif, sinExplicar,
             sinCaja: (g.entro===0 && g.venta>0)};
   });
@@ -5578,9 +5663,10 @@ async function cargarConciliacionCaja(){
         : '<div class="msg ok" style="margin-top:12px">✓ Todas las ventas tienen su entrada de caja.</div>')
       +'</div>';
     const orden=[...filas].sort((a,b)=> (b.sinCaja?1:0)-(a.sinCaja?1:0) || Math.abs(b.sinExplicar)-Math.abs(a.sinExplicar));
+    __concFilas = orden;   // se guardan para poder arreglar una fila con un botón
     body.innerHTML='<div class="card"><div style="overflow-x:auto"><table style="min-width:700px">'
-      +'<thead><tr><th>Fecha</th><th>Puesto</th><th class="numcell">Ventas</th><th class="numcell">Vendió</th><th class="numcell">Entró a caja</th><th class="numcell">Diferencia</th><th class="numcell">Comisión cobrada</th><th class="numcell">Sin explicar</th><th>Estado</th></tr></thead><tbody>'
-      +orden.map(function(f){
+      +'<thead><tr><th>Fecha</th><th>Puesto</th><th class="numcell">Ventas</th><th class="numcell">Vendió</th><th class="numcell">Entró a caja</th><th class="numcell">Diferencia</th><th class="numcell">Comisión cobrada</th><th class="numcell">Sin explicar</th><th>Estado</th><th></th></tr></thead><tbody>'
+      +orden.map(function(f,i){
         const estado = f.sinCaja ? '<span style="color:var(--red);font-weight:700">⚠ Sin entrada de caja</span>'
                       : (Math.abs(f.sinExplicar)<=1 ? '<span style="color:var(--green)">✓ Cuadra</span>'
                       : '<span style="color:var(--amber)">Revisar</span>');
@@ -5590,7 +5676,10 @@ async function cargarConciliacionCaja(){
           +'<td class="numcell">$'+num(f.venta)+'</td><td class="numcell">$'+num(f.entro)+'</td>'
           +'<td class="numcell">$'+num(f.dif)+'</td><td class="numcell">$'+num(f.cobrado)+'</td>'
           +'<td class="numcell">'+(Math.abs(f.sinExplicar)>1?'<b style="color:var(--red)">$'+num(f.sinExplicar)+'</b>':'—')+'</td>'
-          +'<td>'+estado+'</td></tr>';
+          +'<td>'+estado+'</td>'
+          +'<td>'+(Math.abs(f.sinExplicar)>1
+              ? '<button class="primary" style="padding:6px 12px;font-size:13px;white-space:nowrap" onclick="registrarDineroFaltante('+i+')">💵 Registrar</button>'
+              : '')+'</td></tr>';
       }).join('')
       +'</tbody></table></div></div>';
   }catch(e){ msg.textContent='No se pudo revisar: '+(e.message||e); msg.className='msg err'; }
@@ -11875,7 +11964,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v150</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v152</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
