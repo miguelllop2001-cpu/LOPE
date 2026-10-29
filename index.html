@@ -1209,7 +1209,7 @@
           </div>
           <select id="cajaTipo" style="display:none">
             <option value="ingreso">Ingreso (entra dinero)</option>
-            <option value="egreso">Egreso (sale dinero)</option>
+            <option value="egreso" selected>Egreso (sale dinero)</option>
           </select>
         </div>
         <div class="field">
@@ -1230,7 +1230,7 @@
         </div>
         <div class="field" style="max-width:140px"><label>Monto</label><input type="number" id="cajaMonto" step="any" placeholder="0"></div>
         <div class="field" style="max-width:240px"><label>Concepto</label><input type="text" id="cajaConcepto" placeholder="Ej: pago a proveedor X"></div>
-        <button class="primary" id="btnRegistrarCaja" onclick="registrarCaja()">Registrar entrada</button>
+        <button class="primary" id="btnRegistrarCaja" onclick="registrarCaja()">Registrar salida</button>
       </div>
       <div id="cajaMsg" class="msg"></div>
     </div>
@@ -4046,7 +4046,7 @@ async function cargarDinero(){
     }catch(err){ console.error(err); CAJA_MOVS = lsGet('adm_cache_caja', []); cajaHayMas = false; }
   }
   await calcularTotalesCaja();   // los totales se cuentan sobre TODA la tabla, no sobre la tanda
-  try{ fijarTipoCaja(document.getElementById('cajaTipo').value || 'ingreso'); }catch(e){}
+  try{ fijarTipoCaja(document.getElementById('cajaTipo').value || 'egreso'); }catch(e){}
   renderResumenCaja();
   renderTablaCaja();
   await cargarDeudas();
@@ -12488,7 +12488,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v161</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v162</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
