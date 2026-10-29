@@ -1183,6 +1183,7 @@
   <div id="tab-dinero" class="tab" style="display:none">
     <div class="card">
       <h2>Resumen de caja</h2>
+      <div id="cajaAvisoParcial" class="msg err" style="display:none"></div>
       <div class="row">
         <div class="field"><label>Efectivo en caja</label><div style="font-size:22px;font-weight:700;color:var(--green)" id="totalEfectivo">$0.00</div></div>
         <div class="field"><label>Tarjeta</label><div style="font-size:22px;font-weight:700;color:var(--accent)" id="totalTarjeta">$0.00</div></div>
@@ -2022,8 +2023,7 @@ async function cargarVentasPorVendedor(){
     if(desde) q = q.gte('fecha', desde);
     if(hasta) q = q.lte('fecha', hasta);
     if(almFiltro) q = q.eq('almacen_id', Number(almFiltro));
-    const {data: dias, error} = await q.order('fecha', {ascending:false}).limit(3000);
-    if(error) throw error;
+    const dias = await traerTodasLasFilas(()=> q.order('fecha', {ascending:false}).order('id',{ascending:true}));   // paginado: .limit(3000) no servía, la base corta en 1000
 
     let lista = dias || [];
     if(soloFinalizadas) lista = lista.filter(d=>d.cerrado);
@@ -2336,8 +2336,7 @@ async function buscarVentaGemelaHoy(firmaCarrito, totalCarrito, excluirId){
       .eq('almacen_id', puestoActual.id).eq('fecha', hoy).eq('cerrado', true);
     const dias = (cerrados||[]).filter(d => d.id !== excluirId);
     if(dias.length === 0) return null;
-    const {data: items} = await sb.from('venta_items').select('venta_dia_id, producto_id, cantidad, precio_venta, costo')
-      .in('venta_dia_id', dias.map(d=>d.id));
+    const items = await traerItemsDe(dias.map(d=>d.id), 'venta_dia_id, producto_id, cantidad, precio_venta, costo');
     const porDia = {};
     for(const it of (items||[])){ (porDia[it.venta_dia_id] = porDia[it.venta_dia_id]||[]).push(it); }
     for(const d of dias){
@@ -3238,11 +3237,11 @@ async function renderHistorial(){
   if(idsVentaDia.length>0){
     const [{data: vd}, {data: cobros}] = await Promise.all([
       sb.from('ventas_dia').select('*').in('id', idsVentaDia),
-      sb.from('deudas').select('venta_dia_id, monto, tipo, nota').in('venta_dia_id', idsVentaDia)
+      sb.from('deudas').select('venta_dia_id, monto, tipo, nota, clave_comision').in('venta_dia_id', idsVentaDia)
     ]);
     ventasDiaInfo = vd || [];
     (cobros||[]).forEach(c=>{
-      if(c.tipo==='debo' && (c.nota||'').includes('Comisi')) return; // la comisión no baja el total
+      if(c.tipo==='debo' && ((c.nota||'').includes('Comisi') || c.clave_comision)) return; // la comisión no baja el total
       cobrosPorDia[c.venta_dia_id] = (cobrosPorDia[c.venta_dia_id]||0) + Number(c.monto);
     });
   }
@@ -3966,6 +3965,66 @@ const CAJA_POR_TANDA = 200;
 let cajaHayMas = true;
 let cajaCargando = false;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TOTALES DE CAJA — SE CUENTA TODO, NO SOLO LO QUE SE VE
+// La tabla de abajo se carga por tandas de 200 para que el teléfono no se trabe.
+// El RESUMEN de arriba NO puede calcularse con esa tanda: si solo se suman los
+// últimos 200 movimientos, al registrar uno nuevo el más viejo se sale de la
+// cuenta y el total salta un número que no tiene nada que ver. (Fue lo que pasó:
+// marcaba -77065, se metieron 77065 para dejarlo en 0, y mostró -6048, que era
+// justo el ingreso que se cayó de la ventana.)
+// Esto recorre la tabla COMPLETA, de mil en mil, y suma todo.
+// Trae TODAS las filas de una consulta. La base devuelve como máximo 1000 por tanda;
+// si no se pagina, los totales salen cortos sin avisar de nada. Siempre que haya que
+// SUMAR algo (dinero, ventas, deudas), se trae con esto.
+async function traerTodasLasFilas(hazQuery, porTanda){
+  const PAGE = porTanda || 1000;
+  const todo = [];
+  for(let desde=0;;desde+=PAGE){
+    let data, error;
+    try{ const r = await hazQuery().range(desde, desde+PAGE-1); data=r.data; error=r.error; }
+    catch(e){ error=e; }
+    if(error) throw error;
+    if(!data) break;
+    todo.push(...data);
+    if(data.length < PAGE) break;
+  }
+  return todo;
+}
+
+let TOTALES_CAJA = null;
+async function calcularTotalesCaja(){
+  if(!navigator.onLine || typeof sb==='undefined' || !sb){
+    TOTALES_CAJA = lsGet('adm_cache_totales_caja', null);
+    return TOTALES_CAJA;
+  }
+  try{
+    let efectivo=0, tarjeta=0, sobrantes=0, n=0;
+    for(let desde=0;;desde+=1000){
+      const {data, error} = await sb.from('caja_movimientos')
+        .select('tipo, metodo, monto, categoria, concepto')
+        .order('id',{ascending:true}).range(desde, desde+999);
+      if(error) throw error;
+      const lote = data||[];
+      for(const m of lote){
+        const signo = (m.tipo==='ingreso') ? 1 : -1;
+        const monto = signo*Number(m.monto||0);
+        if(m.metodo==='efectivo') efectivo += monto; else tarjeta += monto;
+        if(m.categoria==='sobrante' || String(m.concepto||'').startsWith('SOBRANTE')) sobrantes += monto;
+        n++;
+      }
+      if(lote.length < 1000) break;
+    }
+    TOTALES_CAJA = {efectivo:Math.round(efectivo*100)/100, tarjeta:Math.round(tarjeta*100)/100,
+                    sobrantes:Math.round(sobrantes*100)/100, n, completo:true, ts:Date.now()};
+    lsSet('adm_cache_totales_caja', TOTALES_CAJA);
+  }catch(e){
+    console.error('No se pudieron calcular los totales de caja:', e);
+    TOTALES_CAJA = lsGet('adm_cache_totales_caja', null);   // lo último bueno que se supo
+  }
+  return TOTALES_CAJA;
+}
+
 async function cargarDinero(){
   cajaHayMas = true;
   if(!navigator.onLine){
@@ -3980,6 +4039,7 @@ async function cargarDinero(){
       lsSet('adm_cache_caja', CAJA_MOVS);
     }catch(err){ console.error(err); CAJA_MOVS = lsGet('adm_cache_caja', []); cajaHayMas = false; }
   }
+  await calcularTotalesCaja();   // los totales se cuentan sobre TODA la tabla, no sobre la tanda
   renderResumenCaja();
   renderTablaCaja();
   await cargarDeudas();
@@ -4004,25 +4064,42 @@ async function cargarDinero(){
 }
 
 function renderResumenCaja(){
-  let efectivo = 0, tarjeta = 0;
-  for(const m of CAJA_MOVS){
-    const signo = m.tipo==='ingreso' ? 1 : -1;
-    if(m.metodo==='efectivo') efectivo += signo*Number(m.monto);
-    else tarjeta += signo*Number(m.monto);
+  // Los totales SIEMPRE salen de la tabla completa (TOTALES_CAJA). Solo si todavía no
+  // se pudieron traer se usa lo cargado, y entonces se avisa que es parcial.
+  const T = TOTALES_CAJA;
+  let efectivo, tarjeta, parcial = false;
+  if(T && T.completo){
+    efectivo = T.efectivo; tarjeta = T.tarjeta;
+  } else {
+    efectivo = 0; tarjeta = 0; parcial = true;
+    for(const m of CAJA_MOVS){
+      const signo = m.tipo==='ingreso' ? 1 : -1;
+      if(m.metodo==='efectivo') efectivo += signo*Number(m.monto);
+      else tarjeta += signo*Number(m.monto);
+    }
   }
   document.getElementById('totalEfectivo').textContent = '$' + num(efectivo);
   document.getElementById('totalTarjeta').textContent = '$' + num(tarjeta);
   document.getElementById('totalGeneral').textContent = '$' + num(efectivo+tarjeta);
+  const avi = document.getElementById('cajaAvisoParcial');
+  if(avi){
+    avi.style.display = parcial ? 'block' : 'none';
+    avi.textContent = parcial ? '⚠️ Estos totales son solo de los movimientos cargados en el teléfono, no del total real. Conéctate para ver el dinero exacto.' : '';
+  }
 
   // Fondo de sobrantes: dinero de más que fueron entregando los vendedores. Sirve para
   // cubrir el valor de un artículo que falte en el almacén.
   let fondoSobrantes = 0;
-  for(const m of CAJA_MOVS){
-    // Cuenta la categoría propia y también los guardados por la vía de respaldo
-    // (cuando la base vieja rechazaba la categoría, iban como 'otro' con concepto SOBRANTE)
-    const esSobrante = m.categoria === 'sobrante' || (m.concepto||'').startsWith('SOBRANTE');
-    if(esSobrante){
-      fondoSobrantes += (m.tipo==='ingreso' ? 1 : -1) * Number(m.monto);
+  if(T && T.completo){
+    fondoSobrantes = T.sobrantes;      // contado sobre la tabla completa
+  } else {
+    for(const m of CAJA_MOVS){
+      // Cuenta la categoría propia y también los guardados por la vía de respaldo
+      // (cuando la base vieja rechazaba la categoría, iban como 'otro' con concepto SOBRANTE)
+      const esSobrante = m.categoria === 'sobrante' || (m.concepto||'').startsWith('SOBRANTE');
+      if(esSobrante){
+        fondoSobrantes += (m.tipo==='ingreso' ? 1 : -1) * Number(m.monto);
+      }
     }
   }
   const elSobrantes = document.getElementById('totalSobrantes');
@@ -4073,19 +4150,17 @@ function renderTablaCaja(){
   empty.style.display='none';
   document.getElementById('cajaContadorPill').textContent = `${CAJA_MOVS.length} movimiento(s)`;
 
-  // Calculamos cuánto había en caja (de ese método) justo ANTES de cada transacción,
-  // recorriendo en orden cronológico (CAJA_MOVS viene del más reciente al más antiguo).
-  const cronologico = CAJA_MOVS.slice().reverse();
-  let saldoEfectivo = 0, saldoTarjeta = 0;
+  // Cuánto había en caja (de ese método) justo ANTES de cada movimiento.
+  // Se va HACIA ATRÁS desde el saldo real de hoy. Antes se empezaba en cero en el
+  // movimiento más viejo CARGADO, y como solo se cargan 200, la columna mentía.
+  const T = TOTALES_CAJA;
+  let saldoEfectivo = (T && T.completo) ? T.efectivo : 0;
+  let saldoTarjeta  = (T && T.completo) ? T.tarjeta  : 0;
   const saldoAntesPorId = {};
-  for(const m of cronologico){
-    if(m.metodo === 'efectivo'){
-      saldoAntesPorId[m.id] = saldoEfectivo;
-      saldoEfectivo += (m.tipo==='ingreso' ? Number(m.monto) : -Number(m.monto));
-    } else {
-      saldoAntesPorId[m.id] = saldoTarjeta;
-      saldoTarjeta += (m.tipo==='ingreso' ? Number(m.monto) : -Number(m.monto));
-    }
+  for(const m of CAJA_MOVS){            // viene del más reciente al más antiguo
+    const efecto = (m.tipo==='ingreso' ? Number(m.monto) : -Number(m.monto));
+    if(m.metodo === 'efectivo'){ saldoEfectivo -= efecto; saldoAntesPorId[m.id] = saldoEfectivo; }
+    else { saldoTarjeta -= efecto; saldoAntesPorId[m.id] = saldoTarjeta; }
   }
 
   const aMostrar = mostrarTodasCaja ? CAJA_MOVS : CAJA_MOVS.slice(0,6);
@@ -4119,14 +4194,27 @@ function toggleVerTodasCaja(){
 // Calcula cuánto dinero hay realmente registrado en un método (efectivo o tarjeta).
 // Sirve para nunca dejar pagar/sacar más de lo que de verdad ha entrado (de ventas o depósitos).
 async function obtenerSaldoMetodo(metodo){
-  const {data, error} = await sb.from('caja_movimientos').select('tipo, monto').eq('metodo', metodo);
-  if(error) throw error;
-  return (data||[]).reduce((s,m)=> s + (m.tipo==='ingreso' ? Number(m.monto) : -Number(m.monto)), 0);
+  // OJO: sin paginar, la base devuelve como máximo 1000 filas y el saldo sale corto.
+  // Con el saldo corto la app puede bloquear una devolución buena, o dejar pasar una mala.
+  let total = 0;
+  for(let desde=0;;desde+=1000){
+    const {data, error} = await sb.from('caja_movimientos').select('tipo, monto')
+      .eq('metodo', metodo).order('id',{ascending:true}).range(desde, desde+999);
+    if(error) throw error;
+    const lote = data||[];
+    for(const m of lote) total += (m.tipo==='ingreso' ? Number(m.monto) : -Number(m.monto));
+    if(lote.length < 1000) break;
+  }
+  return Math.round(total*100)/100;
 }
 
 // Misma idea pero usando lo último guardado en el teléfono — para revisar sin conexión
 // (no es 100% exacto si hay operaciones pendientes sin sincronizar, pero da una idea real).
 function obtenerSaldoMetodoLocal(metodo){
+  // Primero lo último COMPLETO que se supo (contado sobre toda la tabla).
+  const T = TOTALES_CAJA || lsGet('adm_cache_totales_caja', null);
+  if(T && T.completo) return (metodo==='efectivo') ? Number(T.efectivo||0) : Number(T.tarjeta||0);
+  // Si nunca se pudo contar completo, lo guardado en el teléfono (son solo los últimos, avisa la pantalla).
   const movs = lsGet('adm_cache_caja', []);
   return movs.filter(m=>m.metodo===metodo).reduce((s,m)=> s + (m.tipo==='ingreso' ? Number(m.monto) : -Number(m.monto)), 0);
 }
@@ -4615,9 +4703,8 @@ async function cargarDeudas(){
     DEUDAS_CACHE = lsGet('adm_cache_deudas', []);
   } else {
     try{
-      const {data, error} = await sb.from('deudas').select('*').order('creado_en', {ascending:false});
-      if(error) throw error;
-      DEUDAS_CACHE = data || [];
+      // Paginado: sin esto la base devuelve solo 1000 y las deudas viejas desaparecen de la lista y de los totales.
+      DEUDAS_CACHE = await traerTodasLasFilas(()=> sb.from('deudas').select('*').order('creado_en', {ascending:false}));
       lsSet('adm_cache_deudas', DEUDAS_CACHE);
     }catch(err){
       console.error(err);
@@ -5008,8 +5095,7 @@ async function cargarListaVentas(){
     let q = sb.from('ventas_dia').select('*');
     if(desde) q = q.gte('fecha', desde);
     if(hasta) q = q.lte('fecha', hasta);
-    const {data: dias, error} = await q.order('fecha', {ascending:false}).limit(5000);
-    if(error) throw error;
+    const dias = await traerTodasLasFilas(()=> q.order('fecha', {ascending:false}).order('id',{ascending:true}));   // paginado: .limit(5000) no servía, la base corta en 1000
 
     if(!dias || dias.length === 0){
       bodyEl.innerHTML = '<div class="empty">No hay ninguna venta registrada en ese rango.</div>';
@@ -5148,8 +5234,7 @@ async function repararArticulosDuplicados(){
     let q = sb.from('ventas_dia').select('*').eq('cerrado', true);
     if(desde) q = q.gte('fecha', desde);
     if(hasta) q = q.lte('fecha', hasta);
-    const {data: dias, error} = await q.limit(5000);
-    if(error) throw error;
+    const dias = await traerTodasLasFilas(()=> q.order('id',{ascending:true}));   // paginado: .limit(5000) no servía, la base corta en 1000
     if(!dias || dias.length === 0){ msgEl.textContent = 'No hay ventas cerradas en ese rango.'; return; }
 
     const ids = dias.map(d=>d.id);
@@ -5206,12 +5291,11 @@ async function limpiarVentasVacias(){
     let q = sb.from('ventas_dia').select('*');
     if(desde) q = q.gte('fecha', desde);
     if(hasta) q = q.lte('fecha', hasta);
-    const {data: dias, error} = await q.limit(5000);
-    if(error) throw error;
+    const dias = await traerTodasLasFilas(()=> q.order('id',{ascending:true}));   // paginado: .limit(5000) no servía, la base corta en 1000
     if(!dias || dias.length === 0){ msgEl.textContent = 'No hay ventas en ese rango.'; return; }
 
     const ids = dias.map(d=>d.id);
-    const {data: items} = await sb.from('venta_items').select('venta_dia_id').in('venta_dia_id', ids);
+    const items = await traerItemsDe(ids, 'venta_dia_id');
     const conItems = new Set((items||[]).map(i=>i.venta_dia_id));
     const vacias = dias.filter(d => !conItems.has(d.id));
 
@@ -5250,8 +5334,7 @@ async function repararVentasSinDescontar(){
     let q = sb.from('ventas_dia').select('*').eq('cerrado', true);
     if(desde) q = q.gte('fecha', desde);
     if(hasta) q = q.lte('fecha', hasta);
-    const {data: dias, error} = await q.limit(5000);
-    if(error) throw error;
+    const dias = await traerTodasLasFilas(()=> q.order('id',{ascending:true}));   // paginado: .limit(5000) no servía, la base corta en 1000
     if(!dias || dias.length === 0){ msgEl.textContent = 'No hay ventas cerradas en ese rango.'; return; }
 
     const ids = dias.map(d=>d.id);
@@ -5546,9 +5629,8 @@ async function verCajaDeEseDia(i){
   const cont = document.getElementById('concDetalle');
   if(cont){ cont.innerHTML = '<div class="card">Buscando…</div>'; cont.style.display='block'; }
   try{
-    const {data, error} = await sb.from('caja_movimientos').select('*')
-      .eq('almacen_id', f.almacen_id).eq('tipo','ingreso').order('id',{ascending:true}).limit(2000);
-    if(error) throw error;
+    const data = await traerTodasLasFilas(()=> sb.from('caja_movimientos').select('*')
+      .eq('almacen_id', f.almacen_id).eq('tipo','ingreso').order('id',{ascending:true}));
     const delDia = (data||[]).filter(m => (m.concepto||'').includes(f.fecha));
     __concCaja = delDia;
     if(!delDia.length){
@@ -5613,8 +5695,7 @@ async function datosConciliacion(desde, hasta){
   let q = sb.from('ventas_dia').select('*').eq('cerrado', true);
   if(desde) q = q.gte('fecha', desde);
   if(hasta) q = q.lte('fecha', hasta);
-  const {data: dias, error} = await q.limit(5000);
-  if(error) throw error;
+  const dias = await traerTodasLasFilas(()=> q.order('id',{ascending:true}));   // paginado: .limit(5000) no servía, la base corta en 1000
   if(!dias || !dias.length) return {filas:[]};
 
   const items = await traerItemsDe(dias.map(d=>d.id), '*');
@@ -5664,7 +5745,7 @@ async function datosConciliacion(desde, hasta){
   }
 
   // 3) comisiones cobradas dentro de esas ventas
-  const {data: deu} = await sb.from('deudas').select('id, venta_dia_id, pagada, monto, nota, persona').eq('tipo','debo');
+  const deu = await traerTodasLasFilas(()=> sb.from('deudas').select('id, venta_dia_id, pagada, monto, nota, persona, clave_comision').eq('tipo','debo').order('id',{ascending:true}));
   for(const c of (deu||[])){
     if(!c.pagada || c.venta_dia_id==null) continue;
     if(!(c.nota||'').includes('Comisi')) continue;
@@ -5824,11 +5905,11 @@ async function revisarComisionesAuto(){
     if(!usuarioActual || (usuarioActual.rol!=='dueno' && usuarioActual.rol!=='administrador')) return;
     try{ if(sessionStorage.getItem('com_auto_revisado')) return; }catch(e){}
     const desde = new Date(Date.now()-60*86400000).toISOString().slice(0,10);
-    const {data: dias} = await sb.from('ventas_dia').select('*').eq('cerrado',true).gte('fecha',desde).limit(3000);
+    const dias = await traerTodasLasFilas(()=> sb.from('ventas_dia').select('*').eq('cerrado',true).gte('fecha',desde).order('id',{ascending:true}));
     if(!dias || !dias.length) return;
     const items = await traerItemsDe(dias.map(d=>d.id), '*');
     const porDia={}; (items||[]).forEach(it=>{ (porDia[it.venta_dia_id]=porDia[it.venta_dia_id]||[]).push(it); });
-    const {data: comis} = await sb.from('deudas').select('id, venta_dia_id, clave_comision, nota, persona').eq('tipo','debo');
+    const comis = await traerTodasLasFilas(()=> sb.from('deudas').select('id, venta_dia_id, clave_comision, nota, persona').eq('tipo','debo').order('id',{ascending:true}));
     const porVenta=new Set(), porClave=new Set(), porPersonaFecha=new Set();
     (comis||[]).forEach(c=>{
       if(c.venta_dia_id!=null && (c.nota||'').includes('Comisión 15%')) porVenta.add(c.venta_dia_id);
@@ -5864,8 +5945,7 @@ async function revisarComisionesFaltantes(){
     let q = sb.from('ventas_dia').select('*').eq('cerrado', true);
     if(desde) q = q.gte('fecha', desde);
     if(hasta) q = q.lte('fecha', hasta);
-    const {data: dias, error} = await q.limit(3000);
-    if(error) throw error;
+    const dias = await traerTodasLasFilas(()=> q.order('id',{ascending:true}));   // paginado: .limit(3000) no servía, la base corta en 1000
     if(!dias || dias.length===0){ msgEl.textContent='No hay ventas cerradas en ese rango.'; return; }
 
     const ids = dias.map(d=>d.id);
@@ -5874,7 +5954,7 @@ async function revisarComisionesFaltantes(){
     for(const it of (items||[])){ (itemsPorDia[it.venta_dia_id]=itemsPorDia[it.venta_dia_id]||[]).push(it); }
 
     // Todas las comisiones de vendedor existentes (por vínculo a la venta y por clave)
-    const {data: comis} = await sb.from('deudas').select('id, venta_dia_id, clave_comision, nota, monto, persona').eq('tipo','debo');
+    const comis = await traerTodasLasFilas(()=> sb.from('deudas').select('id, venta_dia_id, clave_comision, nota, monto, persona').eq('tipo','debo').order('id',{ascending:true}));
     const comisionPorVenta = new Set();
     const comisionPorClave = new Set();
     const comisionPorPersonaFecha = new Set(); // respaldo: comisiones viejas o sin vínculo
@@ -5947,7 +6027,7 @@ async function generarComisionFaltante(ventaDiaId){
     // PROTECCIÓN EXTRA: ¿ya hay una comisión de ESA persona y ESA fecha (aunque sin vínculo)?
     // Evita pagar dos veces cuando la comisión vieja se guardó sin clave.
     try{
-      const {data: mismas} = await sb.from('deudas').select('id,nota,monto').eq('tipo','debo').eq('persona', quienCobra);
+      const mismas = await traerTodasLasFilas(()=> sb.from('deudas').select('id,nota,monto').eq('tipo','debo').eq('persona', quienCobra).order('id',{ascending:true}));
       const yaFecha = (mismas||[]).filter(c=>(c.nota||'').includes('Comisión 15%') && (c.nota||'').includes('venta del '+dia.fecha));
       if(yaFecha.length>0){
         const seguir = confirm('⚠️ OJO: '+quienCobra+' YA tiene una comisión registrada de la venta del '+dia.fecha+' (por $'+num(yaFecha[0].monto)+').\n\nSi generas otra, se le pagaría DOBLE.\n\n¿Seguro que quieres generarla de todos modos?');
@@ -6692,7 +6772,7 @@ async function buscarOAbrirVentaDia(){
     let itemsPorDia = {};
     try{
       const ids = lista.map(d=>d.id);
-      const {data: its} = await sb.from('venta_items').select('venta_dia_id, producto_id, cantidad, precio_venta').in('venta_dia_id', ids);
+      const its = await traerItemsDe(ids, 'venta_dia_id, producto_id, cantidad, precio_venta');
       (its||[]).forEach(i=>{
         if(!itemsPorDia[i.venta_dia_id]) itemsPorDia[i.venta_dia_id] = [];
         itemsPorDia[i.venta_dia_id].push(`${i.producto_id}x${i.cantidad}@${i.precio_venta}`);
@@ -6706,7 +6786,7 @@ async function buscarOAbrirVentaDia(){
         .eq('almacen_id', puestoActual.id).eq('fecha', hoy).eq('cerrado', true);
       const idsCerrados = (cerrados||[]).map(d=>d.id);
       if(idsCerrados.length > 0){
-        const {data: itsCerrados} = await sb.from('venta_items').select('venta_dia_id, producto_id, cantidad, precio_venta').in('venta_dia_id', idsCerrados);
+        const itsCerrados = await traerItemsDe(idsCerrados, 'venta_dia_id, producto_id, cantidad, precio_venta');
         const firmasCerradas = {};
         for(const i of (itsCerrados||[])){
           if(!firmasCerradas[i.venta_dia_id]) firmasCerradas[i.venta_dia_id] = [];
@@ -6810,7 +6890,7 @@ async function buscarOAbrirVentaDia(){
           .eq('almacen_id', puestoActual.id).eq('fecha', hoy).eq('cerrado', true);
         const idsCerrados = (cerradosHoy||[]).map(d=>d.id);
         if(idsCerrados.length > 0){
-          const {data: itemsCerrados} = await sb.from('venta_items').select('venta_dia_id, producto_id, cantidad, precio_venta').in('venta_dia_id', idsCerrados);
+          const itemsCerrados = await traerItemsDe(idsCerrados, 'venta_dia_id, producto_id, cantidad, precio_venta');
           const porDia = {};
           for(const it of (itemsCerrados||[])){
             if(!porDia[it.venta_dia_id]) porDia[it.venta_dia_id] = [];
@@ -7423,10 +7503,8 @@ async function cargarCobros(){
       (usuarioActual && usuarioActual.nombre) || '',
       (puestoActual && puestoActual.nombre) || ''
     ].map(normNom).filter(Boolean));
-    const {data, error} = await sb.from('deudas').select('*')
-      .eq('tipo','debo').eq('pagada', false)
-      .order('creado_en', {ascending:true}).limit(3000);
-    if(error) throw error;
+    const data = await traerTodasLasFilas(()=> sb.from('deudas').select('*')
+      .eq('tipo','debo').eq('pagada', false).order('creado_en', {ascending:true}));
     const mias = (data || []).filter(d => misNombres.has(normNom(d.persona)));
 
     // No mostramos en la lista los que ya agregamos a la venta de hoy (para no agregarlos dos veces)
@@ -7662,7 +7740,7 @@ async function aplicarDevolucionEnServidor(d){
     // Busca la comisión del vendedor de ESE puesto que todavía NO se ha pagado.
     // Funciona con vendedor fijo (persona = nombre del puesto) y con comodín (la comisión
     // quedó a nombre del vendedor pero la nota lleva el puesto entre paréntesis, ej "(P 110)").
-    const {data: deudas} = await sb.from('deudas').select('*').eq('tipo','debo').eq('pagada', false);
+    const deudas = await traerTodasLasFilas(()=> sb.from('deudas').select('*').eq('tipo','debo').eq('pagada', false).order('id',{ascending:true}));
     const delPuesto = (deudas||[]).filter(x =>
       (x.nota||'').includes('Comisión 15%') &&
       ( x.persona === d.almacen_nombre || (x.nota||'').includes('('+d.almacen_nombre+')') )
@@ -8553,7 +8631,7 @@ async function reintentarComisiones(){
     if(fila.clave_comision){ const {data}=await sb.from('deudas').select('id').eq('clave_comision',fila.clave_comision); existe = data && data.length>0; }
     if(!existe){
       const mf=(fila.nota||'').match(/venta del (\d{4}-\d{2}-\d{2})/);
-      if(mf){ const {data}=await sb.from('deudas').select('id,nota').eq('tipo','debo').eq('persona',fila.persona);
+      if(mf){ const data=await traerTodasLasFilas(()=> sb.from('deudas').select('id,nota').eq('tipo','debo').eq('persona',fila.persona).order('id',{ascending:true}));
         existe = (data||[]).some(c=>(c.nota||'').includes('Comisión 15%') && (c.nota||'').includes('venta del '+mf[1])); }
     }
     if(existe) return;  // ya está → se saca de la cola
@@ -8644,7 +8722,7 @@ async function sincronizarUnDia(dia){
         .eq('almacen_id', dia.almacen_id).eq('fecha', dia.fecha).eq('cerrado', true);
       const ids = (cerradasHoy||[]).map(d=>d.id);
       if(ids.length > 0){
-        const {data: itemsExistentes} = await sb.from('venta_items').select('venta_dia_id, producto_id, cantidad, precio_venta').in('venta_dia_id', ids);
+        const itemsExistentes = await traerItemsDe(ids, 'venta_dia_id, producto_id, cantidad, precio_venta');
         const porDia = {};
         for(const it of (itemsExistentes||[])){
           if(!porDia[it.venta_dia_id]) porDia[it.venta_dia_id] = [];
@@ -8894,11 +8972,11 @@ async function cargarHistorialDias(){
 
     // Buscamos los cobros vinculados a estos días, para restarlos del total que se muestra
     const idsDias = data.map(d=>d.id);
-    const {data: cobrosDeEstosDias} = await sb.from('deudas').select('venta_dia_id, monto, tipo, nota').in('venta_dia_id', idsDias);
+    const {data: cobrosDeEstosDias} = await sb.from('deudas').select('venta_dia_id, monto, tipo, nota, clave_comision').in('venta_dia_id', idsDias);
     const cobroPorDia = {};
     (cobrosDeEstosDias||[]).forEach(c=>{
       // No restar las COMISIONES (son 'debo' del vendedor, no un cobro que baje el total de la venta)
-      if(c.tipo==='debo' && (c.nota||'').includes('Comisi')) return;
+      if(c.tipo==='debo' && ((c.nota||'').includes('Comisi') || c.clave_comision)) return;
       cobroPorDia[c.venta_dia_id] = (cobroPorDia[c.venta_dia_id]||0) + Number(c.monto);
     });
 
@@ -10839,7 +10917,7 @@ async function calcularReposicionInteligente(){
     // Ventas del historial: ventas_dia cerradas de los puestos en la ventana de días.
     const hoy = new Date(); const corte = new Date(hoy); corte.setDate(corte.getDate() - (diasHistorial-1));
     const iso = d => { const z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); };
-    const {data: dias} = await sb.from('ventas_dia').select('id, almacen_id, total, cerrado, fecha').gte('fecha', iso(corte)).lte('fecha', iso(hoy));
+    const dias = await traerTodasLasFilas(()=> sb.from('ventas_dia').select('id, almacen_id, total, cerrado, fecha').gte('fecha', iso(corte)).lte('fecha', iso(hoy)).order('id',{ascending:true}));
     const cerrados = (dias||[]).filter(d=>d.cerrado);
     const ids = cerrados.map(d=>d.id);
     const items = ids.length ? await traerItemsDe(ids, 'venta_dia_id, producto_id, cantidad, precio_venta') : [];
@@ -11292,18 +11370,17 @@ function olvidarClaveIA(){
 // Arma un resumen compacto de los datos del negocio para dárselo a la IA como contexto.
 // Todo son consultas de LECTURA.
 async function armarContextoNegocio(){
-  const [rAlm, rProd, rInv, rDias, rItems, rCaja, rDeudas, rDevs] = await Promise.all([
-    sb.from('almacenes').select('*'),
-    sb.from('productos').select('*'),
-    sb.from('inventario').select('*'),
-    sb.from('ventas_dia').select('*').eq('cerrado', true).order('fecha', {ascending:false}).limit(1000),
-    sb.from('venta_items').select('*'),
-    sb.from('caja_movimientos').select('*'),
-    sb.from('deudas').select('*'),
-    sb.from('devoluciones').select('*').then(r=>r, ()=>({data:[]}))
+  const vacio = ()=>[];
+  const [almacenes, productos, inventario, dias, items, caja, deudas, devs] = await Promise.all([
+    traerTodasLasFilas(()=> sb.from('almacenes').select('*').order('id',{ascending:true})),
+    traerTodasLasFilas(()=> sb.from('productos').select('*').order('id',{ascending:true})),
+    traerTodasLasFilas(()=> sb.from('inventario').select('*').order('id',{ascending:true})),
+    traerTodasLasFilas(()=> sb.from('ventas_dia').select('*').eq('cerrado', true).order('id',{ascending:true})),
+    traerTodasLasFilas(()=> sb.from('venta_items').select('*').order('id',{ascending:true})),
+    traerTodasLasFilas(()=> sb.from('caja_movimientos').select('*').order('id',{ascending:true})),
+    traerTodasLasFilas(()=> sb.from('deudas').select('*').order('id',{ascending:true})),
+    traerTodasLasFilas(()=> sb.from('devoluciones').select('*').order('id',{ascending:true})).catch(vacio)
   ]);
-  const almacenes = rAlm.data||[], productos = rProd.data||[], inventario = rInv.data||[];
-  const dias = rDias.data||[], items = rItems.data||[], caja = rCaja.data||[], deudas = rDeudas.data||[], devs = rDevs.data||[];
 
   const nombreAlm = id => (almacenes.find(a=>a.id===id)||{}).nombre || ('Almacén '+id);
   const nombreProd = id => (productos.find(p=>p.id===id)||{}).nombre || ('Producto '+id);
@@ -11456,7 +11533,7 @@ async function buscarVentaPuestoDia(){
 
     // Traer los artículos de esos días
     const ids = dias.map(d=>d.id);
-    const {data: itemsIniciales} = await sb.from('venta_items').select('*').in('venta_dia_id', ids);
+    const itemsIniciales = await traerItemsDe(ids, '*');
     let lineas = itemsIniciales || [];
 
     // ¿Cuáles de estos días YA descontaron inventario? (tienen movimientos registrados).
@@ -11591,8 +11668,8 @@ async function buscarVentaPuestoDia(){
     // Cuánto entró en caja ese día por ese puesto (efectivo y tarjeta)
     let efectivo=0, tarjeta=0;
     try{
-      const {data: caja} = await sb.from('caja_movimientos').select('*')
-        .eq('almacen_id', almacenId).eq('categoria','venta');
+      const caja = await traerTodasLasFilas(()=> sb.from('caja_movimientos').select('*')
+          .eq('almacen_id', almacenId).eq('categoria','venta').order('id',{ascending:true}));
       for(const c of (caja||[])){
         const cf = (c.creado_en||'').slice(0,10);
         if(cf === fecha && c.tipo==='ingreso'){
@@ -11660,15 +11737,15 @@ async function buscarVentaPuestoDia(){
 async function cargarEstadisticas(){
   prepararSelectorEstadisticas();
   try{
-    const [{data:ventasDia}, {data:ventaItems}, {data:deudasTodas}, {data:pedidosPend}, {data:cajaTodos}] = await Promise.all([
-      sb.from('ventas_dia').select('*').eq('cerrado', true),
-      sb.from('venta_items').select('*'),
-      sb.from('deudas').select('*'),
-      sb.from('pedidos').select('*').eq('estado','pendiente'),
-      sb.from('caja_movimientos').select('tipo, metodo, monto')
+    const [ventasDia, ventaItems, deudasTodas, pedidosPend, cajaTodos] = await Promise.all([
+      traerTodasLasFilas(()=> sb.from('ventas_dia').select('*').eq('cerrado', true).order('id',{ascending:true})),
+      traerTodasLasFilas(()=> sb.from('venta_items').select('*').order('id',{ascending:true})),
+      traerTodasLasFilas(()=> sb.from('deudas').select('*').order('id',{ascending:true})),
+      traerTodasLasFilas(()=> sb.from('pedidos').select('*').eq('estado','pendiente').order('id',{ascending:true})),
+      traerTodasLasFilas(()=> sb.from('caja_movimientos').select('tipo, metodo, monto').order('id',{ascending:true}))
     ]);
     let devolucionesTodas = [];
-    try{ const r = await sb.from('devoluciones').select('*'); devolucionesTodas = r.data || []; }catch(e){ /* tabla aún no creada */ }
+    try{ devolucionesTodas = await traerTodasLasFilas(()=> sb.from('devoluciones').select('*').order('id',{ascending:true})); }catch(e){ /* tabla aún no creada */ }
 
     const dias = ventasDia || [];
     const items = ventaItems || [];
@@ -12041,7 +12118,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v154</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v155</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
