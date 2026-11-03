@@ -1386,6 +1386,12 @@
 
   <!-- USUARIOS (solo dueño) -->
   <div id="tab-usuarios" class="tab" style="display:none">
+    <div class="card solo-dueno" style="border:2px solid var(--accent)">
+      <h2>🧩 Pestañas del menú</h2>
+      <p style="color:var(--muted); font-size:13px; margin:0 0 10px">Marca las que NO quieres ver. Se esconden para todos los que las tengan — tú, el admin y los vendedores. Nada se borra: se vuelven a mostrar desmarcándolas.</p>
+      <div id="configPestanasBody"></div>
+    </div>
+
     <div class="card">
       <h2>Crear nuevo usuario</h2>
       <div class="row">
@@ -1700,7 +1706,7 @@ compraAcInput.addEventListener('input', ()=>{
   previsualizarCompra();
   const q = compraAcInput.value.trim().toLowerCase();
   if(!q){ compraAcList.style.display='none'; compraAcMatches=[]; return; }
-  compraAcMatches = PRODUCTOS.filter(p=>p.nombre.toLowerCase().includes(q)).slice(0,30);
+  compraAcMatches = PRODUCTOS.filter(p=>coincideNombre(p.nombre, q)).slice(0,30);
   compraAcHoverIndex = -1;
   if(compraAcMatches.length===0){ compraAcList.style.display='none'; return; }
   compraAcList.innerHTML = compraAcMatches.map((p,i)=>`<div data-i="${i}">${p.nombre}</div>`).join('');
@@ -1881,7 +1887,7 @@ function limpiarFormularioCompra(){
 // Llena el selector de almacenes de la pestaña de compras
 function prepararCompras(){
   const sel = document.getElementById('compraAlmacen');
-  if(sel) sel.innerHTML = ALMACENES.filter(a=>!esMayoreo(a)).map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
+  if(sel) sel.innerHTML = almacenesVisibles().filter(a=>!esMayoreo(a)).map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
   previsualizarCompra();
   cargarCompras();
 }
@@ -1925,7 +1931,7 @@ function prepararVentasPorVendedor(){
   const sel = document.getElementById('vvAlmacen');
   if(sel){
     sel.innerHTML = '<option value="">Todos los puestos</option>' +
-      ALMACENES.filter(a=>!esMayoreo(a)).map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
+      almacenesVisibles().filter(a=>!esMayoreo(a)).map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
   }
   const hasta = document.getElementById('vvHasta');
   const desde = document.getElementById('vvDesde');
@@ -1941,7 +1947,7 @@ function prepararVentasPorVendedor(){
 // ===== BUSCAR ARTÍCULO: todas las ventas y movimientos de un producto, por puesto o vendedor =====
 function prepararBuscarArticulo(){
   const sp=document.getElementById('baPuesto');
-  if(sp) sp.innerHTML='<option value="">Todos los puestos</option>'+(ALMACENES||[]).map(a=>`<option value="${a.id}">${(a.nombre||'').replace(/</g,'&lt;')}</option>`).join('');
+  if(sp) sp.innerHTML='<option value="">Todos los puestos</option>'+almacenesVisibles().map(a=>`<option value="${a.id}">${(a.nombre||'').replace(/</g,'&lt;')}</option>`).join('');
   const dl=document.getElementById('baProductoList');
   if(dl) dl.innerHTML=((PRODUCTOS||[]).slice().sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||''))).map(p=>`<option value="${(p.nombre||'').replace(/"/g,'&quot;')}"></option>`).join('');
   const sv=document.getElementById('baVendedor');
@@ -1960,7 +1966,7 @@ async function buscarArticulo(){
   if(!navigator.onLine){ msg.textContent='Necesitas internet para buscar.'; msg.className='msg err'; return; }
   const txt=(document.getElementById('baProducto').value||'').trim().toLowerCase();
   if(!txt){ msg.textContent='Escribe un artículo.'; msg.className='msg err'; return; }
-  const prod=(PRODUCTOS||[]).find(p=>(p.nombre||'').toLowerCase()===txt) || (PRODUCTOS||[]).find(p=>(p.nombre||'').toLowerCase().includes(txt));
+  const prod=(PRODUCTOS||[]).find(p=>(p.nombre||'').toLowerCase()===txt) || (PRODUCTOS||[]).find(p=>normNombre(p.nombre)===normNombre(txt)) || (PRODUCTOS||[]).find(p=>coincideNombre(p.nombre, txt));
   if(!prod){ msg.textContent='No encontré ese artículo. Elígelo de la lista.'; msg.className='msg err'; return; }
   const pid=prod.id;
   const puesto=document.getElementById('baPuesto').value;
@@ -2211,13 +2217,13 @@ function renderInventario(){
   if(almacenSeleccionado===null || !__almNormales.find(a=>a.id===almacenSeleccionado)){
     almacenSeleccionado = __almNormales[0].id;
   }
-  tabsEl.innerHTML = ALMACENES.filter(a=>!esMayoreo(a)).map(a=>
+  tabsEl.innerHTML = almacenesVisibles().filter(a=>!esMayoreo(a)).map(a=>
     `<button class="${a.id===almacenSeleccionado?'active':''}" onclick="seleccionarAlmacen(${a.id})">${a.nombre}</button>`
   ).join('');
 
   const a = ALMACENES.find(a=>a.id===almacenSeleccionado);
   const filtro = (document.getElementById('filtroInventarioAdmin').value || '').trim().toLowerCase();
-  const productosFiltrados = filtro ? PRODUCTOS.filter(p=>p.nombre.toLowerCase().includes(filtro)) : PRODUCTOS;
+  const productosFiltrados = filtro ? PRODUCTOS.filter(p=>coincideNombre(p.nombre, filtro)) : PRODUCTOS;
   const items = productosFiltrados.map(p=>{
       // Sumar TODAS las filas de ese producto+almacén (por si la tabla tiene filas duplicadas).
       const cantidad = INVENTARIO.filter(i=>i.almacen_id===a.id && i.producto_id===p.id).reduce((s,i)=>s+Number(i.cantidad||0),0);
@@ -2242,6 +2248,34 @@ function num(n){ n=Number(n); return n%1===0 ? n.toString() : n.toFixed(2); }
 // Escapa la comilla simple (que cortaría el texto) y sobre todo la comilla DOBLE, que
 // cerraría el atributo y rompería el botón. Esto pasa con nombres de ferretería que
 // llevan pulgadas: TUBO 1/2" , CODO 3/4" , etc.
+// ── BÚSQUEDA DE PRODUCTOS QUE AGUANTA ERRORES DE ESCRITURA ──────────────────
+// En la ferretería los nombres se escriben como salga: "TUVO" por "TUBO", con o sin
+// acentos, con "DE" en medio, con letras dobles. Antes la búsqueda era literal, así que
+// escribir "tubo led" NO encontraba "TUVO LED DE 40" y parecía que el artículo no existía
+// aunque sí tuviera inventario. Esto empareja por como SUENA la palabra, no por como se
+// escribió, y además busca cada palabra por separado (no importa el orden).
+function normNombre(s){
+  return String(s==null?'':s)
+    .toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g,'')   // quita tildes
+    .replace(/[^a-z0-9ñ ]+/g,' ')                      // signos y rayas fuera
+    .replace(/ñ/g,'n')
+    .replace(/h/g,'')                                   // la h no suena
+    .replace(/ll/g,'y')                                 // antes de juntar repetidas
+    .replace(/(.)\1+/g,'$1')                            // acCesorio = acesorio, carro = caro
+    .replace(/qu/g,'k').replace(/q/g,'k')
+    .replace(/c([ei])/g,'s$1').replace(/c/g,'k')        // cebolla→sebolla, casa→kasa
+    .replace(/z/g,'s')                                  // z y s suenan igual
+    .replace(/v/g,'b')                                  // TUVO = TUBO
+    .replace(/\s+/g,' ').trim();
+}
+function coincideNombre(nombre, consulta){
+  const n = normNombre(nombre);
+  const palabras = normNombre(consulta).split(' ').filter(Boolean);
+  if(!palabras.length) return true;
+  return palabras.every(w => n.includes(w));   // todas las palabras, en cualquier orden
+}
+
 function txtAttr(s){
   return String(s==null?'':s)
     .replace(/&/g,'&amp;')
@@ -2475,7 +2509,7 @@ movAcInput.addEventListener('input', ()=>{
   movAcHidden.value = '';
   const q = movAcInput.value.trim().toLowerCase();
   if(!q){ movAcList.style.display='none'; movAcMatches=[]; return; }
-  movAcMatches = PRODUCTOS.filter(p=>p.nombre.toLowerCase().includes(q)).slice(0,30);
+  movAcMatches = PRODUCTOS.filter(p=>coincideNombre(p.nombre, q)).slice(0,30);
   movAcHoverIndex = -1;
   if(movAcMatches.length===0){ movAcList.style.display='none'; return; }
   movAcList.innerHTML = movAcMatches.map((p,i)=>{
@@ -2556,7 +2590,7 @@ deudaAcInput.addEventListener('input', ()=>{
   deudaAcHidden.value = '';
   const q = deudaAcInput.value.trim().toLowerCase();
   if(!q){ deudaAcList.style.display='none'; deudaAcMatches=[]; return; }
-  deudaAcMatches = PRODUCTOS.filter(p=>p.nombre.toLowerCase().includes(q)).slice(0,30);
+  deudaAcMatches = PRODUCTOS.filter(p=>coincideNombre(p.nombre, q)).slice(0,30);
   deudaAcHoverIndex = -1;
   if(deudaAcMatches.length===0){ deudaAcList.style.display='none'; return; }
   deudaAcList.innerHTML = deudaAcMatches.map((p,i)=>`<div data-i="${i}">${p.nombre}</div>`).join('');
@@ -2594,7 +2628,7 @@ document.addEventListener('click', (e)=>{
 
 // ---------- SELECTS para movimientos (almacenes) ----------
 function renderSelects(){
-  const opAlm = ALMACENES.filter(a=>!esMayoreo(a)).map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
+  const opAlm = almacenesVisibles().filter(a=>!esMayoreo(a)).map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
   document.getElementById('movOrigen').innerHTML = opAlm;
   const selCompraAlm = document.getElementById('compraAlmacen');
   if(selCompraAlm) selCompraAlm.innerHTML = opAlm;
@@ -2634,8 +2668,20 @@ function agregarMovALista(){
   if(!productoId || !cantidad || cantidad<=0){
     msgEl.textContent = 'Selecciona un producto y una cantidad válida (> 0).'; msgEl.className='msg err'; return;
   }
-  if(tipo==='traslado' && origenId===destinoId){
-    msgEl.textContent = 'El almacén origen y destino no pueden ser iguales.'; msgEl.className='msg err'; return;
+  if(!almacenValido(origenId)){
+    msgEl.textContent = (tipo==='ingreso' ? 'Elige el almacén al que entra la mercancía.' : 'Elige el almacén de donde sale la mercancía.');
+    msgEl.className='msg err'; return;
+  }
+  if(tipo==='traslado'){
+    // OJO: antes solo se comparaba origen===destino. Si el destino venía vacío daba NaN,
+    // y NaN nunca es igual a nada: la línea pasaba y la mercancía salía del origen para
+    // no llegar a ningún almacén.
+    if(!almacenValido(destinoId)){
+      msgEl.textContent = 'Elige el almacén de destino del traslado.'; msgEl.className='msg err'; return;
+    }
+    if(origenId===destinoId){
+      msgEl.textContent = 'El almacén origen y destino no pueden ser iguales.'; msgEl.className='msg err'; return;
+    }
   }
   const p = PRODUCTOS.find(p=>p.id===productoId);
   const almOrigen = ALMACENES.find(a=>a.id===origenId);
@@ -2769,17 +2815,40 @@ async function insertarMovimiento(payload){
   }
 }
 
+async function movimientoYaRegistrado(clave){
+  if(!clave) return false;
+  try{
+    const {data} = await sb.from('movimientos').select('id').eq('clave_local', clave).maybeSingle();
+    return !!data;
+  }catch(e){ return false; }   // si la columna no existe, no podemos saberlo
+}
+
+// Valida que un almacén exista de verdad. Sin esto, un traslado con el destino vacío
+// mandaba la mercancía a un almacén inexistente: salía del origen y no llegaba a ningún lado.
+function almacenValido(id){
+  const n = Number(id);
+  if(!n || !isFinite(n)) return false;
+  if(Array.isArray(ALMACENES) && ALMACENES.length) return ALMACENES.some(a=>Number(a.id)===n);
+  return true;   // si aún no cargó la lista, no bloqueamos
+}
+
 async function aplicarLineaMovimiento(it){
   // 1) ¿Ya se aplicó esta línea antes? (memoria del teléfono — funciona sin internet y sin SQL)
   if(it.aplicado === true) return;
   if(claveMovYaAplicada(it.clave_local)) { it.aplicado = true; return; }
 
   // 2) ¿Ya está registrada en la base? (si la columna existe)
-  if(it.clave_local){
-    try{
-      const {data: yaExiste} = await sb.from('movimientos').select('id').eq('clave_local', it.clave_local).maybeSingle();
-      if(yaExiste){ it.aplicado = true; marcarClaveMovAplicada(it.clave_local); return; }
-    }catch(e){ /* la columna aún no existe: seguimos con la memoria del teléfono */ }
+  if(await movimientoYaRegistrado(it.clave_local)){
+    it.aplicado = true; marcarClaveMovAplicada(it.clave_local); return;
+  }
+
+  // 3) Almacenes de verdad. Un id vacío o inventado haría desaparecer mercancía.
+  if(!almacenValido(it.origen_id)){
+    throw new Error('El almacén de origen no es válido. Revisa esa línea.');
+  }
+  if(it.tipo==='traslado'){
+    if(!almacenValido(it.destino_id)) throw new Error('Falta elegir el almacén de destino del traslado.');
+    if(Number(it.origen_id)===Number(it.destino_id)) throw new Error('El almacén de origen y el de destino no pueden ser el mismo.');
   }
 
   const clave = it.clave_local || null;
@@ -2801,12 +2870,22 @@ async function aplicarLineaMovimiento(it){
       if(!falta) throw e; // error real (ej. stock insuficiente): no seguir por el otro camino
     }
     if(!hecho){
-      if(it.tipo==='ingreso'){
-        const r = await ajustarInventario(it.origen_id, it.producto_id, it.cantidad); // en ingreso, "origen" es el almacén destino real
-        await insertarMovimiento({tipo:'ingreso', producto_id:it.producto_id, almacen_destino_id:it.origen_id, cantidad:it.cantidad, nota:it.nota, clave_local:clave, cant_antes:r.antes, cant_despues:r.despues});
-      } else {
-        const r = await ajustarInventario(it.origen_id, it.producto_id, -it.cantidad);
-        await insertarMovimiento({tipo:'extraccion', producto_id:it.producto_id, almacen_origen_id:it.origen_id, cantidad:it.cantidad, nota:it.nota, clave_local:clave, cant_antes:r.antes, cant_despues:r.despues});
+      // DOS PASOS CON VUELTA ATRÁS. Antes, si el inventario se ajustaba y el movimiento NO
+      // llegaba a guardarse, al reintentar se ajustaba OTRA VEZ: la mercancía se contaba doble.
+      const almacen = it.origen_id;   // en ingreso, "origen" es el almacén destino real
+      const r = await ajustarInventario(almacen, it.producto_id, delta);
+      try{
+        if(it.tipo==='ingreso'){
+          await insertarMovimiento({tipo:'ingreso', producto_id:it.producto_id, almacen_destino_id:almacen, cantidad:it.cantidad, nota:it.nota, clave_local:clave, cant_antes:r.antes, cant_despues:r.despues});
+        } else {
+          await insertarMovimiento({tipo:'extraccion', producto_id:it.producto_id, almacen_origen_id:almacen, cantidad:it.cantidad, nota:it.nota, clave_local:clave, cant_antes:r.antes, cant_despues:r.despues});
+        }
+      }catch(eMov){
+        // ¿Se guardó igual y solo se perdió la respuesta? Entonces está bien hecho.
+        if(await movimientoYaRegistrado(clave)){ it.aplicado = true; marcarClaveMovAplicada(clave); return; }
+        // No se guardó: se deshace el ajuste para que el reintento lo haga limpio.
+        try{ await ajustarInventario(almacen, it.producto_id, -delta); }catch(_){}
+        throw eMov;
       }
     }
   } else { // traslado
@@ -2832,6 +2911,12 @@ async function aplicarLineaMovimiento(it){
         destinoHecho = true;
         await insertarMovimiento({tipo:'traslado', producto_id:it.producto_id, almacen_origen_id:it.origen_id, almacen_destino_id:it.destino_id, cantidad:it.cantidad, nota:it.nota, clave_local:clave, cant_antes:rOrigen.antes, cant_despues:rOrigen.despues, cant_antes_destino:rDestino.antes, cant_despues_destino:rDestino.despues});
       }catch(e2){
+        // Antes se deshacía siempre. Pero si el movimiento SÍ se guardó y solo se perdió la
+        // respuesta, deshacerlo dejaba la mercancía sin salir del origen Y el sistema creyendo
+        // que el traslado estaba hecho: al reintentar no volvía a moverla. Ahora se comprueba.
+        if(destinoHecho && await movimientoYaRegistrado(clave)){
+          it.aplicado = true; marcarClaveMovAplicada(clave); return;
+        }
         if(destinoHecho){ try{ await ajustarInventario(it.destino_id, it.producto_id, -it.cantidad); }catch(_){} }
         try{ await ajustarInventario(it.origen_id, it.producto_id, it.cantidad); }catch(_){}
         throw e2;
@@ -2839,7 +2924,7 @@ async function aplicarLineaMovimiento(it){
     }
   }
 
-  // 3) Queda marcada como aplicada: ningún reintento la volverá a sumar.
+  // 4) Queda marcada como aplicada: ningún reintento la volverá a sumar.
   it.aplicado = true;
   marcarClaveMovAplicada(clave);
 }
@@ -2875,13 +2960,9 @@ async function confirmarMovimientosInterno(msgEl){
   }
 
   try{
-    // Primero verificamos TODO el stock necesario de cada línea que reste inventario,
-    // antes de mover nada (para no dejar el conjunto a medias si algo no alcanza).
-    for(const it of listaMovimientos){
-      if(it.tipo==='extraccion' || it.tipo==='traslado'){
-        await verificarStock(it.origen_id, it.producto_id, it.cantidad);
-      }
-    }
+    // Se comprueba el stock de TODA la lista junta, sumando lo que varias líneas le quitan
+    // al mismo almacén y producto. Así nunca se aplica media lista.
+    await verificarStockDeLista(listaMovimientos);
 
     for(const it of listaMovimientos){
       await aplicarLineaMovimiento(it);
@@ -2911,6 +2992,36 @@ async function confirmarMovimientosInterno(msgEl){
     listaMovimientos = [];
     renderListaMovimientos();
     console.error(err);
+  }
+}
+
+// Comprueba el stock de TODA la lista de una vez, sumando lo que cada línea le quita al
+// mismo almacén y producto. Antes se miraba línea por línea: dos líneas de 60 sobre un
+// stock de 100 pasaban las dos la prueba, y al aplicarlas la primera entraba y la segunda
+// fallaba, dejando el lote a medias.
+async function verificarStockDeLista(items){
+  const necesario = {};   // "almacen|producto" -> cantidad total que se quiere sacar
+  for(const it of (items||[])){
+    if(it.aplicado === true) continue;                       // esa ya entró, no pide stock
+    if(it.tipo!=='extraccion' && it.tipo!=='traslado') continue;
+    const k = it.origen_id + '|' + it.producto_id;
+    necesario[k] = (necesario[k] || 0) + Number(it.cantidad||0);
+  }
+  const faltantes = [];
+  for(const k of Object.keys(necesario)){
+    const [almacenId, productoId] = k.split('|').map(Number);
+    const {data, error} = await sb.from('inventario').select('cantidad')
+      .eq('almacen_id', almacenId).eq('producto_id', productoId).maybeSingle();
+    if(error) throw error;
+    const hay = data ? Number(data.cantidad) : 0;
+    if(hay < necesario[k]){
+      const prod = (PRODUCTOS||[]).find(p=>p.id===productoId);
+      const alm  = (ALMACENES||[]).find(a=>a.id===almacenId);
+      faltantes.push(`"${prod?prod.nombre:('producto #'+productoId)}"${alm?' en '+alm.nombre:''}: hay ${hay} y se necesitan ${necesario[k]}`);
+    }
+  }
+  if(faltantes.length){
+    throw new Error('No hay suficiente ' + faltantes.join(' · ') + '.');
   }
 }
 
@@ -3372,6 +3483,115 @@ async function crearAlmacen(){
   await cargarTodo();
 }
 
+// ── ARCHIVAR ALMACENES ──────────────────────────────────────────────────────
+// Un almacén con historial NO se puede borrar: las ventas y los movimientos apuntan a él
+// y borrarlo perdería ese pasado (o la base lo impide). Archivarlo lo quita de todas las
+// listas donde se elige almacén, pero deja el historial entero y legible.
+function estaArchivado(a){
+  if(!a) return false;
+  if(a.activo === false) return true;
+  return /\(archivado\)\s*$/i.test(String(a.nombre||''));
+}
+function almacenesVisibles(){
+  return (ALMACENES||[]).filter(a=>!estaArchivado(a));
+}
+function stockDeAlmacen(id){
+  return (INVENTARIO||[]).filter(i=>Number(i.almacen_id)===Number(id))
+    .reduce((s,i)=>s+Number(i.cantidad||0),0);
+}
+
+async function archivarAlmacen(id){
+  if(!usuarioActual || usuarioActual.rol!=='dueno'){ alert('Solo el dueño puede archivar almacenes.'); return; }
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  const alm = (ALMACENES||[]).find(a=>Number(a.id)===Number(id));
+  if(!alm){ alert('No encontré ese almacén.'); return; }
+
+  // ¿Hay alguien trabajando en él?
+  try{
+    const us = await traerTodasLasFilas(()=> sb.from('usuarios').select('nombre, almacen_id, activo').order('id',{ascending:true}));
+    const suyos = (us||[]).filter(u=>u.activo!==false && Number(u.almacen_id)===Number(id));
+    if(suyos.length){
+      alert('No puedes archivar "'+alm.nombre+'" todavía: hay '+suyos.length+' trabajador(es) asignados a él ('+suyos.map(u=>u.nombre).join(', ')+').\n\nCámbiales el puesto primero en Usuarios.');
+      return;
+    }
+  }catch(e){ /* si no se puede mirar, seguimos */ }
+
+  // ¿Le queda mercancía?
+  const quedan = (INVENTARIO||[]).filter(i=>Number(i.almacen_id)===Number(id) && Number(i.cantidad)>0);
+  const uds = quedan.reduce((s,i)=>s+Number(i.cantidad||0),0);
+  if(uds > 0){
+    const destinos = almacenesVisibles().filter(a=>Number(a.id)!==Number(id) && !esMayoreo(a));
+    if(!destinos.length){ alert('"'+alm.nombre+'" tiene '+num(uds)+' unidad(es) y no hay otro almacén a donde pasarlas.'); return; }
+    const lista = destinos.map((a,i)=>'  '+(i+1)+') '+a.nombre).join('\n');
+    const resp = prompt('"'+alm.nombre+'" todavía tiene '+quedan.length+' artículo(s), '+num(uds)+' unidad(es) en total.\n\n'
+      + 'Antes de archivarlo hay que pasar esa mercancía a otro almacén. ¿A cuál?\n\n'+lista+'\n\n'
+      + 'Escribe el número (o cancela para no hacer nada):');
+    if(resp===null) return;
+    const idx = Number(String(resp).trim()) - 1;
+    if(!(idx>=0 && idx<destinos.length)){ alert('Número no válido. No se hizo nada.'); return; }
+    const destino = destinos[idx];
+    if(!confirm('Se van a pasar '+num(uds)+' unidad(es) de "'+alm.nombre+'" a "'+destino.nombre+'".\n\nQueda registrado como traslado, artículo por artículo. ¿Seguir?')) return;
+    let movidos=0, fallados=[];
+    for(const i of quedan){
+      const prod=(PRODUCTOS||[]).find(x=>x.id===i.producto_id);
+      try{
+        await aplicarLineaMovimiento({
+          clave_local: 'arch_'+id+'_'+i.producto_id+'_'+Date.now(),
+          tipo:'traslado', origen_id:Number(id), destino_id:Number(destino.id),
+          producto_id:i.producto_id, cantidad:Number(i.cantidad),
+          nota:'Vaciado al archivar '+alm.nombre
+        });
+        movidos++;
+      }catch(e){ fallados.push((prod?prod.nombre:('#'+i.producto_id))+': '+((e&&e.message)||e)); }
+    }
+    await cargarTodo();
+    if(fallados.length){
+      alert('Se pasaron '+movidos+' artículo(s), pero '+fallados.length+' no se pudieron:\n\n'+fallados.slice(0,5).join('\n')
+        +'\n\nEl almacén NO se archivó. Revisa eso y vuelve a intentarlo.');
+      return;
+    }
+    alert('Mercancía pasada a "'+destino.nombre+'". ✓');
+  }
+
+  if(!confirm('¿Archivar "'+alm.nombre+'"?\n\nDeja de salir en las listas para elegir almacén, pero su historial de ventas y movimientos se conserva completo.\n\nLo puedes volver a activar cuando quieras.')) return;
+  try{
+    let r = await sb.from('almacenes').update({activo:false}).eq('id', id).select();
+    if(r.error || !r.data || !r.data.length){
+      // La columna "activo" no existe en esta base: se marca en el propio nombre.
+      const nuevo = String(alm.nombre||'').replace(/\s*\(archivado\)\s*$/i,'') + ' (archivado)';
+      const r2 = await sb.from('almacenes').update({nombre:nuevo}).eq('id', id).select();
+      if(r2.error) throw r2.error;
+      if(!r2.data || !r2.data.length){
+        alert('El servidor no aplicó el cambio (permisos). Corre en Supabase el SQL "permisos_todas_tablas.sql".');
+        return;
+      }
+    }
+    await cargarTodo();
+    alert('"'+alm.nombre+'" archivado. ✓\n\nSu historial sigue intacto.');
+  }catch(e){
+    alert('No se pudo archivar: '+((e&&e.message)||e));
+    try{ registrarError('almacenes','No se pudo archivar', String((e&&e.message)||e)); }catch(_){}
+  }
+}
+
+async function reactivarAlmacen(id){
+  if(!usuarioActual || usuarioActual.rol!=='dueno'){ alert('Solo el dueño puede hacer esto.'); return; }
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  const alm = (ALMACENES||[]).find(a=>Number(a.id)===Number(id));
+  if(!alm) return;
+  const limpio = String(alm.nombre||'').replace(/\s*\(archivado\)\s*$/i,'');
+  if(!confirm('¿Volver a activar "'+limpio+'"?')) return;
+  try{
+    let r = await sb.from('almacenes').update({activo:true, nombre:limpio}).eq('id', id).select();
+    if(r.error || !r.data || !r.data.length){
+      const r2 = await sb.from('almacenes').update({nombre:limpio}).eq('id', id).select();
+      if(r2.error) throw r2.error;
+    }
+    await cargarTodo();
+    alert('"'+limpio+'" activado otra vez. ✓');
+  }catch(e){ alert('No se pudo: '+((e&&e.message)||e)); }
+}
+
 async function eliminarAlmacen(id){
   if(usuarioActual.rol !== 'dueno'){ alert('Solo el dueño puede eliminar almacenes.'); return; }
   if(!navigator.onLine){ alert('Necesitas internet para eliminar un almacén.'); return; }
@@ -3831,11 +4051,17 @@ async function renombrarProducto(id){
 function renderAdmin(){
   const esDueno = usuarioActual.rol === 'dueno';
   document.getElementById('almacenesBody').innerHTML = ALMACENES.map(a=>
-    `<tr><td>${a.nombre}</td><td>${esDueno?`<button class="ghost" onclick="eliminarAlmacen(${a.id})">Eliminar</button>`:''}</td></tr>`
+    `<tr><td>${String(a.nombre||'').replace(/</g,'&lt;')}${estaArchivado(a)?' <span class="badge extraccion">archivado</span>':''}</td>`
+    +`<td>${esDueno
+        ? (estaArchivado(a)
+            ? `<button class="ghost" onclick="reactivarAlmacen(${a.id})">Volver a activar</button>`
+            : `<button class="ghost" onclick="archivarAlmacen(${a.id})">📦 Archivar</button> `
+              +`<button class="ghost" onclick="eliminarAlmacen(${a.id})">Eliminar</button>`)
+        : ''}</td></tr>`
   ).join('') || '<tr><td class="empty" colspan="2">Sin almacenes</td></tr>';
 
   const filtro = (document.getElementById('filtroProductosAdmin').value || '').trim().toLowerCase();
-  const productosFiltrados = filtro ? PRODUCTOS.filter(p=>p.nombre.toLowerCase().includes(filtro)) : PRODUCTOS;
+  const productosFiltrados = filtro ? PRODUCTOS.filter(p=>coincideNombre(p.nombre, filtro)) : PRODUCTOS;
 
   document.getElementById('productosBody').innerHTML = productosFiltrados.map(p=>
     `<div style="border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:10px; background:var(--panel2)">
@@ -3857,8 +4083,12 @@ document.getElementById('filtroProductosAdmin').addEventListener('input', render
 // las comparaciones, ej. "CAJA 4X2" vs "CAJA 4X2 CRIOLLA"). NO borra nada — solo avisa.
 function buscarProductosParecidos(){
   const cont = document.getElementById('dupProductosBody');
-  const norm = s => (s||'').toLowerCase().trim().replace(/\s+/g,' ');
-  const lista = (PRODUCTOS||[]).map(p=>({id:p.id, nombre:p.nombre, n:norm(p.nombre)}));
+  // Usa la misma lectura "por como suena" que el buscador: así atrapa TUVO vs TUBO,
+  // con o sin tildes, y los que solo se diferencian en un "DE" o un "LA" en el medio.
+  const RELLENO = new Set(['de','del','la','el','los','las','un','una','y','con','para','por','a','en']);
+  const palabrasDe = s => new Set(normNombre(s).split(' ').filter(w=>w && !RELLENO.has(w)));
+  const mismasPalabras = (A,B) => A.size>0 && A.size===B.size && [...A].every(w=>B.has(w));
+  const lista = (PRODUCTOS||[]).map(p=>({id:p.id, nombre:p.nombre, n:normNombre(p.nombre), w:palabrasDe(p.nombre)}));
   const grupos = [];
   const usados = new Set();
   for(let i=0;i<lista.length;i++){
@@ -3867,11 +4097,12 @@ function buscarProductosParecidos(){
     for(let j=i+1;j<lista.length;j++){
       if(usados.has(lista[j].id)) continue;
       const a=lista[i].n, b=lista[j].n;
-      // Parecidos: uno contiene al otro, o son casi iguales al quitar espacios
+      // Parecidos: iguales al oído, uno contiene al otro, o llevan las mismas palabras
       const igual = a===b;
       const contiene = a.length>=4 && b.length>=4 && (a.includes(b) || b.includes(a));
       const sinEspacios = a.replace(/ /g,'')===b.replace(/ /g,'');
-      if(igual || contiene || sinEspacios){ grupo.push(lista[j]); usados.add(lista[j].id); }
+      const mismasW = mismasPalabras(lista[i].w, lista[j].w);
+      if(igual || contiene || sinEspacios || mismasW){ grupo.push(lista[j]); usados.add(lista[j].id); }
     }
     if(grupo.length>1){ usados.add(lista[i].id); grupos.push(grupo); }
   }
@@ -3908,7 +4139,7 @@ async function cargarPedidos(){
   cont.innerHTML = data.map(ped=>{
     const p = PRODUCTOS.find(p=>p.id===ped.producto_id);
     const alm = ALMACENES.find(a=>a.id===ped.almacen_id);
-    const opcionesOrigen = ALMACENES.filter(a=>a.id!==ped.almacen_id).map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
+    const opcionesOrigen = almacenesVisibles().filter(a=>a.id!==ped.almacen_id).map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
     return `<div class="row" style="border-bottom:1px solid var(--border); padding:12px 0; align-items:center">
       <div class="field" style="flex:2">
         <strong>${p?p.nombre:'—'}</strong> pidió ${num(ped.cantidad)} uds. → <em>${alm?alm.nombre:'—'}</em>
@@ -4386,11 +4617,7 @@ async function procesarOperacionAdmin(op, colaCompleta){
     }
 
   } else if(op.tipo === 'movimiento_lista'){
-    for(const it of p.items){
-      if(it.tipo==='extraccion' || it.tipo==='traslado'){
-        await verificarStock(it.origen_id, it.producto_id, it.cantidad);
-      }
-    }
+    await verificarStockDeLista(p.items);
     // Cada línea se aplica con su clave única: las que ya entraron antes se saltan solas.
     for(const it of p.items){
       await aplicarLineaMovimiento(it);
@@ -6693,7 +6920,7 @@ async function cargarUsuarios(){
   // elegirán el puesto cada vez que entren.
   document.getElementById('nuevoUsuarioAlmacen').innerHTML =
     '<option value="">— Sin puesto fijo (elige al entrar) —</option>' +
-    ALMACENES.map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
+    almacenesVisibles().map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
 
   const {data, error} = await sb.from('usuarios').select('*').order('rol').order('nombre');
   const body = document.getElementById('usuariosBody');
@@ -6990,7 +7217,7 @@ function tvFiltrar(){
   document.getElementById('tvProd').value=''; document.getElementById('tvElegido').textContent='';
   const alm=almacenMayoreo();
   if(q.length<1||!alm){ cont.style.display='none'; cont.innerHTML=''; return; }
-  const m=(PRODUCTOS||[]).filter(p=>(p.nombre||'').toLowerCase().includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre)).slice(0,15);
+  const m=(PRODUCTOS||[]).filter(p=>coincideNombre(p.nombre, q)).sort((a,b)=>a.nombre.localeCompare(b.nombre)).slice(0,15);
   if(!m.length){ cont.style.display='block'; cont.innerHTML='<div style="padding:10px;color:var(--muted)">Sin coincidencias.</div>'; return; }
   cont.innerHTML=m.map(p=>{ const h=tvStockDe(p.id); return `<div onclick="tvElegir(${p.id})" style="padding:12px;border-bottom:1px solid var(--border);cursor:pointer">${p.nombre} <span style="color:${h>0?'var(--green)':'var(--muted)'};font-size:13px">· hay ${num(h)}</span></div>`; }).join('');
   cont.style.display='block';
@@ -7368,7 +7595,7 @@ acInput.addEventListener('input', ()=>{
     const fila = (ultimoInventarioData||[]).find(i=>i.producto_id===id);
     return fila ? Number(fila.cantidad) : 0;
   };
-  const coinciden = PRODUCTOS.filter(p=>p.nombre.toLowerCase().includes(q));
+  const coinciden = PRODUCTOS.filter(p=>coincideNombre(p.nombre, q));
   acMatches = coinciden.filter(p=>stockDe(p.id) > 0).slice(0,30);
   acHoverIndex=-1;
 
@@ -7623,7 +7850,7 @@ function renderMiInventario(){
   });
 
   if(filtro){
-    lista = lista.filter(x=>x.producto.nombre.toLowerCase().includes(filtro))
+    lista = lista.filter(x=>coincideNombre(x.producto.nombre, filtro))
       .sort((a,b)=> a.producto.nombre.toLowerCase().indexOf(filtro) - b.producto.nombre.toLowerCase().indexOf(filtro));
   } else {
     lista.sort((a,b)=>a.producto.nombre.localeCompare(b.producto.nombre));
@@ -7649,7 +7876,7 @@ pedAcInput.addEventListener('input', ()=>{
   pedAcHidden.value='';
   const q = pedAcInput.value.trim().toLowerCase();
   if(!q){ pedAcList.style.display='none'; pedAcMatches=[]; return; }
-  pedAcMatches = PRODUCTOS.filter(p=>p.nombre.toLowerCase().includes(q)).slice(0,30);
+  pedAcMatches = PRODUCTOS.filter(p=>coincideNombre(p.nombre, q)).slice(0,30);
   pedAcHover=-1;
   if(pedAcMatches.length===0){ pedAcList.style.display='none'; return; }
   pedAcList.innerHTML = pedAcMatches.map((p,i)=>`<div data-i="${i}">${p.nombre}</div>`).join('');
@@ -7920,7 +8147,7 @@ function filtrarDevProductos(){
   document.getElementById('devElegido').textContent = '';
   if(q.length < 1){ cont.style.display='none'; cont.innerHTML=''; return; }
   const matches = (PRODUCTOS||[])
-    .filter(p => (p.nombre||'').toLowerCase().includes(q))
+    .filter(p => coincideNombre(p.nombre, q))
     .sort((a,b)=>a.nombre.localeCompare(b.nombre))
     .slice(0, 15);
   if(!matches.length){ cont.style.display='block'; cont.innerHTML='<div style="padding:10px; color:var(--muted)">Sin coincidencias.</div>'; return; }
@@ -9275,13 +9502,12 @@ async function sincronizarUnDia(dia){
   // trabajador para cobrarlo otra vez. Por eso queda en cola y se marca solo al volver el internet.
   if(dia.cobros && dia.cobros.length>0){
     for(const c of dia.cobros){
-      try{
-        const rPag = await sb.from('deudas').update({pagada:true, pagada_en:new Date().toISOString(), venta_dia_id: nuevo.id}).eq('id', c.deudaId);
-        if(rPag && rPag.error) throw new Error(rPag.error.message||'no se pudo marcar el cobro');
-      }catch(eCob){
-        const motivo=(eCob&&eCob.message)||String(eCob);
+      // Igual que al cerrar el día: se intenta varias veces y se COMPRUEBA leyendo de vuelta.
+      // Antes aquí era UN SOLO intento, y con el internet de Cuba se cortaba a cada rato.
+      const marcado = await marcarCobroConReintento(c.deudaId, nuevo.id);
+      if(!marcado){
         try{ const q=lsGet('cobros_fallidos',[]); q.push({deudaId:c.deudaId, monto:c.monto, venta_dia_id:nuevo.id, ts:Date.now()}); lsSet('cobros_fallidos',q); }catch(e){}
-        try{ registrarError('cobro/sincronizar','No se pudo marcar el cobro como pagado al subir la venta (quedó en cola)',motivo); }catch(e){}
+        try{ registrarError('cobro/sincronizar','No se pudo marcar el cobro como pagado al subir la venta (quedó en cola; el dueño lo repara solo)','deuda '+c.deudaId); }catch(e){}
       }
     }
   }
@@ -9565,7 +9791,10 @@ async function entrarComo(usuario){
     document.getElementById('btnAbrirMenu').style.display='flex';
     document.getElementById('ventaDiaHeaderPill').style.display='inline';
     document.getElementById('drawerNavVentas').style.display='block';
+    await cargarAjustesCompartidos();
     { const b=document.getElementById('vbtnMayoreo'); if(b) b.style.display = puedeMayoreoVenta() ? 'block' : 'none'; }
+      // SIEMPRE al final: lo que el dueño mandó a esconder manda sobre lo anterior.
+    try{ aplicarPestanasOcultas(); }catch(e){}
     document.getElementById('drawerNavGestion').style.display='none';
     document.getElementById('appVentas').style.display='block';
     actualizarConexionUI();
@@ -9609,6 +9838,7 @@ async function entrarComo(usuario){
     pill.style.display='inline';
     pill.textContent = `${usuarioActual.nombre} · ${usuarioActual.rol==='dueno'?'Dueño':'Administrador'}`;
     document.getElementById('appGestion').style.display='block';
+    await cargarAjustesCompartidos();   // qué pestañas mandó esconder el dueño
     aplicarRestriccionesDeRol();
     actualizarConexionAdminUI();
     cargarTodo();
@@ -9758,7 +9988,7 @@ function renderInvMayoreo(){
   let filas=(PRODUCTOS||[]).map(p=>({nombre:p.nombre, pm:Number(p.precio_mayoreo||0),
     cant:(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===p.id).reduce((s,i)=>s+Number(i.cantidad||0),0)}))
     .filter(x=>x.cant>0);
-  if(q) filas=filas.filter(x=>x.nombre.toLowerCase().includes(q));
+  if(q) filas=filas.filter(x=>coincideNombre(x.nombre, q));
   const total=filas.reduce((s,x)=>s+x.cant,0);
   if(!filas.length){ cont.innerHTML='<div class="empty">El almacén de mayoreo no tiene stock todavía. Métele con "📥 Entrada de mercancía".</div>'; return; }
   cont.innerHTML=`<div style="font-weight:700; margin-bottom:6px">${num(total)} uds.</div>
@@ -9772,7 +10002,7 @@ function renderPreciosMayoreo(){
   const cont=document.getElementById('mayPreciosBody');
   const q=(document.getElementById('mayBuscarPrecio').value||'').trim().toLowerCase();
   let lista=[...(PRODUCTOS||[])];
-  if(q) lista=lista.filter(p=>(p.nombre||'').toLowerCase().includes(q));
+  if(q) lista=lista.filter(p=>coincideNombre(p.nombre, q));
   lista=lista.slice(0,60);
   if(!lista.length){ cont.innerHTML='<div class="empty">Sin productos.</div>'; return; }
   cont.innerHTML=`<table style="min-width:850px"><thead><tr><th>Producto (interno)</th><th>Nombre para la web</th><th class="numcell">Costo may.</th><th class="numcell">Precio may.</th><th class="numcell">Mín.</th><th class="numcell">Caja</th><th></th><th></th></tr></thead><tbody>
@@ -9839,7 +10069,7 @@ function filtrarMayEntrada(){
   const cont=document.getElementById('mayEsug');
   document.getElementById('mayEprod').value=''; document.getElementById('mayEelegido').textContent='';
   if(q.length<1){ cont.style.display='none'; cont.innerHTML=''; return; }
-  const m=(PRODUCTOS||[]).filter(p=>(p.nombre||'').toLowerCase().includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre)).slice(0,15);
+  const m=(PRODUCTOS||[]).filter(p=>coincideNombre(p.nombre, q)).sort((a,b)=>a.nombre.localeCompare(b.nombre)).slice(0,15);
   if(!m.length){ cont.style.display='block'; cont.innerHTML='<div style="padding:10px;color:var(--muted)">Sin coincidencias.</div>'; return; }
   cont.innerHTML=m.map(p=>`<div onclick="elegirMayEntrada(${p.id})" style="padding:12px;border-bottom:1px solid var(--border);cursor:pointer">${p.nombre}</div>`).join('');
   cont.style.display='block';
@@ -10038,7 +10268,7 @@ function filtrarMayVender(){
   const alm=almacenMayoreo();
   if(q.length<1||!alm){ cont.style.display='none'; cont.innerHTML=''; return; }
   const stockDe=pid=>(INVENTARIO||[]).filter(i=>i.almacen_id===alm.id&&i.producto_id===pid).reduce((s,i)=>s+Number(i.cantidad||0),0);
-  const matches=(PRODUCTOS||[]).filter(p=>(p.nombre||'').toLowerCase().includes(q)).sort((a,b)=>a.nombre.localeCompare(b.nombre)).slice(0,15);
+  const matches=(PRODUCTOS||[]).filter(p=>coincideNombre(p.nombre, q)).sort((a,b)=>a.nombre.localeCompare(b.nombre)).slice(0,15);
   if(!matches.length){ cont.style.display='block'; cont.innerHTML='<div style="padding:10px;color:var(--muted)">Sin coincidencias.</div>'; return; }
   cont.innerHTML=matches.map(p=>{ const h=stockDe(p.id); return `<div onclick="elegirMayProducto(${p.id})" style="padding:12px;border-bottom:1px solid var(--border);cursor:pointer">${p.nombre} <span style="color:${h>0?'var(--green)':'var(--muted)'};font-size:13px">· hay ${num(h)}</span></div>`; }).join('');
   cont.style.display='block';
@@ -10284,7 +10514,7 @@ function renderClientes(){
   const cont=document.getElementById('mayClientesBody');
   const q=(document.getElementById('cliBuscar').value||'').trim().toLowerCase();
   let lista=__clientesMay;
-  if(q) lista=lista.filter(c=>(c.nombre||'').toLowerCase().includes(q)||c.tel.includes(q));
+  if(q) lista=lista.filter(c=>coincideNombre(c.nombre, q)||String(c.tel||'').includes(q));
   if(!lista.length){ cont.innerHTML='<div class="empty">Sin clientes.</div>'; return; }
   cont.innerHTML=lista.map((c,i)=>{
     const alerta = c.novino>0 ? `<span style="color:var(--red);font-weight:700">⚠ ${c.novino} no vino</span>` : `<span style="color:var(--green)">cumple</span>`;
@@ -10614,7 +10844,13 @@ async function actualizarBadgeErrores(){
 function explicarError(r){
   const t=((r.mensaje||'')+' '+(r.detalle||'')).toLowerCase();
   let titulo, pista;
-  if(/is not defined|referenceerror|is not a function|cannot read|null is not|undefined is not|typeerror|syntaxerror/.test(t)){
+    // OJO: esto va PRIMERO. "TypeError: Failed to fetch" parece un fallo de programación
+    // pero es la conexión que se cortó. Antes caía en la rama de abajo y la tarjeta decía
+    // "error de programación", que asusta sin motivo.
+    if(/failed to fetch|networkerror|network request failed|load failed|fetch failed|timeout|aborted|err_|necesitas internet/.test(t)){
+      titulo='Se cortó la conexión a mitad';
+      pista='No es un fallo de la app. Quedó guardado en cola y se sube solo cuando vuelva la señal. Si dice "quedó en cola", no hay que hacer nada.';
+    } else if(/is not defined|referenceerror|is not a function|cannot read|null is not|undefined is not|typeerror|syntaxerror/.test(t)){
     titulo='La app tropezó con un fallo interno';
     pista='Es un error de programación (no es culpa del usuario). Mándame esta tarjeta y lo arreglo.';
   } else if(/row-level security|rls|permission|not allowed|violates|policy/.test(t)){
@@ -10626,9 +10862,9 @@ function explicarError(r){
   } else if(/bucket not found|storage|object not found/.test(t)){
     titulo='Problema al subir/ver una foto';
     pista='Falta crear el bucket "fotos-mayoreo" (Público) en Storage, o correr permisos_storage_fotos.sql.';
-  } else if(/necesitas internet|failed to fetch|networkerror|network request failed|load failed|timeout|err_/.test(t)){
+  } else if(/sin conexion|sin conexión|offline/.test(t)){
     titulo='Se cayó el internet a mitad de la acción';
-    pista='El usuario estaba sin conexión. Que lo intente de nuevo con internet.';
+    pista='Quedó guardado en el teléfono y se sube solo al volver la señal.';
   } else if(/negativo|no se puede descontar|no hay tanto|no alcanza|se agotó|solo quedan/.test(t)){
     titulo='No había suficiente mercancía';
     pista='El inventario no alcanzaba para esa venta o extracción. Revisa el stock.';
@@ -10670,7 +10906,7 @@ async function cargarErrores(){
         </div>
         <div style="font-size:13px;margin-top:6px;background:var(--bg,#f6f7f9);border-radius:8px;padding:8px 10px">💡 ${ex.pista}</div>
         <div style="color:var(--muted);font-size:12px;margin-top:8px">
-          👤 ${(r.usuario||'?').replace(/</g,'&lt;')} · 📍 ${dondeBonito} · ${r.en_linea?'🟢 tenía internet':'🔴 sin internet'} · ${r.version||''}
+          👤 ${(r.usuario||'?').replace(/</g,'&lt;')} · 📍 ${dondeBonito} · ${r.en_linea?'🟢 el teléfono tenía señal':'🔴 sin señal'} · ${r.version||''}
         </div>
         <details style="margin-top:8px">
           <summary style="cursor:pointer;color:var(--muted);font-size:12px">Detalle técnico (para el programador)</summary>
@@ -11428,7 +11664,7 @@ if(recepAcInput){
     recepAcHidden.value='';
     const q = recepAcInput.value.trim().toLowerCase();
     if(!q){ recepAcList.style.display='none'; recepAcMatches=[]; return; }
-    recepAcMatches = PRODUCTOS.filter(p=>p.nombre.toLowerCase().includes(q)).slice(0,30);
+    recepAcMatches = PRODUCTOS.filter(p=>coincideNombre(p.nombre, q)).slice(0,30);
     if(recepAcMatches.length===0){ recepAcList.style.display='none'; return; }
     recepAcList.innerHTML = recepAcMatches.map((p,i)=>`<div data-i="${i}">${p.nombre}</div>`).join('');
     recepAcList.style.display='block';
@@ -11839,7 +12075,7 @@ function prepararSelectorEstadisticas(){
   // (El selector de puesto por día ya no está en esta pantalla; se rellena solo si existe.)
   const sel = document.getElementById('estDetPuesto');
   if(!sel) return;
-  sel.innerHTML = (ALMACENES||[]).map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
+  sel.innerHTML = almacenesVisibles().map(a=>`<option value="${a.id}">${a.nombre}</option>`).join('');
   const fechaEl = document.getElementById('estDetFecha');
   if(fechaEl && !fechaEl.value){ fechaEl.value = fechaHoyLocal(); }
 }
@@ -12470,6 +12706,116 @@ async function aprobarPrecioSugerido(pid, nuevoPrecio){
   }catch(e){ alert('No se pudo: '+(e.message||e)); }
 }
 
+// ── PESTAÑAS DEL MENÚ QUE EL DUEÑO DECIDE ESCONDER ──────────────────────────
+// La lista se guarda en la base (tabla "ajustes"), así que lo que el dueño esconde
+// se esconde en TODOS los teléfonos. Si esa tabla todavía no existe, se guarda solo
+// en este teléfono y la pantalla lo avisa claramente.
+let PESTANAS_OCULTAS = [];
+let AJUSTES_COMPARTIDOS = false;   // ¿se pudieron leer de la base?
+
+const PESTANAS_DEL_MENU = [
+  {grupo:'Gestión', tabs:[
+    {k:'inventario',    n:'📦 Inventario'},     {k:'movimientos',  n:'🔁 Movimientos'},
+    {k:'reposicion',    n:'🚚 Reposición'},     {k:'recepcion',    n:'📥 Recepción vs envío'},
+    {k:'compras',       n:'🛒 Compras'},        {k:'pedidos',      n:'📝 Pedidos'},
+    {k:'ventasvendedor',n:'🧾 Ventas por vendedor'}, {k:'articulo', n:'🔎 Buscar artículo'},
+    {k:'conciliacion',  n:'⚖️ Conciliación'},   {k:'dinero',       n:'💵 Dinero'},
+    {k:'deudas',        n:'🤝 Deudas'},         {k:'comisionadmin',n:'📊 Cobro Admin'},
+    {k:'historial',     n:'🕘 Historial'},      {k:'estadisticas', n:'🗂️ Ventas registradas'},
+    {k:'analizador',    n:'🎛️ Sala de Control'},{k:'analisisprod', n:'📈 Análisis de productos'},
+    {k:'mayoreo',       n:'🏷️ Mayoreo'},        {k:'cobraradmin',  n:'💰 Cobrar'},
+    {k:'errores',       n:'🚨 Errores'}
+  ]},
+  {grupo:'Vendedor', tabs:[
+    {k:'v:vender',      n:'🛒 Vender'},         {k:'v:ventadeldia',n:'🧾 Venta del día'},
+    {k:'v:inventario',  n:'📦 Mi inventario'},  {k:'v:pedir',      n:'📝 Pedir'},
+    {k:'v:recepcion',   n:'📥 Recepción'},      {k:'v:cobrar',     n:'💰 Cobrar'},
+    {k:'v:devoluciones',n:'↩️ Devoluciones'},   {k:'v:historial',  n:'🕘 Historial'},
+    {k:'v:mayoreo',     n:'🏷️ Mayoreo'}
+  ]}
+];
+// Estas no se pueden esconder: sin ellas no se puede trabajar ni volver atrás.
+const PESTANAS_INTOCABLES = new Set(['admin','usuarios','v:vender']);
+
+async function cargarAjustesCompartidos(){
+  PESTANAS_OCULTAS = lsGet('ajuste_pestanas_ocultas', []);   // lo último que supimos
+  AJUSTES_COMPARTIDOS = false;
+  if(!navigator.onLine || typeof sb==='undefined' || !sb) return;
+  try{
+    const {data, error} = await sb.from('ajustes').select('valor').eq('clave','pestanas_ocultas').maybeSingle();
+    if(error) throw error;
+    AJUSTES_COMPARTIDOS = true;
+    const v = data && data.valor;
+    PESTANAS_OCULTAS = Array.isArray(v) ? v : (v && Array.isArray(v.lista) ? v.lista : []);
+    lsSet('ajuste_pestanas_ocultas', PESTANAS_OCULTAS);
+  }catch(e){ /* la tabla aún no existe: nos quedamos con lo de este teléfono */ }
+}
+
+function aplicarPestanasOcultas(){
+  const ocultas = new Set((PESTANAS_OCULTAS||[]).filter(k=>!PESTANAS_INTOCABLES.has(k)));
+  document.querySelectorAll('#drawerNavGestion button[data-tab]').forEach(b=>{
+    if(ocultas.has(b.dataset.tab)) b.style.display = 'none';
+  });
+  document.querySelectorAll('button[data-vtab]').forEach(b=>{
+    if(ocultas.has('v:'+b.dataset.vtab)) b.style.display = 'none';
+  });
+}
+
+async function guardarPestanasOcultas(lista){
+  PESTANAS_OCULTAS = (lista||[]).filter(k=>!PESTANAS_INTOCABLES.has(k));
+  lsSet('ajuste_pestanas_ocultas', PESTANAS_OCULTAS);
+  aplicarPestanasOcultas();
+  if(!navigator.onLine){ return {compartido:false, motivo:'sin internet'}; }
+  try{
+    let r = await sb.from('ajustes').upsert({clave:'pestanas_ocultas', valor:PESTANAS_OCULTAS, actualizado_en:new Date().toISOString()}, {onConflict:'clave'}).select();
+    if(r.error) throw r.error;
+    if(!r.data || !r.data.length) return {compartido:false, motivo:'permisos'};
+    AJUSTES_COMPARTIDOS = true;
+    return {compartido:true};
+  }catch(e){
+    return {compartido:false, motivo:'falta la tabla', detalle:(e&&e.message)||String(e)};
+  }
+}
+
+function renderConfigPestanas(){
+  const cont = document.getElementById('configPestanasBody');
+  if(!cont) return;
+  if(!usuarioActual || usuarioActual.rol!=='dueno'){ cont.innerHTML=''; return; }
+  const ocultas = new Set(PESTANAS_OCULTAS||[]);
+  cont.innerHTML =
+    (AJUSTES_COMPARTIDOS
+      ? '<div class="msg ok">Lo que escondas aquí se esconde en TODOS los teléfonos.</div>'
+      : '<div class="msg err">Ahora mismo esto solo se guarda en este teléfono. Para que les aplique a todos, corre en Supabase el SQL <b>ajustes.sql</b>.</div>')
+    + PESTANAS_DEL_MENU.map(g=>
+      '<div style="margin-top:12px"><div style="font-weight:800; margin-bottom:6px">'+g.grupo+'</div>'
+      + g.tabs.map(t=>{
+          const fija = PESTANAS_INTOCABLES.has(t.k);
+          const esconder = ocultas.has(t.k);
+          return '<label style="display:flex; align-items:center; gap:10px; padding:8px 4px; border-bottom:1px solid var(--border)'+(fija?'; opacity:.5':'')+'">'
+            + '<input type="checkbox" data-pest="'+t.k+'" '+(esconder?'checked':'')+(fija?' disabled':'')+' style="width:20px; height:20px">'
+            + '<span>'+t.n+(fija?' <span style="color:var(--muted); font-size:12px">(no se puede esconder)</span>':'')+'</span>'
+            + '</label>';
+        }).join('')
+      + '</div>').join('')
+    + '<button class="primary" style="width:100%; margin-top:14px" onclick="guardarConfigPestanas()">Guardar</button>'
+    + '<div id="configPestanasMsg" class="msg"></div>';
+}
+
+async function guardarConfigPestanas(){
+  const cont = document.getElementById('configPestanasBody');
+  const msg = document.getElementById('configPestanasMsg');
+  if(!cont) return;
+  const lista = [...cont.querySelectorAll('input[data-pest]')].filter(c=>c.checked && !c.disabled).map(c=>c.dataset.pest);
+  const r = await guardarPestanasOcultas(lista);
+  if(msg){
+    if(r.compartido){ msg.textContent = 'Guardado. ✓ Se aplica en todos los teléfonos (cada uno lo verá al volver a entrar).'; msg.className='msg ok'; }
+    else if(r.motivo==='sin internet'){ msg.textContent = 'Guardado en este teléfono. Conéctate y guarda otra vez para que les aplique a todos.'; msg.className='msg err'; }
+    else if(r.motivo==='permisos'){ msg.textContent = 'No se pudo guardar en el servidor (permisos). Corre el SQL "permisos_todas_tablas.sql".'; msg.className='msg err'; }
+    else { msg.textContent = 'Guardado solo en este teléfono. Para que les aplique a todos, corre en Supabase el SQL "ajustes.sql".'; msg.className='msg err'; }
+  }
+  renderConfigPestanas();
+}
+
 function aplicarRestriccionesDeRol(){
   const esDueno = usuarioActual.rol === 'dueno';
   document.getElementById('tabBtnUsuarios').style.display = esDueno ? 'inline-block' : 'none';
@@ -12484,11 +12830,14 @@ function aplicarRestriccionesDeRol(){
   const cardComp = document.getElementById('cardComprobarInv');
   if(cardComp) cardComp.style.display = esDueno ? '' : 'none';
   document.querySelectorAll('.solo-dueno').forEach(el=> el.style.display = esDueno ? '' : 'none');
+  // SIEMPRE al final: lo que el dueño mandó a esconder se esconde encima de todo lo anterior.
+  try{ aplicarPestanasOcultas(); }catch(e){}
+  try{ renderConfigPestanas(); }catch(e){}
 }
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v162</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v167</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
