@@ -4165,16 +4165,16 @@ async function resolverPedido(pedidoId, productoId, destinoId, modo){
   if(!cantidad || cantidad<=0){ alert('Ingresa una cantidad válida a entregar.'); return; }
   try{
     if(modo==='agregar'){
-      await ajustarInventario(destinoId, productoId, cantidad);
-      await sb.from('movimientos').insert({tipo:'ingreso', producto_id:productoId, almacen_destino_id:destinoId, cantidad, nota:'Pedido resuelto (ingreso directo)'});
+      const rPed = await ajustarInventario(destinoId, productoId, cantidad);
+      await insertarMovimiento({tipo:'ingreso', producto_id:productoId, almacen_destino_id:destinoId, cantidad, nota:'Pedido resuelto (ingreso directo)', cant_antes:rPed.antes, cant_despues:rPed.despues});
     } else {
       const origenSel = document.getElementById('origenPedido-'+pedidoId);
       const origenId = Number(origenSel.value);
       if(!origenId){ alert('Selecciona desde qué almacén trasladar.'); return; }
       await verificarStock(origenId, productoId, cantidad);
-      await ajustarInventario(origenId, productoId, -cantidad);
-      await ajustarInventario(destinoId, productoId, cantidad);
-      await sb.from('movimientos').insert({tipo:'traslado', producto_id:productoId, almacen_origen_id:origenId, almacen_destino_id:destinoId, cantidad, nota:'Pedido resuelto (traslado)'});
+      const rOrg = await ajustarInventario(origenId, productoId, -cantidad);
+      const rDst = await ajustarInventario(destinoId, productoId, cantidad);
+      await insertarMovimiento({tipo:'traslado', producto_id:productoId, almacen_origen_id:origenId, almacen_destino_id:destinoId, cantidad, nota:'Pedido resuelto (traslado)', cant_antes:rOrg.antes, cant_despues:rOrg.despues, cant_antes_destino:rDst.antes, cant_despues_destino:rDst.despues});
     }
     await sb.from('pedidos').update({estado:'resuelto', resuelto_en:new Date().toISOString()}).eq('id', pedidoId);
     await cargarTodo();
@@ -4649,11 +4649,11 @@ async function procesarOperacionAdmin(op, colaCompleta){
     await pasoUnaVez('opinv-'+op.id, async()=>{
       if(p.tipo === 'me_deben'){
         await verificarStock(p.almacenId, p.productoId, p.cantidad);
-        await ajustarInventario(p.almacenId, p.productoId, -p.cantidad);
-        await insertarMovimiento({tipo:'extraccion', producto_id:p.productoId, almacen_origen_id:p.almacenId, cantidad:p.cantidad, nota:`Préstamo de artículo a ${p.persona}`, clave_local:'opinv-'+op.id});
+        const rq = await ajustarInventario(p.almacenId, p.productoId, -p.cantidad);
+        await insertarMovimiento({tipo:'extraccion', producto_id:p.productoId, almacen_origen_id:p.almacenId, cantidad:p.cantidad, nota:`Préstamo de artículo a ${p.persona}`, clave_local:'opinv-'+op.id, cant_antes:rq.antes, cant_despues:rq.despues});
       } else {
-        await ajustarInventario(p.almacenId, p.productoId, p.cantidad);
-        await insertarMovimiento({tipo:'ingreso', producto_id:p.productoId, almacen_destino_id:p.almacenId, cantidad:p.cantidad, nota:`Préstamo de artículo recibido de ${p.persona}`, clave_local:'opinv-'+op.id});
+        const rq = await ajustarInventario(p.almacenId, p.productoId, p.cantidad);
+        await insertarMovimiento({tipo:'ingreso', producto_id:p.productoId, almacen_destino_id:p.almacenId, cantidad:p.cantidad, nota:`Préstamo de artículo recibido de ${p.persona}`, clave_local:'opinv-'+op.id, cant_antes:rq.antes, cant_despues:rq.despues});
       }
     });
     await pasoUnaVez('opdeuda-'+op.id, async()=>{
@@ -4687,12 +4687,12 @@ async function procesarOperacionAdmin(op, colaCompleta){
     // La mercancía se mueve UNA sola vez aunque esto se reintente.
     await pasoUnaVez('opinv-'+op.id, async()=>{
       if(p.tipoOriginal === 'me_deben'){
-        await ajustarInventario(p.almacenId, p.productoId, p.cantidad);
-        await insertarMovimiento({tipo:'ingreso', producto_id:p.productoId, almacen_destino_id:p.almacenId, cantidad:p.cantidad, nota:`Devolución de préstamo — ${p.persona}`, clave_local:'opinv-'+op.id});
+        const rq = await ajustarInventario(p.almacenId, p.productoId, p.cantidad);
+        await insertarMovimiento({tipo:'ingreso', producto_id:p.productoId, almacen_destino_id:p.almacenId, cantidad:p.cantidad, nota:`Devolución de préstamo — ${p.persona}`, clave_local:'opinv-'+op.id, cant_antes:rq.antes, cant_despues:rq.despues});
       } else {
         await verificarStock(p.almacenId, p.productoId, p.cantidad);
-        await ajustarInventario(p.almacenId, p.productoId, -p.cantidad);
-        await insertarMovimiento({tipo:'extraccion', producto_id:p.productoId, almacen_origen_id:p.almacenId, cantidad:p.cantidad, nota:`Devolución de préstamo — ${p.persona}`, clave_local:'opinv-'+op.id});
+        const rq = await ajustarInventario(p.almacenId, p.productoId, -p.cantidad);
+        await insertarMovimiento({tipo:'extraccion', producto_id:p.productoId, almacen_origen_id:p.almacenId, cantidad:p.cantidad, nota:`Devolución de préstamo — ${p.persona}`, clave_local:'opinv-'+op.id, cant_antes:rq.antes, cant_despues:rq.despues});
       }
     });
     await sb.from('deudas').update({pagada:true, pagada_en:new Date().toISOString()}).eq('id', p.deudaId);
@@ -4948,12 +4948,12 @@ async function crearDeuda(){
       if(tipo === 'me_deben'){
         // Yo presté el artículo: sale de mi almacén ahora mismo.
         await verificarStock(almacenId, productoId, cantidad);
-        await ajustarInventario(almacenId, productoId, -cantidad);
-        await sb.from('movimientos').insert({tipo:'extraccion', producto_id:productoId, almacen_origen_id:almacenId, cantidad, nota:`Préstamo de artículo a ${persona}`});
+        const rPr = await ajustarInventario(almacenId, productoId, -cantidad);
+        await insertarMovimiento({tipo:'extraccion', producto_id:productoId, almacen_origen_id:almacenId, cantidad, nota:`Préstamo de artículo a ${persona}`, cant_antes:rPr.antes, cant_despues:rPr.despues});
       } else {
         // Me prestaron el artículo: entra a mi almacén ahora mismo.
-        await ajustarInventario(almacenId, productoId, cantidad);
-        await sb.from('movimientos').insert({tipo:'ingreso', producto_id:productoId, almacen_destino_id:almacenId, cantidad, nota:`Préstamo de artículo recibido de ${persona}`});
+        const rPr = await ajustarInventario(almacenId, productoId, cantidad);
+        await insertarMovimiento({tipo:'ingreso', producto_id:productoId, almacen_destino_id:almacenId, cantidad, nota:`Préstamo de artículo recibido de ${persona}`, cant_antes:rPr.antes, cant_despues:rPr.despues});
       }
       const {error} = await sb.from('deudas').insert({tipo, tipo_deuda:'articulo', persona, producto_id:productoId, cantidad, almacen_id:almacenId, monto:0, nota});
       if(error) throw error;
@@ -5260,13 +5260,13 @@ async function resolverDeudaArticulo(id){
   try{
     if(d.tipo === 'me_deben'){
       // Yo había prestado el artículo; ahora me lo devuelven (entra a mi almacén).
-      await ajustarInventario(d.almacen_id, d.producto_id, d.cantidad);
-      await sb.from('movimientos').insert({tipo:'ingreso', producto_id:d.producto_id, almacen_destino_id:d.almacen_id, cantidad:d.cantidad, nota:`Devolución de préstamo — ${d.persona}`});
+      const rDv = await ajustarInventario(d.almacen_id, d.producto_id, d.cantidad);
+      await insertarMovimiento({tipo:'ingreso', producto_id:d.producto_id, almacen_destino_id:d.almacen_id, cantidad:d.cantidad, nota:`Devolución de préstamo — ${d.persona}`, cant_antes:rDv.antes, cant_despues:rDv.despues});
     } else {
       // A mí me habían prestado el artículo; ahora yo lo devuelvo (sale de mi almacén).
       await verificarStock(d.almacen_id, d.producto_id, d.cantidad);
-      await ajustarInventario(d.almacen_id, d.producto_id, -d.cantidad);
-      await sb.from('movimientos').insert({tipo:'extraccion', producto_id:d.producto_id, almacen_origen_id:d.almacen_id, cantidad:d.cantidad, nota:`Devolución de préstamo — ${d.persona}`});
+      const rDv = await ajustarInventario(d.almacen_id, d.producto_id, -d.cantidad);
+      await insertarMovimiento({tipo:'extraccion', producto_id:d.producto_id, almacen_origen_id:d.almacen_id, cantidad:d.cantidad, nota:`Devolución de préstamo — ${d.persona}`, cant_antes:rDv.antes, cant_despues:rDv.despues});
     }
     await sb.from('deudas').update({pagada:true, pagada_en:new Date().toISOString()}).eq('id', id);
     await cargarDeudas();
@@ -8309,8 +8309,8 @@ async function aplicarDevolucionEnServidor(d){
         devId = r2.data.id;
       } else throw e1;
     } else { devId = devRow.id; }
-    await ajustarInventario(d.almacen_id, d.producto_id, d.cantidad);
-    await sb.from('movimientos').insert({tipo:'ingreso', producto_id:d.producto_id, almacen_destino_id:d.almacen_id, cantidad:d.cantidad, nota:'Devolución de cliente' + (d.nota ? ' — ' + d.nota : '')});
+    const rDevInv = await ajustarInventario(d.almacen_id, d.producto_id, d.cantidad);
+    await insertarMovimiento({tipo:'ingreso', producto_id:d.producto_id, almacen_destino_id:d.almacen_id, cantidad:d.cantidad, nota:'Devolución de cliente' + (d.nota ? ' — ' + d.nota : ''), cant_antes:rDevInv.antes, cant_despues:rDevInv.despues});
     await sb.from('caja_movimientos').insert({tipo:'egreso', metodo:d.metodo, categoria:'otro', monto: d.cantidad*d.precio_venta, concepto:`Devolución ${d.nombre} ×${num(d.cantidad)} — ${d.almacen_nombre}`, almacen_id:d.almacen_id});
   }
 
@@ -12837,7 +12837,7 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v167</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v168</div>
 <script>
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>{navigator.serviceWorker.register('service-worker.js').catch(e=>console.error(e));}); }
 </script>
