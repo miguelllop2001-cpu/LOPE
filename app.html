@@ -2793,23 +2793,40 @@ function marcarClaveMovAplicada(clave){
 // Inserta el movimiento. Si la base todavía no tiene la columna 'clave_local', reintenta
 // SIN esa columna — así el movimiento igual queda registrado y NO se dispara un reintento
 // que volvería a sumar la cantidad al inventario.
+// Columnas que la base puede no tener todavía. Se quitan DE UNA EN UNA, no todas de golpe.
+const COLS_OPCIONALES_MOV = ['cant_antes_destino','cant_despues_destino','clave_local','venta_dia_id','cant_antes','cant_despues'];
+let __avisoColsMov = false;
+
 async function insertarMovimiento(payload){
-  const {error} = await sb.from('movimientos').insert(payload);
-  if(error){
-    const msg = (error.message||'').toLowerCase();
-    // Si la base todavía no tiene alguna columna nueva (clave_local, cant_antes, cant_despues…),
-    // reintentamos SIN las columnas opcionales para que el movimiento igual quede registrado.
-    if(msg.includes('column') || msg.includes('clave_local') || msg.includes('cant_antes') || msg.includes('cant_despues')){
-      const base = Object.assign({}, payload);
-      delete base.clave_local;
-      delete base.cant_antes; delete base.cant_despues;
-      delete base.cant_antes_destino; delete base.cant_despues_destino;
-      const {error: e2} = await sb.from('movimientos').insert(base);
-      if(e2) throw e2;
+  const intento = Object.assign({}, payload);
+  const quitadas = [];
+  // Hasta 6 pasadas: cada vez que la base se queje de UNA columna, se quita ESA y se
+  // reintenta. Antes, si faltaba una sola (p.ej. cant_antes_destino, que solo usan los
+  // traslados), el plan B borraba las CUATRO del antes/después y la fila del Historial
+  // salía "—" aunque las otras columnas sí existieran.
+  for(let vuelta=0; vuelta<=COLS_OPCIONALES_MOV.length; vuelta++){
+    const {error} = await sb.from('movimientos').insert(intento);
+    if(!error){
+      if(quitadas.length && !__avisoColsMov){
+        __avisoColsMov = true;   // avisar UNA vez, no en cada movimiento
+        try{ registrarError('movimientos/columnas',
+          'A la tabla "movimientos" le faltan columnas, por eso el Historial no muestra ANTES → DESPUÉS. Corre el SQL "movimientos_columnas.sql".',
+          'faltan: '+quitadas.join(', ')); }catch(e){}
+      }
       return;
     }
-    throw error;
+    const msg = (error.message||'').toLowerCase();
+    // ¿De qué columna se queja? Se busca por nombre dentro del mensaje.
+    const culpable = COLS_OPCIONALES_MOV.find(c => (c in intento) && msg.includes(c));
+    if(culpable){ delete intento[culpable]; quitadas.push(culpable); continue; }
+    // Se queja de una columna pero no dice cuál: se quita la siguiente opcional que quede.
+    if(msg.includes('column') || msg.includes('schema cache')){
+      const otra = COLS_OPCIONALES_MOV.find(c => c in intento);
+      if(otra){ delete intento[otra]; quitadas.push(otra); continue; }
+    }
+    throw error;   // error de verdad (permisos, stock, etc.)
   }
+  throw new Error('No se pudo registrar el movimiento');
 }
 
 async function movimientoYaRegistrado(clave){
@@ -3057,9 +3074,9 @@ async function comprobarMovimiento(productoId, almOrigenId, almDestinoId, tipo, 
 
   try{
     // Todos los movimientos de ESTE producto
-    const {data: movs, error} = await sb.from('movimientos')
-      .select('tipo, cantidad, almacen_origen_id, almacen_destino_id').eq('producto_id', productoId);
-    if(error) throw error;
+    const movs = await traerTodasLasFilas(()=> sb.from('movimientos')
+      .select('tipo, cantidad, almacen_origen_id, almacen_destino_id')
+      .eq('producto_id', productoId).order('id',{ascending:true}));
 
     const resultados = [];
     for(const almId of almacenes){
@@ -12834,6 +12851,6 @@ function aplicarRestriccionesDeRol(){
 
 iniciarApp();
 </script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v168</div>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v169</div>
 </body>
 </html>
