@@ -9,19 +9,19 @@
 //    de dos versiones.
 //  · Las llamadas de datos a Supabase NUNCA se guardan: de eso se encarga la app con su cola.
 
-const VERSION = '172';
-const CACHE_NAME = 'mi-negocio-v211';
+const VERSION = '173';
+const CACHE_NAME = 'mi-negocio-v212';
 const OBLIGATORIOS = [
   './index.html',
-  './app.css?v=172',
-  './app1-base.js?v=172',
-  './app2-gestion.js?v=172',
-  './app3-deudas.js?v=172',
-  './app4-vendedor.js?v=172',
-  './app5-subida.js?v=172',
-  './app6-mayoreo.js?v=172',
-  './app7-control.js?v=172',
-  './app8-arranque.js?v=172',
+  './app.css?v=173',
+  './app1-base.js?v=173',
+  './app2-gestion.js?v=173',
+  './app3-deudas.js?v=173',
+  './app4-vendedor.js?v=173',
+  './app5-subida.js?v=173',
+  './app6-mayoreo.js?v=173',
+  './app7-control.js?v=173',
+  './app8-arranque.js?v=173',
   './manifest.json'
 ];
 const OPCIONALES = ['./app.html', './icon-192.png', './icon-512.png'];

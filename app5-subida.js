@@ -479,7 +479,13 @@ function pintarPillPendientes(){
     if(n === 0 && !sinSenal) arriba.style.display = 'none';
     else {
       arriba.style.display = 'inline-block';
-      arriba.textContent = sinSenal ? (n > 0 ? `📵 ${n} sin subir` : '📵 Sin señal') : (__subiendoAhora ? `⏫ Subiendo ${n}…` : `⏳ ${n} sin subir`);
+      // En la pantalla del vendedor el botón "Venta del día" ocupa el centro: ahí va corto.
+      const vp = document.getElementById('ventaDiaHeaderPill');
+      const corto = !!(vp && vp.style.display !== 'none' && window.innerWidth < 640);
+      arriba.textContent = corto
+        ? ((sinSenal ? '📵' : (__subiendoAhora ? '⏫' : '⏳')) + (n > 0 ? ' ' + n : ''))
+        : (sinSenal ? (n > 0 ? `📵 ${n} sin subir` : '📵 Sin señal') : (__subiendoAhora ? `⏫ Subiendo ${n}…` : `⏳ ${n} sin subir`));
+      arriba.style.padding = corto ? '7px 9px' : '7px 12px';
       const c = sinSenal ? 'var(--red)' : 'var(--amber)';
       arriba.style.color = c; arriba.style.borderColor = c;
     }
@@ -507,7 +513,26 @@ async function subirPendientesAhora(){
   for(const f of pasos){ try{ await f(); }catch(e){ console.error(e); } }
   __subiendoAhora = false; pintarPillPendientes();
   const n1 = contarPendientesTotales();
-  if(n1 > 0) alert(`Se subieron ${Math.max(0, n0-n1)} de ${n0}. Quedan ${n1} sin subir: la señal está muy mala o hay algo trabado. Se sigue intentando solo cada medio minuto.`);
+  if(n1 > 0) alert(`Se subieron ${Math.max(0, n0-n1)} de ${n0}. Quedan ${n1} sin subir:\n\n${detallePendientes()}\n\nSe sigue intentando solo cada medio minuto. Si no baja, mándale una foto de este aviso al dueño.`);
+}
+// Qué es lo que está sin subir y por qué (para no adivinar). Sin detalles de pagos internos.
+function detallePendientes(){
+  const NOMBRES = {vt_pending_days:'venta(s) del día', vt_pending_pedidos:'pedido(s)', vt_pending_devoluciones:'devolución(es)',
+    adm_pending_ops:'operación(es) de gestión', caja_fallidas:'dinero de venta(s)', cobros_fallidos:'cobro(s) por marcar',
+    com_fallidas:'registro(s) interno(s)', recep_pending:'artículo(s) de Recepción', may_movs_pendientes:'movimiento(s) de mayoreo', may_ventas_pendientes:'venta(s) de mayoreo'};
+  const lineas = [];
+  for(const c of COLAS_PENDIENTES){
+    const v = lsGet(c, []); if(!Array.isArray(v) || !v.length) continue;
+    let motivo = '';
+    const conError = v.find(x => x && x._ultimoError);
+    if(conError){
+      let m = String(conError._ultimoError);
+      if(__esErrorDeRed(m)) m = 'se cortó la conexión';
+      motivo = ' — ' + m.slice(0, 110) + ((conError._intentos||0) > 1 ? ` (${conError._intentos} intentos)` : '');
+    }
+    lineas.push(`• ${v.length} ${NOMBRES[c] || c}${motivo}`);
+  }
+  return lineas.join('\n');
 }
 
 // ---------- HISTORIAL DE DÍAS (colapsable) ----------

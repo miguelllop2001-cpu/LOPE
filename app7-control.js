@@ -885,7 +885,12 @@ async function agregarRecepcion(){
 // Sube lo que quedó en la cola (se llama al volver el internet).
 async function sincronizarRecepciones(){
   const n = await drenarCola('recep_pending', async fila => {
-    const envio = Object.assign({}, fila); delete envio.__cid;   // la marca interna no va a la base
+    // A la base van SOLO los datos del artículo. Las marcas internas de la cola (__cid y, si
+    // un intento falló, _ultimoError/_intentos/_faltantes) se quitan: antes solo se quitaba
+    // __cid, así que bastaba UN fallo de señal para que el artículo llevara pegado "_intentos"
+    // y la base lo rechazara para siempre ("no existe esa columna"). Por eso no subían.
+    const envio = {};
+    for(const k of Object.keys(fila)){ if(k.charAt(0) !== '_') envio[k] = fila[k]; }
     const { error } = await sb.from('recepciones').insert(envio);
     if(error) throw error;
   });
