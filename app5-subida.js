@@ -810,6 +810,7 @@ async function entrarComo(usuario){
     // Solo la trabajadora comodín ve el botón "Cambiar de puesto"
     document.getElementById('btnCambiarPuesto').style.display = esComodin() ? 'block' : 'none';
     await abrirPanelVenta();
+    try{ cargarRecepcionesHoy(); }catch(e){}   // para que el menú diga ya cuántos envíos hay por confirmar
   } else {
     document.getElementById('appTitle').textContent = '📦 Gestión de Almacenes';
     document.getElementById('connPill').style.display='inline';

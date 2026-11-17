@@ -29,7 +29,7 @@ document.querySelectorAll('.tabs button').forEach(btn=>{
     if(btn.dataset.tab==='pedidos') cargarPedidos();
     if(btn.dataset.tab==='movimientos') cargarInventarioMov();
     if(btn.dataset.tab==='hoy' && usuarioActual.rol==='dueno') cargarResumenHoy();
-    if(btn.dataset.tab==='reposicion'){ cargarReposicion(); renderPorAcabarse(); }
+    if(btn.dataset.tab==='reposicion') cargarReposicion();
     if(btn.dataset.tab==='recepcion') cargarConciliacion();
     if(btn.dataset.tab==='dinero') cargarDinero();
     if(btn.dataset.tab==='deudas') cargarDeudas();
@@ -463,6 +463,7 @@ const COLAS_PENDIENTES = ['vt_pending_days','vt_pending_pedidos','vt_pending_dev
   'caja_fallidas','cobros_fallidos','com_fallidas','recep_pending','may_movs_pendientes','may_ventas_pendientes'];
 let __subiendoAhora = false;
 setInterval(pintarPillPendientes, 3000);
+setInterval(()=>{ try{ if(navigator.onLine && usuarioActual && puestoActual && document.getElementById('appVentas') && document.getElementById('appVentas').style.display!=='none') cargarRecepcionesHoy(); }catch(e){} }, 180000);
 window.addEventListener('online', pintarPillPendientes);
 window.addEventListener('offline', pintarPillPendientes);
 
@@ -526,37 +527,24 @@ let __repoTransfiriendo = false;
 
 // ══════════════════════════════════════════════════════════════════
 // 📥 RECEPCIÓN DEL PUESTO
-// El vendedor va anotando lo que le llevan al puesto (producto + cantidad). Se guarda en la tabla
-// `recepciones` (offline: se encola y se sube al volver el internet). El dueño lo compara, por
-// puesto y día, con lo que el sistema le ENVIÓ (movimientos de ingreso/traslado con destino ese
-// puesto). Función de comparación PURA (conciliarRecepcion) para poder probarla.
+// (desde la v175) El vendedor YA NO anota: la app le enseña lo que se le envió a su puesto
+// (traslados e ingresos) y él confirma "Llegó" o dice cuánto llegó de verdad. Cada confirmación
+// se guarda en `recepciones` con el id del envío (movimiento_id), así no se repite. Se guarda
+// primero en el teléfono (cola recep_pending) y se sube sola. El dueño ve lo que llegó distinto
+// y lo resuelve (regresar al almacén de origen, quitar del puesto, sumar, o dejar así).
 // ══════════════════════════════════════════════════════════════════
 
-// ---------- Autocomplete del buscador de recepción (vendedor) ----------
-const recepAcInput = document.getElementById('recepProductoTexto');
-const recepAcHidden = document.getElementById('recepProductoId');
-const recepAcList = document.getElementById('recepProductoList');
-let recepAcMatches = [];
-if(recepAcInput){
-  recepAcInput.addEventListener('input', ()=>{
-    recepAcHidden.value='';
-    const q = recepAcInput.value.trim().toLowerCase();
-    if(!q){ recepAcList.style.display='none'; recepAcMatches=[]; return; }
-    recepAcMatches = PRODUCTOS.filter(p=>coincideNombre(p.nombre, q)).slice(0,30);
-    if(recepAcMatches.length===0){ recepAcList.style.display='none'; return; }
-    recepAcList.innerHTML = recepAcMatches.map((p,i)=>`<div data-i="${i}">${p.nombre}</div>`).join('');
-    recepAcList.style.display='block';
-  });
-  recepAcList.addEventListener('mousedown', e=>{
-    const div = e.target.closest('div[data-i]'); if(!div) return;
-    const p = recepAcMatches[Number(div.dataset.i)];
-    recepAcInput.value=p.nombre; recepAcHidden.value=p.id; recepAcList.style.display='none';
-  });
-  document.addEventListener('click', e=>{ if(!e.target.closest('#recepProductoTexto') && !e.target.closest('#recepProductoList')) recepAcList.style.display='none'; });
-}
+// ══ Qué cuenta como "mercancía que le enviaron al puesto" ══
+// Los traslados y los ingresos hacia el puesto. NO cuentan las devoluciones de clientes, los
+// ajustes, los préstamos ni las correcciones: esos los hizo el propio puesto o no son un envío.
+const RECEPCION_DESDE = '2026-11-17';   // lo de antes se anotaba a mano (no se pide confirmar)
+const RECEPCION_DIAS  = 14;
 
-// Guarda lo mostrado en la conciliación para poder limpiar de golpe.
-let __conciliacionData = [];
+// ── VENDEDOR ──────────────────────────────────────────────────────────────
+let __recepItems = [];
+
+// ── DUEÑO ─────────────────────────────────────────────────────────────────
+let __recepAdmin = {};
 let __apSugerencias=[];
 
 // ── PESTAÑAS DEL MENÚ QUE EL DUEÑO DECIDE ESCONDER ──────────────────────────
@@ -570,7 +558,7 @@ const PESTANAS_DEL_MENU = [
   {grupo:'Gestión', tabs:[
     {k:'hoy',           n:'📅 Resumen del día'},
     {k:'inventario',    n:'📦 Inventario'},     {k:'movimientos',  n:'🔁 Movimientos'},
-    {k:'reposicion',    n:'🚚 Reposición'},     {k:'recepcion',    n:'📥 Recepción vs envío'},
+    {k:'reposicion',    n:'🚚 Reposición'},     {k:'recepcion',    n:'📥 Recepción'},
     {k:'compras',       n:'🛒 Compras'},        {k:'pedidos',      n:'📝 Pedidos'},
     {k:'ventasvendedor',n:'🧾 Ventas por vendedor'}, {k:'articulo', n:'🔎 Buscar artículo'},
     {k:'conciliacion',  n:'⚖️ Conciliación'},   {k:'dinero',       n:'💵 Dinero'},
@@ -590,7 +578,6 @@ const PESTANAS_DEL_MENU = [
 ];
 // Estas no se pueden esconder: sin ellas no se puede trabajar ni volver atrás.
 const PESTANAS_INTOCABLES = new Set(['admin','usuarios','v:vender']);
-let STOCK_MINIMOS = normalizarMinimos(lsGet('ajuste_stock_minimos', null));
 let __hoyYaAbierto = false;
 
 iniciarApp();

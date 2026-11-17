@@ -8,9 +8,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f1115">
 <title>Mi Negocio</title>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-<link rel="stylesheet" href="app.css?v=173">
+<script src="lib-supabase.js?v=175"></script>
+<script src="lib-papaparse.js?v=175"></script>
+<link rel="stylesheet" href="app.css?v=175">
 </head>
 <body>
 
@@ -50,7 +50,7 @@
       <button data-vtab="ventadeldia" onclick="cambiarVTab('ventadeldia')">🧾 Venta del día</button>
       <button data-vtab="inventario" onclick="cambiarVTab('inventario')">📦 Mi inventario</button>
       <button data-vtab="pedir" onclick="cambiarVTab('pedir')">📝 Pedir</button>
-      <button data-vtab="recepcion" onclick="cambiarVTab('recepcion')">📥 Recepción</button>
+      <button data-vtab="recepcion" onclick="cambiarVTab('recepcion')">📥 Recepción<span id="recepCuenta" style="display:none; margin-left:6px; background:var(--red); color:#fff; border-radius:999px; padding:1px 8px; font-size:12px; font-weight:800"></span></button>
       <button data-vtab="cobrar" onclick="cambiarVTab('cobrar')">💰 Cobrar</button>
       <button data-vtab="devoluciones" onclick="cambiarVTab('devoluciones')">↩️ Devoluciones</button>
       <button data-vtab="historial" onclick="cambiarVTab('historial')">🕘 Historial</button>
@@ -64,7 +64,7 @@
       <button data-tab="inventario" class="active">📦 Inventario</button>
       <button data-tab="movimientos">🔁 Movimientos</button>
       <button data-tab="reposicion">🚚 Reposición</button>
-      <button data-tab="recepcion" class="solo-dueno" style="display:none">📥 Recepción vs envío</button>
+      <button data-tab="recepcion" class="solo-dueno" style="display:none">📥 Recepción</button>
       <button data-tab="compras">🛒 Compras</button>
       <button data-tab="pedidos">📝 Pedidos</button>
       <button data-tab="ventasvendedor" id="tabBtnVentasVendedor">🧾 Ventas por vendedor</button>
@@ -307,20 +307,13 @@
 
     <div id="vtab-recepcion" class="vtab" style="display:none">
       <div class="card">
-        <h2>📥 Lo que me trajeron hoy</h2>
-        <p style="color:var(--muted); font-size:14px; margin-top:-4px">Anota lo que te van llevando al puesto durante el día: producto y cantidad. El dueño lo compara con lo que de verdad se te envió.</p>
-        <div class="field autocomplete">
-          <label>Producto</label>
-          <input type="text" id="recepProductoTexto" placeholder="Escribe para buscar..." autocomplete="off">
-          <input type="hidden" id="recepProductoId">
-          <div class="ac-list" id="recepProductoList"></div>
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px">
+          <h2 style="margin:0">📥 Lo que te enviaron</h2>
+          <button class="ghost" onclick="cargarRecepcionesHoy()" style="padding:6px 12px">↻</button>
         </div>
-        <div class="row" style="align-items:flex-end; gap:10px">
-          <div class="field" style="max-width:140px"><label>Cantidad</label><input type="number" id="recepCantidad" min="0" step="any" placeholder="0"></div>
-          <button class="primary" onclick="agregarRecepcion()">➕ Agregar</button>
-        </div>
+        <p style="color:var(--muted); font-size:14px; margin:6px 0 0">Cuando te llegue la mercancía, cuéntala y toca <strong>✓ Llegó</strong>. Si llegó menos o más, toca <strong>Llegó otra cantidad</strong> y pon lo que contaste.</p>
         <div id="recepMsg" class="msg"></div>
-        <div id="recepBody" style="margin-top:12px"></div>
+        <div id="recepBody" style="margin-top:10px"></div>
       </div>
     </div>
 
@@ -500,17 +493,6 @@
 
   <div id="tab-reposicion" class="tab" style="display:none">
     <div class="card">
-      <h2>🛒 Se está acabando (hay que comprar)</h2>
-      <p style="color:var(--muted); font-size:14px; margin-top:-4px">Artículos que entre TODOS los almacenes ya están en su mínimo o por debajo. El mínimo general vale para todos; a cualquier artículo le puedes poner el suyo en la casilla "mín".</p>
-      <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap">
-        <div class="field" style="max-width:150px; margin:0"><label>Mínimo general</label><input type="number" id="minGeneral" inputmode="numeric" min="0" onchange="guardarMinimoGeneral()"></div>
-        <div class="field" style="flex:1; min-width:170px; margin:0"><label>Buscar un artículo (para ponerle su mínimo)</label><input type="text" id="minBuscar" placeholder="ej: cable" oninput="renderPorAcabarse()"></div>
-      </div>
-      <div id="minMsg" class="msg"></div>
-      <div id="minBody" style="margin-top:10px"></div>
-    </div>
-
-    <div class="card">
       <h2>📋 Ver todo lo que falta</h2>
       <p style="color:var(--muted); font-size:14px; margin-top:-4px">Lista simple: lo que hay en bodega y no está en el puesto (sin cantidades).</p>
       <input type="hidden" id="repoUmbral" value="0">
@@ -539,9 +521,11 @@
 
   <div id="tab-recepcion" class="tab" style="display:none">
     <div class="card">
-      <h2>📥 Recepción vs envío</h2>
-      <p style="color:var(--muted); font-size:14px; margin-top:-4px">Todo lo que los vendedores anotaron y aún NO has revisado, separado por puesto. Compáralo con lo que se envió y toca "✓ Quitar" en lo que esté bien — se borra de aquí y de la lista del vendedor.</p>
-      <button class="ghost" onclick="cargarConciliacion()">🔄 Actualizar</button>
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px">
+        <h2 style="margin:0">📥 Recepción de los puestos</h2>
+        <button class="ghost" onclick="cargarConciliacion()" style="padding:6px 12px">↻</button>
+      </div>
+      <p style="color:var(--muted); font-size:14px; margin:6px 0 0">Lo que se le envió a cada puesto y si el vendedor confirmó que le llegó. Arriba sale lo que necesita que lo mires.</p>
       <div id="recAdminMsg" class="msg"></div>
       <div id="recAdminBody" style="margin-top:8px"></div>
     </div>
@@ -1239,14 +1223,14 @@
 
 </div>
 
-<script src="app1-base.js?v=173"></script>
-<script src="app2-gestion.js?v=173"></script>
-<script src="app3-deudas.js?v=173"></script>
-<script src="app4-vendedor.js?v=173"></script>
-<script src="app5-subida.js?v=173"></script>
-<script src="app6-mayoreo.js?v=173"></script>
-<script src="app7-control.js?v=173"></script>
-<script src="app8-arranque.js?v=173"></script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v173</div>
+<script src="app1-base.js?v=175"></script>
+<script src="app2-gestion.js?v=175"></script>
+<script src="app3-deudas.js?v=175"></script>
+<script src="app4-vendedor.js?v=175"></script>
+<script src="app5-subida.js?v=175"></script>
+<script src="app6-mayoreo.js?v=175"></script>
+<script src="app7-control.js?v=175"></script>
+<script src="app8-arranque.js?v=175"></script>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v175</div>
 </body>
 </html>

@@ -849,37 +849,192 @@ async function transferirReposicionPuesto(puestoId){
   if(problemas.length) fin += ' Avisos: ' + problemas.slice(0,3).join(' | ');
   document.getElementById('repoIntMsg').textContent = fin;
   document.getElementById('repoIntMsg').className = problemas.length ? 'msg err' : 'msg ok';
+}             // cuánto hacia atrás se miran los envíos
+function esEntregaAlPuesto(m, puestoId){
+  if(!m || Number(m.almacen_destino_id) !== Number(puestoId)) return false;
+  const t = String(m.tipo||'').toLowerCase().trim();
+  if(t !== 'ingreso' && t !== 'traslado') return false;
+  if(!(Number(m.cantidad) > 0)) return false;
+  if(/devoluci|devuelto|ajuste|pr[eé]stamo|correcci|recuento|venta borrada/i.test(String(m.nota||''))) return false;
+  if(/^(devmov-|devventa_|presdev-|opinv-|recdif-)/.test(String(m.clave_local||''))) return false;
+  return true;
 }
-
-// El vendedor agrega un artículo recibido. Online: lo inserta; offline: lo encola.
-async function agregarRecepcion(){
-  if(!puestoActual){ alert('Espera unos segundos: todavía se está cargando tu puesto.'); return; }
-  const msg = document.getElementById('recepMsg');
-  const pid = Number(document.getElementById('recepProductoId').value)||0;
-  const cant = Number(document.getElementById('recepCantidad').value)||0;
-  if(!pid){ msg.textContent='Elige un producto de la lista.'; msg.className='msg err'; return; }
-  if(cant<=0){ msg.textContent='Pon una cantidad mayor que 0.'; msg.className='msg err'; return; }
-  const fila = { almacen_id: puestoActual.id, producto_id: pid, cantidad: cant, fecha: fechaHoyLocal(), usuario_id: usuarioActual.id };
-  // Limpiar el formulario ya (respuesta rápida)
-  document.getElementById('recepProductoTexto').value='';
-  document.getElementById('recepProductoId').value='';
-  document.getElementById('recepCantidad').value='';
-  if(!navigator.onLine){
-    const cola = lsGet('recep_pending', []); cola.push(fila); lsSet('recep_pending', cola);
-    msg.textContent='Guardado sin internet. Se subirá solo al volver la conexión.'; msg.className='msg ok';
-    cargarRecepcionesHoy(); return;
+// Junta los envíos con sus confirmaciones. estado: pendiente | ok | diferente | revisado
+function armarRecepciones(movs, confs, puestoId){
+  const porMov = {};
+  for(const c of (confs||[])){ if(c && c.movimiento_id != null) porMov[Number(c.movimiento_id)] = c; }
+  const lista = (movs||[]).filter(m=>esEntregaAlPuesto(m, puestoId)).map(m=>{
+    const c = porMov[Number(m.id)] || null;
+    const enviado = Number(m.cantidad);
+    let estado = 'pendiente', recibido = null;
+    if(c){
+      recibido = Number(c.cantidad);
+      estado = Math.abs(recibido - enviado) < 1e-9 ? 'ok' : (c.revisado ? 'revisado' : 'diferente');
+    }
+    return {mov:m, conf:c, estado, enviado, recibido, porSubir: !!(c && c.__porSubir)};
+  });
+  lista.sort((a,b)=> String(b.mov.creado_en||'').localeCompare(String(a.mov.creado_en||'')) || (Number(b.mov.id)-Number(a.mov.id)));
+  return lista;
+}
+function fechaLocalDe(ts){
+  if(!ts) return '';
+  const d = new Date(ts); if(isNaN(d)) return String(ts).slice(0,10);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function desdeRecepcion(){
+  const d = new Date(fechaHoyLocal()+'T12:00:00'); d.setDate(d.getDate()-RECEPCION_DIAS);
+  const f = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  return f > RECEPCION_DESDE ? f : RECEPCION_DESDE;
+}
+function etiquetaDia(f){
+  const hoy = fechaHoyLocal();
+  const a = new Date(hoy+'T12:00:00'); a.setDate(a.getDate()-1);
+  const ayer = a.getFullYear()+'-'+String(a.getMonth()+1).padStart(2,'0')+'-'+String(a.getDate()).padStart(2,'0');
+  if(f === hoy) return 'Hoy';
+  if(f === ayer) return 'Ayer';
+  const [y,m,d] = f.split('-'); return d+'/'+m+'/'+y;
+}
+// Trae los envíos y las confirmaciones de unos puestos. Si la base aún no tiene las columnas
+// nuevas (falta recepcion_confirmar.sql), lanza un error que lo dice claro.
+async function traerRecepcionesDe(puestoIds){
+  const desde = desdeRecepcion();
+  const campos = 'id,tipo,producto_id,cantidad,almacen_origen_id,almacen_destino_id,creado_en,nota';
+  let movs;
+  try{ movs = await traerTodasLasFilas(()=> sb.from('movimientos').select(campos+',clave_local').in('almacen_destino_id', puestoIds).gte('creado_en', desde+'T00:00:00').order('id',{ascending:true})); }
+  catch(e){ movs = await traerTodasLasFilas(()=> sb.from('movimientos').select(campos).in('almacen_destino_id', puestoIds).gte('creado_en', desde+'T00:00:00').order('id',{ascending:true})); }
+  let confs;
+  try{ confs = await traerTodasLasFilas(()=> sb.from('recepciones').select('id,almacen_id,producto_id,cantidad,enviado,fecha,movimiento_id,revisado').in('almacen_id', puestoIds).gte('fecha', desde).order('id',{ascending:true})); }
+  catch(e){
+    const m = String((e && e.message) || e || '');
+    if(/movimiento_id|enviado|revisado|column/i.test(m)) throw new Error('FALTA_SQL');
+    throw e;
   }
-  try{
-    const { error } = await sb.from('recepciones').insert(fila);
-    if(error) throw error;
-    msg.textContent='Agregado. ✓'; msg.className='msg ok';
-    cargarRecepcionesHoy();
-  }catch(e){
-    // Si falla estando online, lo guardamos igual en la cola para no perderlo.
-    const cola = lsGet('recep_pending', []); cola.push(fila); lsSet('recep_pending', cola);
-    msg.textContent='No se pudo subir ahora; quedó guardado y se reintentará. ('+(e.message||e)+')'; msg.className='msg err';
-    cargarRecepcionesHoy();
+  return {movs, confs: confs.filter(c=>c.movimiento_id != null)};
+}
+function nombreProductoDe(id){ const p=(PRODUCTOS||[]).find(x=>Number(x.id)===Number(id)); return p ? p.nombre : ('#'+id); }
+function nombreAlmacenDe(id){ const a=(ALMACENES||[]).find(x=>Number(x.id)===Number(id)); return a ? a.nombre : ''; }
+function pintarCuentaRecepcion(n){
+  const el = document.getElementById('recepCuenta'); if(!el) return;
+  if(n > 0){ el.textContent = n; el.style.display = 'inline-block'; } else el.style.display = 'none';
+}
+// Lo que este teléfono ya confirmó y todavía no subió, como si ya estuviera en la base.
+function confirmacionesLocales(puestoId){
+  return lsGet('recep_pending', []).filter(f=>f && f.movimiento_id != null && Number(f.almacen_id)===Number(puestoId)).map(f=>Object.assign({}, f, {__porSubir:true}));
+}
+async function cargarRecepcionesHoy(){
+  if(!puestoActual) return;   // aún no se ha cargado el puesto
+  const body = document.getElementById('recepBody'); const msg = document.getElementById('recepMsg');
+  const claveCache = 'recep_cache_' + puestoActual.id;
+  let datos = null, sinRed = false;
+  if(navigator.onLine){
+    try{ datos = await traerRecepcionesDe([puestoActual.id]); lsSet(claveCache, datos); }
+    catch(e){
+      if(e && e.message === 'FALTA_SQL'){
+        if(body) body.innerHTML = '<div class="msg err">Esta parte todavía no está lista: el dueño tiene que correr "recepcion_confirmar.sql" en Supabase.</div>';
+        pintarCuentaRecepcion(0); return;
+      }
+      sinRed = true;
+    }
+  } else sinRed = true;
+  if(!datos) datos = lsGet(claveCache, null);
+  if(!datos){
+    if(body) body.innerHTML = '<div class="msg err">Sin conexión. Cuando vuelva la señal vas a ver aquí lo que te enviaron.</div>';
+    return;
   }
+  // lo confirmado en este teléfono manda (aunque la base aún no lo tenga)
+  const locales = confirmacionesLocales(puestoActual.id);
+  const ids = new Set(locales.map(c=>Number(c.movimiento_id)));
+  const confs = datos.confs.filter(c=>!ids.has(Number(c.movimiento_id))).concat(locales);
+  __recepItems = armarRecepciones(datos.movs, confs, puestoActual.id);
+  pintarRecepcionVendedor(sinRed);
+}
+function pintarRecepcionVendedor(sinRed){
+  const body = document.getElementById('recepBody'); if(!body) return;
+  const pend = __recepItems.filter(x=>x.estado==='pendiente');
+  pintarCuentaRecepcion(pend.length);
+  let h = sinRed ? '<div class="msg" style="margin-bottom:8px">📵 Sin señal: esto es lo último que se cargó. Lo que confirmes se guarda y se sube solo.</div>' : '';
+  if(!pend.length) h += '<div style="color:var(--green); font-weight:700; padding:8px 0">✓ No tienes nada por confirmar.</div>';
+  else {
+    const porDia = {};
+    pend.forEach(x=>{ const f = fechaLocalDe(x.mov.creado_en); (porDia[f]=porDia[f]||[]).push(x); });
+    for(const f of Object.keys(porDia).sort().reverse()){
+      const its = porDia[f];
+      h += `<div style="display:flex; justify-content:space-between; align-items:center; margin:14px 0 6px; gap:8px">
+        <div style="font-weight:800; font-size:16px">${etiquetaDia(f)} <span style="color:var(--muted); font-weight:500; font-size:13px">· ${its.length} por confirmar</span></div>
+        ${its.length>1 ? `<button class="ghost" style="font-size:13px; padding:6px 10px" onclick="confirmarRecepcionDia('${f}')">✓ Llegó todo</button>` : ''}
+      </div>`;
+      h += its.map(x=>{
+        const id = Number(x.mov.id);
+        const de = x.mov.tipo==='traslado' && nombreAlmacenDe(x.mov.almacen_origen_id) ? `de ${escH(nombreAlmacenDe(x.mov.almacen_origen_id))}` : 'entrada';
+        return `<div style="border:1px solid var(--border); border-radius:12px; padding:10px 12px; margin-bottom:8px">
+          <div style="display:flex; align-items:center; gap:10px">
+            <div style="flex:1; min-width:0"><div style="font-weight:700; overflow-wrap:anywhere">${escH(nombreProductoDe(x.mov.producto_id))}</div>
+              <div style="color:var(--muted); font-size:12px">${de}</div></div>
+            <div style="font-size:22px; font-weight:800; min-width:44px; text-align:right">${num(x.enviado)}</div>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:8px">
+            <button class="primary" style="flex:1; padding:9px" onclick="confirmarRecepcion(${id})">✓ Llegó</button>
+            <button class="ghost" style="flex:1; padding:9px" onclick="abrirOtraCantidad(${id})">Llegó otra cantidad</button>
+          </div>
+          <div id="recOtra-${id}" style="display:none; margin-top:8px; gap:8px; align-items:center">
+            <input type="number" id="recOtraCant-${id}" inputmode="decimal" min="0" step="any" placeholder="¿Cuántos llegaron?" style="flex:1">
+            <button class="primary" style="padding:9px 14px" onclick="confirmarRecepcion(${id}, true)">Guardar</button>
+          </div>
+        </div>`;
+      }).join('');
+    }
+  }
+  const hechos = __recepItems.filter(x=>x.estado!=='pendiente').slice(0, 30);
+  if(hechos.length){
+    h += `<details style="margin-top:14px"><summary style="cursor:pointer; font-weight:700; color:var(--muted)">Ya confirmados (${hechos.length})</summary>`
+       + hechos.map(x=>{
+           const igual = x.estado==='ok';
+           const marca = igual ? '<span style="color:var(--green)">✓</span>' : `<span style="color:var(--amber)">llegaron ${num(x.recibido)}</span>`;
+           return `<div style="display:flex; gap:8px; padding:7px 0; border-bottom:1px solid var(--border); font-size:14px">
+             <div style="flex:1; min-width:0; overflow-wrap:anywhere">${escH(nombreProductoDe(x.mov.producto_id))} <span style="color:var(--muted); font-size:12px">· ${etiquetaDia(fechaLocalDe(x.mov.creado_en))}</span>${x.porSubir?' <span style="color:var(--amber); font-size:11px">(por subir)</span>':''}</div>
+             <div style="white-space:nowrap">${num(x.enviado)} ${marca}</div></div>`;
+         }).join('') + '</details>';
+  }
+  body.innerHTML = h;
+}
+function abrirOtraCantidad(id){
+  const d = document.getElementById('recOtra-'+id); if(!d) return;
+  const abierto = d.style.display === 'flex';
+  d.style.display = abierto ? 'none' : 'flex';
+  if(!abierto){ const inp = document.getElementById('recOtraCant-'+id); if(inp) inp.focus(); }
+}
+// Se guarda PRIMERO en el teléfono y después se sube: con o sin señal, no se pierde.
+function guardarConfirmacion(x, recibido){
+  const fila = {almacen_id: Number(puestoActual.id), producto_id: Number(x.mov.producto_id), cantidad: Number(recibido),
+                enviado: Number(x.enviado), fecha: fechaHoyLocal(), usuario_id: usuarioActual.id,
+                movimiento_id: Number(x.mov.id), revisado: false};
+  const cola = lsGet('recep_pending', []);
+  if(cola.some(f=>f && Number(f.movimiento_id)===fila.movimiento_id)) return;
+  cola.push(fila); lsSet('recep_pending', cola);
+}
+async function confirmarRecepcion(id, otra){
+  const x = __recepItems.find(i=>Number(i.mov.id)===Number(id) && i.estado==='pendiente'); if(!x) return;
+  let recibido = x.enviado;
+  if(otra){
+    const t = String((document.getElementById('recOtraCant-'+id)||{}).value||'').trim();
+    const v = Number(t);
+    if(t === '' || !isFinite(v) || v < 0){ alert('Pon cuántos llegaron (un número, 0 si no llegó nada).'); return; }
+    if(Math.abs(v - x.enviado) > 1e-9 && !confirm(`Vas a decir que de "${nombreProductoDe(x.mov.producto_id)}" te enviaron ${num(x.enviado)} y llegaron ${num(v)}.\n\n¿Lo contaste bien?`)) return;
+    recibido = v;
+  }
+  guardarConfirmacion(x, recibido);
+  x.conf = {cantidad:recibido, __porSubir:true}; x.recibido = recibido; x.porSubir = true;
+  x.estado = Math.abs(recibido - x.enviado) < 1e-9 ? 'ok' : 'diferente';
+  pintarRecepcionVendedor(!navigator.onLine);
+  if(navigator.onLine){ try{ await sincronizarRecepciones(); }catch(e){} }
+}
+async function confirmarRecepcionDia(f){
+  const its = __recepItems.filter(x=>x.estado==='pendiente' && fechaLocalDe(x.mov.creado_en)===f);
+  if(!its.length) return;
+  if(!confirm(`¿Te llegó TODO lo de ${etiquetaDia(f).toLowerCase()} (${its.length} artículo${its.length===1?'':'s'}) completo?\n\nSi algo llegó de menos, mejor confírmalos uno por uno.`)) return;
+  for(const x of its){ guardarConfirmacion(x, x.enviado); x.conf={cantidad:x.enviado,__porSubir:true}; x.recibido=x.enviado; x.porSubir=true; x.estado='ok'; }
+  pintarRecepcionVendedor(!navigator.onLine);
+  if(navigator.onLine){ try{ await sincronizarRecepciones(); }catch(e){} }
 }
 
 // Sube lo que quedó en la cola (se llama al volver el internet).
@@ -892,232 +1047,118 @@ async function sincronizarRecepciones(){
     const envio = {};
     for(const k of Object.keys(fila)){ if(k.charAt(0) !== '_') envio[k] = fila[k]; }
     const { error } = await sb.from('recepciones').insert(envio);
-    if(error) throw error;
+    // "duplicado" = esa confirmación ya estaba en la base (se perdió la respuesta antes): está bien
+    if(error && !/duplicate|unique|23505/i.test(String(error.message||error.code||''))) throw error;
   });
   if(!n) return;
   const tab = document.getElementById('vtab-recepcion');
   if(tab && tab.style.display!=='none') cargarRecepcionesHoy();
 }
-
-async function borrarRecepcion(id){
-  if(!confirm('¿Quitar este artículo de la lista de recibidos?')) return;
-  try{ await escribirConReintento(()=> sb.from('recepciones').delete().eq('id', id)); }catch(e){}
-  cargarRecepcionesHoy();
-}
-function borrarRecepcionPendiente(idx){
-  const cola = lsGet('recep_pending', []);
-  cola.splice(idx,1); lsSet('recep_pending', cola);
-  cargarRecepcionesHoy();
-}
-
-// Muestra lo que el vendedor lleva anotado HOY en su puesto (subido + pendiente).
-async function cargarRecepcionesHoy(){
-  if(!puestoActual) return; // aún no se ha cargado el puesto: no hacemos nada (evita el cuelgue)
-  const body = document.getElementById('recepBody');
-  const hoy = fechaHoyLocal();
-  const nombreProd = id => { const p=PRODUCTOS.find(x=>x.id===id); return p?p.nombre:('#'+id); };
-  let subidas = [];
-  if(navigator.onLine){
-    try{ const r = await sb.from('recepciones').select('*').eq('almacen_id', puestoActual.id).eq('fecha', hoy).eq('revisado', false).order('id',{ascending:false}); subidas = r.data||[]; }catch(e){ try{ const r2 = await sb.from('recepciones').select('*').eq('almacen_id', puestoActual.id).eq('fecha', hoy).order('id',{ascending:false}); subidas = r2.data||[]; }catch(e2){} }
-  }
-  const pend = lsGet('recep_pending', []).map((f,idx)=>({...f, __idx:idx})).filter(f=>f.almacen_id===puestoActual.id && f.fecha===hoy);
-  if(!subidas.length && !pend.length){ body.innerHTML='<div class="empty">Todavía no has anotado nada hoy.</div>'; return; }
-  let filas = pend.map(f=>`<tr><td>${nombreProd(f.producto_id)} <span style="color:var(--amber);font-size:11px">(por subir)</span></td><td class="numcell">${num(f.cantidad)}</td><td><button class="ghost" onclick="borrarRecepcionPendiente(${f.__idx})">🗑</button></td></tr>`).join('');
-  filas += subidas.map(f=>`<tr><td>${nombreProd(f.producto_id)}</td><td class="numcell">${num(f.cantidad)}</td><td><button class="ghost" onclick="borrarRecepcion(${f.id})">🗑</button></td></tr>`).join('');
-  body.innerHTML = `<table><thead><tr><th>Producto</th><th class="numcell">Cant.</th><th></th></tr></thead><tbody>${filas}</tbody></table>`;
-}
-
-// ---------- Conciliación (dueño): declarado por el vendedor vs enviado por el sistema ----------
-// PURA: recibe dos mapas {producto_id: cantidad} y devuelve la comparación por producto.
-function conciliarRecepcion(d){
-  const { declarado, enviado, nombreProd } = d;
-  const nom = nombreProd || (id=>('#'+id));
-  const ids = new Set([...Object.keys(declarado||{}), ...Object.keys(enviado||{})]);
-  const filas = [];
-  ids.forEach(pid=>{
-    const dec = Number((declarado||{})[pid]||0);
-    const env = Number((enviado||{})[pid]||0);
-    const dif = dec - env;
-    let estado;
-    if(dec===env) estado='cuadra';
-    else if(env>0 && dec===0) estado='no_anotado';   // se envió pero el vendedor no lo anotó
-    else if(dec>0 && env===0) estado='no_enviado';   // el vendedor anotó algo que no se le envió
-    else if(dec>env) estado='de_mas';                // anotó más de lo enviado
-    else estado='de_menos';                          // anotó menos de lo enviado
-    filas.push({ producto_id:Number(pid), nombre:nom(Number(pid)), declarado:dec, enviado:env, diferencia:dif, estado });
-  });
-  filas.sort((a,b)=>{
-    const cuadraA = a.estado==='cuadra'?1:0, cuadraB = b.estado==='cuadra'?1:0;
-    if(cuadraA!==cuadraB) return cuadraA-cuadraB; // primero los que NO cuadran
-    return a.nombre.localeCompare(b.nombre);
-  });
-  const cuadran = filas.filter(f=>f.estado==='cuadra').length;
-  return { filas, cuadran, descuadran: filas.length-cuadran };
-}
-
-// Da por buena UNA fila (marca revisado / consume el envío) sin preguntar (uso interno).
-async function marcarRevisado(puestoId, productoId, enviadoNeto){
-  const upd = await sb.from('recepciones').update({revisado:true}).eq('almacen_id', puestoId).eq('producto_id', productoId).eq('revisado', false).select('id');
-  if(upd.error) throw upd.error;
-  if((upd.data||[]).length===0 && Number(enviadoNeto)>0){
-    const ins = await sb.from('recepciones').insert({almacen_id:puestoId, producto_id:productoId, cantidad:Number(enviadoNeto), fecha:fechaHoyLocal(), usuario_id:usuarioActual.id, revisado:true});
-    if(ins.error) throw ins.error;
-  }
-}
-
-// Da por bueno TODO un puesto.
-async function quitarPuestoRecepcion(puestoId){
-  const p = __conciliacionData.find(x=>x.pid===puestoId);
-  if(!p) return;
-  if(!confirm('¿Dar por buenos TODOS los artículos de este puesto?')) return;
-  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
-  const msg=document.getElementById('recAdminMsg'); msg.textContent='Limpiando…'; msg.className='msg';
-  try{ for(const it of p.items){ await marcarRevisado(puestoId, it.prod, it.enviadoNeto); } }
-  catch(e){ msg.textContent='No se pudo del todo: '+(e.message||e); msg.className='msg err'; }
-  cargarConciliacion();
-}
-
-// Da por buena TODA la lista (todos los puestos).
-async function quitarTodoRecepcion(){
-  if(!__conciliacionData.length) return;
-  const total = __conciliacionData.reduce((s,p)=>s+p.items.length,0);
-  if(!confirm(`¿Dar por buena TODA la lista (${total} artículo(s) en ${__conciliacionData.length} puesto(s))? Se limpia la comparación y la lista de los vendedores.`)) return;
-  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
-  const msg=document.getElementById('recAdminMsg'); msg.textContent='Limpiando todo…'; msg.className='msg';
-  try{ for(const p of __conciliacionData){ for(const it of p.items){ await marcarRevisado(p.pid, it.prod, it.enviadoNeto); } } }
-  catch(e){ msg.textContent='No se pudo del todo: '+(e.message||e); msg.className='msg err'; cargarConciliacion(); return; }
-  cargarConciliacion();
-}
-
-// El dueño da por bueno un artículo. En vez de borrar, lo marca como "revisado":
-// - las anotaciones del vendedor de ese producto/puesto pasan a revisado=true (salen de su lista)
-// - si NO había anotación (solo se envió), inserta una marca revisada con la cantidad enviada,
-//   para que ese envío quede "consumido" y no reaparezca en la comparación.
-async function quitarRecepcionProducto(puestoId, productoId, enviadoNeto){
-  if(!confirm('¿Dar por bueno este artículo? Sale de la comparación y de la lista del vendedor.')) return;
-  if(!navigator.onLine){ alert('Necesitas internet para hacerlo.'); return; }
-  try{
-    const upd = await sb.from('recepciones').update({revisado:true}).eq('almacen_id', puestoId).eq('producto_id', productoId).eq('revisado', false).select('id');
-    if(upd.error) throw upd.error;
-    const marco = (upd.data||[]).length;
-    // Si no había nada anotado pero SÍ se había enviado, dejamos una marca revisada.
-    if(marco===0 && Number(enviadoNeto)>0){
-      const ins = await sb.from('recepciones').insert({almacen_id:puestoId, producto_id:productoId, cantidad:Number(enviadoNeto), fecha:fechaHoyLocal(), usuario_id:usuarioActual.id, revisado:true});
-      if(ins.error) throw ins.error;
-    }
-  }catch(e){ alert('No se pudo: '+(e.message||e)); return; }
-  cargarConciliacion();
-}
-
-// Muestra TODO lo que está pendiente de cuadrar, por puesto: tanto lo que el vendedor anotó como
-// lo que el admin/dueño ENVIÓ al puesto (aunque el vendedor no lo haya anotado). Lo ya revisado
-// no aparece. Compara "Anotó" (vendedor) contra "Enviado" (sistema) y marca las diferencias.
 async function cargarConciliacion(){
-  const body = document.getElementById('recAdminBody');
-  const msg = document.getElementById('recAdminMsg');
-  msg.textContent='';
-  if(!navigator.onLine){ msg.textContent='Necesitas internet para ver esto.'; msg.className='msg err'; return; }
-  body.textContent='Cargando…';
+  const body = document.getElementById('recAdminBody'); const msg = document.getElementById('recAdminMsg');
+  msg.textContent = ''; msg.className = 'msg';
+  if(!navigator.onLine){ msg.textContent = 'Necesitas internet para ver esto.'; msg.className = 'msg err'; return; }
+  body.textContent = 'Cargando…';
   try{
-    const nombreProd = id => { const p=(PRODUCTOS||[]).find(x=>x.id===id); return p?p.nombre:('#'+id); };
-    const nombreAlm = id => { const a=(ALMACENES||[]).find(x=>x.id===id); return a?a.nombre:('Puesto '+id); };
-    const puestosApp = (ALMACENES||[]).filter(esPuntoVenta).map(a=>a.id);
-    const fechaLocal = ts => { if(!ts) return ''; const dd=new Date(ts); if(isNaN(dd)) return (ts||'').slice(0,10); const z=new Date(dd.getTime()-dd.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); };
-    const sumaDias = (f, n) => { const d=new Date(f+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); };
+    const puestos = (ALMACENES||[]).filter(a=>esPuntoVenta(a) && !estaArchivado(a));
+    if(!puestos.length){ body.innerHTML = '<div class="empty">No hay puestos.</div>'; return; }
+    const {movs, confs} = await traerRecepcionesDe(puestos.map(p=>p.id));
+    __recepAdmin = {};
+    let h = '', totPend = 0, totDif = 0;
     const hoy = fechaHoyLocal();
-
-    // 1) Recepciones (todas: pendientes y revisadas). Paginado con ORDEN estable.
-    const rec=[]; { const PAGE=1000; let d=0; for(;;){ const r=await sb.from('recepciones').select('almacen_id,producto_id,cantidad,fecha,revisado').order('id',{ascending:true}).range(d,d+PAGE-1); if(r.error||!r.data)break; rec.push(...r.data); if(r.data.length<PAGE)break; d+=PAGE; } }
-    // declarado (revisado=false) y revisado (revisado=true) por puesto/producto; fechas de lo pendiente
-    const declPP = {}, revPP = {}, fechasP = {};
-    rec.forEach(r=>{
-      const a=r.almacen_id, pid=r.producto_id, c=Number(r.cantidad||0);
-      if(r.revisado){ (revPP[a]=revPP[a]||{})[pid]=(revPP[a][pid]||0)+c; }
-      else { (declPP[a]=declPP[a]||{})[pid]=(declPP[a][pid]||0)+c; (fechasP[a]=fechasP[a]||new Set()).add(r.fecha); }
-    });
-
-    // Puestos a CONSULTAR envíos: los que se llaman "P ..." + CUALQUIER almacén donde el vendedor
-    // anotó recepción (por si un puesto tiene otro nombre). Así nunca dejamos fuera un puesto real.
-    const puestosConsulta = [...new Set([ ...puestosApp, ...Object.keys(declPP).map(Number), ...Object.keys(revPP).map(Number) ])];
-
-    // 2) Ventana de fechas del "enviado", POR PUESTO:
-    //    - Si el puesto TIENE anotaciones pendientes: desde (la anotación más vieja − 1 día) hasta hoy.
-    //    - Si NO tiene anotaciones: solo miramos envíos de los ÚLTIMOS 3 DÍAS (para no arrastrar
-    //      envíos viejos que ya se recibieron hace tiempo e inflaban los números).
-    const DIAS_SIN_ANOTACION = 3;
-    const ventana = {};
-    let inicioGlobal = sumaDias(hoy, -DIAS_SIN_ANOTACION);
-    puestosConsulta.forEach(pid=>{
-      const set = fechasP[pid];
-      if(set && set.size){ const arr=[...set].filter(Boolean).sort(); const ini=sumaDias(arr[0],-1); ventana[pid]={ini, fin:hoy}; if(ini<inicioGlobal) inicioGlobal=ini; }
-      else { ventana[pid]={ini:sumaDias(hoy,-DIAS_SIN_ANOTACION), fin:hoy}; }
-    });
-
-    // 3) Movimientos de ingreso/traslado hacia esos puestos, desde el inicio más temprano. Paginado.
-    //    (El TRASLADO también entra mercancía al puesto, así que cuenta igual que el ingreso.)
-    const mov=[]; { const PAGE=1000; let d=0; for(;;){ const r=await sb.from('movimientos').select('almacen_destino_id,producto_id,cantidad,tipo,creado_en').in('almacen_destino_id', puestosConsulta).gte('creado_en', inicioGlobal+'T00:00:00').order('id',{ascending:true}).range(d,d+PAGE-1); if(r.error||!r.data)break; mov.push(...r.data); if(r.data.length<PAGE)break; d+=PAGE; } }
-    let nEnviosContados = 0;
-    const enviadoPP = {};
-    mov.forEach(m=>{ const t=(m.tipo||'').toString().toLowerCase().trim(); if(t!=='ingreso' && t!=='traslado') return; const a=Number(m.almacen_destino_id); if(!puestosConsulta.includes(a)) return; const f=fechaLocal(m.creado_en); const w=ventana[a]; if(!w) return; if(f<w.ini || f>w.fin) return; (enviadoPP[a]=enviadoPP[a]||{})[m.producto_id]=(enviadoPP[a][m.producto_id]||0)+Number(m.cantidad||0); nEnviosContados++; });
-
-    // 4) Armar por puesto: producto sale si tiene anotado pendiente O enviado-neto > 0
-    const badge = est => {
-      if(est==='cuadra') return '<span style="color:var(--green)">✓ cuadra</span>';
-      if(est==='no_anotado') return '<span style="color:var(--red)">⛔ enviado, NO lo anotó</span>';
-      if(est==='no_enviado') return '<span style="color:var(--amber)">⚠ anotó, no se envió</span>';
-      if(est==='de_mas') return '<span style="color:var(--amber)">▲ anotó de más</span>';
-      return '<span style="color:var(--amber)">▼ anotó de menos</span>';
-    };
-    const puestos = [...new Set([...Object.keys(declPP), ...Object.keys(enviadoPP)].map(Number))];
-    let html=''; let totalPend=0;
-    puestos.forEach(pid=>{
-      const decl = declPP[pid]||{}, env = enviadoPP[pid]||{}, rev = revPP[pid]||{};
-      const productos = [...new Set([...Object.keys(decl), ...Object.keys(env)].map(Number))];
-      const filas = [];
-      productos.forEach(prod=>{
-        const anoto = Number(decl[prod]||0);
-        const enviadoNeto = Math.max(0, Number(env[prod]||0) - Number(rev[prod]||0)); // descontamos lo ya revisado
-        if(anoto<=0 && enviadoNeto<=0) return;
-        const dif = anoto - enviadoNeto;
-        let estado;
-        if(anoto===enviadoNeto) estado='cuadra';
-        else if(enviadoNeto>0 && anoto===0) estado='no_anotado';
-        else if(anoto>0 && enviadoNeto===0) estado='no_enviado';
-        else if(anoto>enviadoNeto) estado='de_mas';
-        else estado='de_menos';
-        filas.push({ prod, nombre:nombreProd(prod), anoto, enviadoNeto, dif, estado });
-      });
-      if(!filas.length) return;
-      filas.sort((a,b)=>{ const ca=a.estado==='cuadra'?1:0, cb=b.estado==='cuadra'?1:0; if(ca!==cb) return ca-cb; return a.nombre.localeCompare(b.nombre); });
-      totalPend += filas.length;
-      html += `<div style="border:2px solid var(--border); border-radius:14px; padding:12px; margin-bottom:16px; overflow:hidden">
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap">
-          <div style="font-weight:800; font-size:17px">${nombreAlm(pid)} <span style="color:var(--muted); font-weight:500; font-size:14px">— ${filas.length} por revisar</span></div>
-          <button class="ghost" style="font-size:13px; padding:6px 12px" onclick="quitarPuestoRecepcion(${pid})">✓ Quitar todo</button>
-        </div>
-        <div style="overflow-x:auto; -webkit-overflow-scrolling:touch">
-        <table style="min-width:520px"><thead><tr><th>Producto</th><th class="numcell">Anotó</th><th class="numcell">Enviado</th><th class="numcell">Dif.</th><th>Estado</th><th></th></tr></thead><tbody>`;
-      html += filas.map(f=>`<tr>
-        <td>${f.nombre}</td>
-        <td class="numcell">${num(f.anoto)}</td>
-        <td class="numcell">${num(f.enviadoNeto)}</td>
-        <td class="numcell" style="font-weight:700; color:${f.dif===0?'var(--muted)':(f.dif>0?'var(--red)':'var(--amber)')}">${f.dif>0?'+':''}${num(f.dif)}</td>
-        <td>${badge(f.estado)}</td>
-        <td><button class="ghost" onclick="quitarRecepcionProducto(${pid}, ${f.prod}, ${f.enviadoNeto})">✓ Quitar</button></td>
-      </tr>`).join('');
-      html += `</tbody></table></div></div>`;
-    });
-    if(!totalPend){ body.innerHTML='<div class="empty">No hay nada por revisar. Todo cuadra. 👍</div>'; msg.textContent=''; __conciliacionData=[]; return; }
-    // Guardamos lo mostrado para el botón "Quitar todo".
-    __conciliacionData = puestos.map(pid=>{
-      const decl = declPP[pid]||{}, env = enviadoPP[pid]||{}, rev = revPP[pid]||{};
-      const items = [...new Set([...Object.keys(decl), ...Object.keys(env)].map(Number))].map(prod=>({ prod, enviadoNeto: Math.max(0, Number(env[prod]||0) - Number(rev[prod]||0)) })).filter(x=> (Number(decl[x.prod]||0)>0) || x.enviadoNeto>0);
-      return { pid, items };
-    }).filter(p=>p.items.length);
-    body.innerHTML = `<button class="ghost" style="width:100%; margin-bottom:12px" onclick="quitarTodoRecepcion()">✓ Quitar todo (dar por buena toda la lista)</button>` + html;
-    msg.textContent = `${totalPend} artículo(s) por revisar en ${puestos.length} puesto(s). (Encontré ${nEnviosContados} envío(s) en la ventana revisada.)`;
-    msg.className = 'msg';
-  }catch(e){ body.textContent=''; msg.textContent='No se pudo cargar: '+(e.message||e)+'. (¿Corriste el SQL de la columna "revisado"?)'; msg.className='msg err'; }
+    for(const p of puestos){
+      const lista = armarRecepciones(movs, confs.filter(c=>Number(c.almacen_id)===Number(p.id)), p.id);
+      lista.forEach(x=>{ __recepAdmin[x.mov.id] = Object.assign({puesto:p}, x); });
+      const pend = lista.filter(x=>x.estado==='pendiente'), dif = lista.filter(x=>x.estado==='diferente');
+      const okN = lista.filter(x=>x.estado==='ok' || x.estado==='revisado').length;
+      totPend += pend.length; totDif += dif.length;
+      if(!lista.length) continue;
+      h += `<div style="border:2px solid var(--border); border-radius:14px; padding:12px; margin-bottom:14px">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap">
+          <div style="font-weight:800; font-size:17px">${escH(p.nombre)}</div>
+          <div style="font-size:13px">${dif.length?`<span style="color:var(--red); font-weight:700">⚠ ${dif.length} distinto</span> · `:''}${pend.length?`<span style="color:var(--amber); font-weight:700">⏳ ${pend.length} sin confirmar</span> · `:''}<span style="color:var(--green)">✓ ${okN} bien</span></div>
+        </div>`;
+      h += dif.map(x=>{
+        const delta = x.recibido - x.enviado, falta = delta < 0, n = Math.abs(delta), id = Number(x.mov.id);
+        const origen = x.mov.tipo==='traslado' ? nombreAlmacenDe(x.mov.almacen_origen_id) : '';
+        const botones = falta
+          ? (origen ? `<button class="primary" style="font-size:13px; padding:7px 10px" onclick="resolverRecepcion(${id},'devolver')">↩ Regresar ${num(n)} a ${escH(origen)}</button>` : '')
+            + `<button class="ghost" style="font-size:13px; padding:7px 10px" onclick="resolverRecepcion(${id},'quitar')">➖ Quitar ${num(n)} del puesto</button>`
+          : `<button class="primary" style="font-size:13px; padding:7px 10px" onclick="resolverRecepcion(${id},'sumar')">➕ Sumar ${num(n)} al puesto</button>`;
+        return `<div style="margin-top:10px; padding:10px; border-left:3px solid var(--red); background:var(--panel2); border-radius:8px">
+          <div style="font-weight:700">${escH(nombreProductoDe(x.mov.producto_id))}</div>
+          <div style="font-size:14px; margin:2px 0 8px">${etiquetaDia(fechaLocalDe(x.mov.creado_en))}${origen?' · de '+escH(origen):''}: se enviaron <strong>${num(x.enviado)}</strong> y el vendedor dice que llegaron <strong>${num(x.recibido)}</strong> (${falta?'faltan':'sobran'} ${num(n)}).</div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap">${botones}<button class="ghost" style="font-size:13px; padding:7px 10px" onclick="resolverRecepcion(${id},'dejar')">Dejar así</button></div>
+        </div>`;
+      }).join('');
+      if(pend.length){
+        h += `<div style="margin-top:10px; font-weight:700; color:var(--amber)">Sin confirmar</div>` + pend.map(x=>{
+          const f = fechaLocalDe(x.mov.creado_en);
+          const dias = Math.round((new Date(hoy+'T12:00:00') - new Date(f+'T12:00:00'))/86400000);
+          return `<div style="display:flex; align-items:center; gap:8px; padding:7px 0; border-bottom:1px solid var(--border); font-size:14px">
+            <div style="flex:1; min-width:0; overflow-wrap:anywhere">${escH(nombreProductoDe(x.mov.producto_id))} <span style="color:${dias>=2?'var(--red)':'var(--muted)'}; font-size:12px">· ${etiquetaDia(f)}${dias>=2?' ('+dias+' días)':''}</span></div>
+            <div style="font-weight:700">${num(x.enviado)}</div>
+            <button class="ghost" style="font-size:12px; padding:5px 8px" onclick="darPorRecibido(${Number(x.mov.id)})">✓ Dar por recibido</button></div>`;
+        }).join('');
+      }
+      h += '</div>';
+    }
+    body.innerHTML = h || '<div class="empty">No se ha enviado nada a los puestos en estos días.</div>';
+    msg.textContent = (totDif||totPend) ? `${totDif} llegaron distinto · ${totPend} sin confirmar (últimos ${RECEPCION_DIAS} días).` : `Todo lo enviado está confirmado. 👍`;
+  }catch(e){
+    body.textContent = '';
+    msg.textContent = (e && e.message==='FALTA_SQL') ? 'Falta correr "recepcion_confirmar.sql" en Supabase. Sin eso los vendedores no pueden confirmar.' : ('No se pudo cargar: ' + ((e && e.message) || e));
+    msg.className = 'msg err';
+  }
+}
+// El dueño decide qué hacer con lo que llegó distinto. Cada corrección se aplica UNA sola vez.
+async function resolverRecepcion(movId, accion){
+  const x = __recepAdmin[movId]; if(!x || x.estado !== 'diferente') return;
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  const delta = x.recibido - x.enviado, n = Math.abs(delta), puestoId = Number(x.puesto.id), pid = Number(x.mov.producto_id);
+  const origenId = Number(x.mov.almacen_origen_id), nomP = nombreProductoDe(pid);
+  const textos = {
+    devolver: `Se van a regresar ${num(n)} de "${nomP}" de ${x.puesto.nombre} a ${nombreAlmacenDe(origenId)} (o sea: nunca salieron de allí).`,
+    quitar:   `Se van a quitar ${num(n)} de "${nomP}" del inventario de ${x.puesto.nombre} (se perdieron por el camino).`,
+    sumar:    `Se van a sumar ${num(n)} de "${nomP}" al inventario de ${x.puesto.nombre}.`,
+    dejar:    `El inventario se queda como está y esto deja de salir aquí.`
+  };
+  if(!textos[accion] || !confirm(textos[accion] + '\n\n¿Seguro?')) return;
+  const msg = document.getElementById('recAdminMsg');
+  try{
+    const clave = 'recdif-' + movId;
+    if(accion === 'devolver') await aplicarLineaMovimiento({clave_local:clave, tipo:'traslado', origen_id:puestoId, destino_id:origenId, producto_id:pid, cantidad:n, nota:`Ajuste: no llegó al puesto, se regresa (envío #${movId})`});
+    if(accion === 'quitar')   await aplicarLineaMovimiento({clave_local:clave, tipo:'extraccion', origen_id:puestoId, producto_id:pid, cantidad:n, nota:`Ajuste: no llegó al puesto (envío #${movId})`});
+    if(accion === 'sumar')    await aplicarLineaMovimiento({clave_local:clave, tipo:'ingreso', origen_id:puestoId, producto_id:pid, cantidad:n, nota:`Ajuste: llegó de más al puesto (envío #${movId})`});
+    await escribirConReintento(()=> sb.from('recepciones').update({revisado:true}).eq('movimiento_id', movId));
+    msg.textContent = 'Listo. ✓'; msg.className = 'msg ok';
+    if(accion !== 'dejar'){ try{ await cargarTodo(); }catch(e){} }
+  }catch(e){ alert('No se pudo: ' + ((e && e.message) || e)); }
+  cargarConciliacion();
+}
+// Si el vendedor no confirma, el dueño puede darlo por recibido completo.
+async function darPorRecibido(movId){
+  const x = __recepAdmin[movId]; if(!x || x.estado !== 'pendiente') return;
+  if(!confirm(`¿Dar por recibido "${nombreProductoDe(x.mov.producto_id)}" (${num(x.enviado)}) en ${x.puesto.nombre}?`)) return;
+  if(!navigator.onLine){ alert('Necesitas internet.'); return; }
+  const r = await sb.from('recepciones').insert({almacen_id:Number(x.puesto.id), producto_id:Number(x.mov.producto_id), cantidad:x.enviado, enviado:x.enviado,
+    fecha:fechaHoyLocal(), usuario_id:usuarioActual.id, movimiento_id:Number(movId), revisado:true});
+  if(r.error && !/duplicate|unique|23505/i.test(String(r.error.message||''))){ alert('No se pudo: ' + r.error.message); return; }
+  cargarConciliacion();
+}
+// Para el Resumen del día: cuántos envíos faltan por confirmar y cuántos llegaron distinto.
+async function contarRecepcionesPuestos(){
+  const puestos = (ALMACENES||[]).filter(a=>esPuntoVenta(a) && !estaArchivado(a));
+  if(!puestos.length) return {pendientes:0, distintos:0, viejos:0};
+  const {movs, confs} = await traerRecepcionesDe(puestos.map(p=>p.id));
+  const hoy = fechaHoyLocal(); let pendientes=0, distintos=0, viejos=0;
+  for(const p of puestos){
+    for(const x of armarRecepciones(movs, confs.filter(c=>Number(c.almacen_id)===Number(p.id)), p.id)){
+      if(x.estado==='diferente') distintos++;
+      if(x.estado==='pendiente'){ pendientes++; if(fechaLocalDe(x.mov.creado_en) < hoy) viejos++; }
+    }
+  }
+  return {pendientes, distintos, viejos};
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1893,13 +1934,6 @@ async function cargarAjustesCompartidos(){
     PESTANAS_OCULTAS = Array.isArray(v) ? v : (v && Array.isArray(v.lista) ? v.lista : []);
     lsSet('ajuste_pestanas_ocultas', PESTANAS_OCULTAS);
   }catch(e){ /* la tabla aún no existe: nos quedamos con lo de este teléfono */ }
-  try{
-    const {data, error} = await sb.from('ajustes').select('valor').eq('clave','stock_minimos').maybeSingle();
-    if(!error && data && data.valor && typeof data.valor === 'object'){
-      STOCK_MINIMOS = normalizarMinimos(data.valor);
-      lsSet('ajuste_stock_minimos', STOCK_MINIMOS);
-    }
-  }catch(e){}
 }
 
 function aplicarPestanasOcultas(){
@@ -1968,123 +2002,7 @@ async function guardarConfigPestanas(){
 }
 
 
-// ═══════════════════════════════════════════════════════════════════════════
-//  SE ESTÁ ACABANDO  ·  mínimo por artículo y lista de lo que hay que comprar
-// ═══════════════════════════════════════════════════════════════════════════
 function escH(t){ return String(t==null?'':t).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function normalizarMinimos(v){
-  const g = (v && v.general != null && v.general !== '') ? Number(v.general) : NaN;   // sin ajuste guardado → 2
-  const por = {};
-  if(v && v.porProducto && typeof v.porProducto === 'object'){
-    for(const k of Object.keys(v.porProducto)){ const n = Number(v.porProducto[k]); if(isFinite(n) && n >= 0) por[k] = n; }
-  }
-  return {general: (isFinite(g) && g >= 0) ? g : 2, porProducto: por};
-}
-function minimoDe(pid){
-  const propio = STOCK_MINIMOS.porProducto[String(pid)];
-  return (propio != null) ? propio : STOCK_MINIMOS.general;
-}
-// Devuelve lo que está en su mínimo o por debajo. No cuenta MAYOREO ni almacenes archivados.
-function calcularPorAcabarse(productos, inventario, almacenes, minimos){
-  const M = minimos || STOCK_MINIMOS;
-  const cuenta = new Set((almacenes||[]).filter(a=>!esMayoreo(a) && !estaArchivado(a)).map(a=>Number(a.id)));
-  const nombreAlm = {}; (almacenes||[]).forEach(a=>{ nombreAlm[Number(a.id)] = a.nombre; });
-  const total = {}, porAlm = {};
-  for(const r of (inventario||[])){
-    const a = Number(r.almacen_id); if(!cuenta.has(a)) continue;
-    const c = Number(r.cantidad||0); if(!c) continue;
-    total[r.producto_id] = (total[r.producto_id]||0) + c;
-    (porAlm[r.producto_id] = porAlm[r.producto_id] || {})[a] = ((porAlm[r.producto_id]||{})[a]||0) + c;
-  }
-  const pocos = [], agotados = [];
-  for(const p of (productos||[])){
-    const propio = M.porProducto[String(p.id)];
-    const min = (propio != null) ? propio : M.general;
-    const hay = Math.round((total[p.id]||0)*100)/100;
-    if(hay > min) continue;
-    const fila = {id:p.id, nombre:p.nombre, hay, min, propio: propio != null,
-      donde: Object.keys(porAlm[p.id]||{}).map(a=>({almacen: nombreAlm[a] || ('almacén '+a), cantidad: porAlm[p.id][a]})).sort((x,y)=>y.cantidad-x.cantidad)};
-    // Agotado solo se avisa si tiene mínimo propio (>0) o si el general es mayor que 0:
-    // un artículo que ya no se trabaja se quita poniéndole mínimo 0... y los que están en 0 van aparte.
-    if(hay <= 0) agotados.push(fila); else pocos.push(fila);
-  }
-  pocos.sort((a,b)=> (a.hay-b.hay) || String(a.nombre).localeCompare(String(b.nombre)));
-  agotados.sort((a,b)=> (b.propio-a.propio) || String(a.nombre).localeCompare(String(b.nombre)));
-  return {pocos, agotados};
-}
-function filaPorAcabarseHTML(f){
-  const donde = f.donde.length ? f.donde.map(d=>`${escH(d.almacen)} <strong>${num(d.cantidad)}</strong>`).join(' · ') : 'no queda en ningún almacén';
-  const color = f.hay <= 0 ? 'var(--red)' : 'var(--amber)';
-  return `<div style="display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border)">
-    <div style="min-width:44px; text-align:center; font-weight:800; font-size:18px; color:${color}">${num(f.hay)}</div>
-    <div style="flex:1; min-width:0">
-      <div style="font-weight:700; overflow-wrap:anywhere">${escH(f.nombre)}</div>
-      <div style="color:var(--muted); font-size:12px">${donde}</div>
-    </div>
-    <label style="display:flex; flex-direction:column; align-items:center; font-size:10px; color:var(--muted)">mín
-      <input type="number" inputmode="numeric" min="0" value="${f.propio ? f.min : ''}" placeholder="${num(STOCK_MINIMOS.general)}"
-        onchange="guardarMinimoProducto(${f.id}, this.value)" style="width:58px; padding:5px; text-align:center">
-    </label>
-  </div>`;
-}
-function renderPorAcabarse(){
-  const body = document.getElementById('minBody'); if(!body) return;
-  const inpG = document.getElementById('minGeneral');
-  if(inpG && document.activeElement !== inpG) inpG.value = STOCK_MINIMOS.general;
-  const q = (((document.getElementById('minBuscar')||{}).value) || '').trim();
-  if(q){
-    // Modo búsqueda: cualquier artículo, para ponerle su mínimo aunque hoy tenga de sobra.
-    const total = {};
-    const r = calcularPorAcabarse(PRODUCTOS, INVENTARIO, ALMACENES, {general:Infinity, porProducto:{}});
-    const todos = r.pocos.concat(r.agotados).filter(f => (typeof coincideNombre === 'function') ? coincideNombre(f.nombre, q) : String(f.nombre).toLowerCase().includes(q.toLowerCase()));
-    todos.forEach(f=>{ const propio = STOCK_MINIMOS.porProducto[String(f.id)]; f.propio = propio != null; f.min = f.propio ? propio : STOCK_MINIMOS.general; });
-    body.innerHTML = todos.length ? todos.slice(0,40).map(filaPorAcabarseHTML).join('') + (todos.length>40?`<div style="color:var(--muted); font-size:12px; padding-top:6px">…y ${todos.length-40} más. Escribe más letras.</div>`:'')
-                                  : '<div style="color:var(--muted)">Ningún artículo con ese nombre.</div>';
-    return;
-  }
-  const r = calcularPorAcabarse(PRODUCTOS, INVENTARIO, ALMACENES);
-  const TOPE = 150;
-  let h = '';
-  if(!r.pocos.length) h += '<div style="color:var(--green); font-weight:700">✓ Nada está por acabarse.</div>';
-  else h += `<div style="font-weight:800; margin-bottom:4px; color:var(--amber)">Quedan pocos: ${r.pocos.length}</div>` + r.pocos.slice(0,TOPE).map(filaPorAcabarseHTML).join('')
-          + (r.pocos.length>TOPE?`<div style="color:var(--muted); font-size:12px; padding-top:6px">…y ${r.pocos.length-TOPE} más.</div>`:'');
-  if(r.agotados.length){
-    h += `<details style="margin-top:14px"><summary style="cursor:pointer; font-weight:800; color:var(--red)">Agotados (en cero): ${r.agotados.length}</summary>`
-       + r.agotados.slice(0,TOPE).map(filaPorAcabarseHTML).join('')
-       + (r.agotados.length>TOPE?`<div style="color:var(--muted); font-size:12px; padding-top:6px">…y ${r.agotados.length-TOPE} más. Usa el buscador.</div>`:'')
-       + `<div style="color:var(--muted); font-size:12px; padding-top:6px">Si un artículo ya no lo trabajas, ponle mínimo 0 y deja de salir en "Quedan pocos".</div></details>`;
-  }
-  body.innerHTML = h;
-}
-async function guardarMinimos(){
-  lsSet('ajuste_stock_minimos', STOCK_MINIMOS);
-  const msg = document.getElementById('minMsg');
-  let compartido = false;
-  if(navigator.onLine){
-    try{
-      const r = await sb.from('ajustes').upsert({clave:'stock_minimos', valor:STOCK_MINIMOS, actualizado_en:new Date().toISOString()}, {onConflict:'clave'}).select();
-      compartido = !r.error && r.data && r.data.length > 0;
-    }catch(e){}
-  }
-  if(msg){
-    msg.textContent = compartido ? 'Guardado. ✓ Vale para todos los teléfonos.' : 'Guardado en este teléfono. (Para que valga en todos hace falta internet y haber corrido "ajustes.sql".)';
-    msg.className = compartido ? 'msg ok' : 'msg';
-  }
-}
-async function guardarMinimoGeneral(){
-  const v = Number(document.getElementById('minGeneral').value);
-  if(!isFinite(v) || v < 0){ renderPorAcabarse(); return; }
-  STOCK_MINIMOS.general = v;
-  renderPorAcabarse();
-  await guardarMinimos();
-}
-async function guardarMinimoProducto(pid, valor){
-  const t = String(valor==null?'':valor).trim();
-  if(t === '') delete STOCK_MINIMOS.porProducto[String(pid)];     // vacío = vuelve a usar el general
-  else { const v = Number(t); if(!isFinite(v) || v < 0) return; STOCK_MINIMOS.porProducto[String(pid)] = v; }
-  await guardarMinimos();
-  if(!(((document.getElementById('minBuscar')||{}).value)||'').trim()) renderPorAcabarse();
-}
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  RESUMEN DEL DÍA (solo dueño)  ·  todo lo de hoy en una sola pantalla
@@ -2174,7 +2092,6 @@ async function cargarResumenHoy(){
     let cajaVentas = [];
     if(idsDias.length){ try{ cajaVentas = await traerTodasLasFilas(()=> sb.from('caja_movimientos').select('*').in('venta_dia_id', idsDias).order('id',{ascending:true})); }catch(e){ cajaVentas = []; } }
     const R = armarResumenDia({almacenes: ALMACENES, dias, items, caja, cajaVentas, fecha});
-    const bajo = calcularPorAcabarse(PRODUCTOS, INVENTARIO, ALMACENES);
     const esHoy = fecha === hoy;
 
     let h = `<div style="display:flex; gap:10px; flex-wrap:wrap">
@@ -2204,7 +2121,11 @@ async function cargarResumenHoy(){
       avisos.push(`Hay <strong>${viejas.length}</strong> venta(s) de días anteriores que quedaron <strong>sin cerrar</strong>: ${txt}${viejas.length>6?'…':''}`);
     }
     if(pedidos.length) avisos.push(`<strong>${pedidos.length}</strong> pedido(s) de los puestos esperando respuesta. <a href="#" style="color:var(--accent); font-weight:700" onclick="irAPestana('pedidos');return false">Ver pedidos</a>`);
-    if(bajo.pocos.length) avisos.push(`<strong>${bajo.pocos.length}</strong> artículo(s) se están acabando. <a href="#" style="color:var(--accent); font-weight:700" onclick="irAPestana('reposicion');return false">Ver cuáles</a>`);
+    try{
+      const rc = await contarRecepcionesPuestos();
+      if(rc.distintos) avisos.push(`<strong>${rc.distintos}</strong> envío(s) a los puestos <strong>llegaron distinto</strong> de lo que se mandó. <a href="#" style="color:var(--accent); font-weight:700" onclick="irAPestana('recepcion');return false">Revisar</a>`);
+      if(rc.viejos) avisos.push(`<strong>${rc.viejos}</strong> envío(s) de días anteriores siguen <strong>sin confirmar</strong> por el puesto. <a href="#" style="color:var(--accent); font-weight:700" onclick="irAPestana('recepcion');return false">Ver</a>`);
+    }catch(e){}
     if(pend > 0) avisos.push(`En ESTE teléfono hay <strong>${pend}</strong> cosa(s) sin subir. <a href="#" style="color:var(--accent); font-weight:700" onclick="subirPendientesAhora();return false">Subir ahora</a>`);
     h += seccionHTML('Para revisar', avisos.length
       ? avisos.map(a=>`<div style="padding:8px 10px; margin-bottom:6px; border-left:3px solid var(--amber); background:var(--panel2); border-radius:6px; font-size:14px">${a}</div>`).join('')
