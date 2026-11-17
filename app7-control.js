@@ -903,13 +903,28 @@ async function traerRecepcionesDe(puestoIds){
   try{ movs = await traerTodasLasFilas(()=> sb.from('movimientos').select(campos+',clave_local').in('almacen_destino_id', puestoIds).gte('creado_en', desde+'T00:00:00').order('id',{ascending:true})); }
   catch(e){ movs = await traerTodasLasFilas(()=> sb.from('movimientos').select(campos).in('almacen_destino_id', puestoIds).gte('creado_en', desde+'T00:00:00').order('id',{ascending:true})); }
   let confs;
-  try{ confs = await traerTodasLasFilas(()=> sb.from('recepciones').select('id,almacen_id,producto_id,cantidad,enviado,fecha,movimiento_id,revisado').in('almacen_id', puestoIds).gte('fecha', desde).order('id',{ascending:true})); }
+  try{ confs = await traerTodasLasFilas(()=> sb.from('recepciones').select('id,almacen_id,producto_id,cantidad,enviado,fecha,movimiento_id,revisado,usuario_id,creado_en').in('almacen_id', puestoIds).gte('fecha', desde).order('id',{ascending:true})); }
   catch(e){
     const m = String((e && e.message) || e || '');
     if(/movimiento_id|enviado|revisado|column/i.test(m)) throw new Error('FALTA_SQL');
     throw e;
   }
   return {movs, confs: confs.filter(c=>c.movimiento_id != null)};
+}
+function horaDe(ts){
+  if(!ts) return '';
+  const d = new Date(ts); if(isNaN(d)) return '';
+  let h = d.getHours(), m = String(d.getMinutes()).padStart(2,'0');
+  const ap = h < 12 ? 'a.m.' : 'p.m.'; h = h % 12 || 12;
+  return h + ':' + m + ' ' + ap;
+}
+function cuandoDe(ts){ return ts ? (etiquetaDia(fechaLocalDe(ts)) + ' ' + horaDe(ts)).trim() : ''; }
+function tardanzaDe(desde, hasta){
+  const a = new Date(desde), b = new Date(hasta); if(isNaN(a) || isNaN(b)) return '';
+  const min = Math.max(0, Math.round((b - a)/60000));
+  if(min < 60) return min + ' min después';
+  const h = Math.round(min/60); if(h < 48) return h + (h===1?' hora':' horas') + ' después';
+  return Math.round(h/24) + ' días después';
 }
 function nombreProductoDe(id){ const p=(PRODUCTOS||[]).find(x=>Number(x.id)===Number(id)); return p ? p.nombre : ('#'+id); }
 function nombreAlmacenDe(id){ const a=(ALMACENES||[]).find(x=>Number(x.id)===Number(id)); return a ? a.nombre : ''; }
@@ -1063,19 +1078,23 @@ async function cargarConciliacion(){
     const puestos = (ALMACENES||[]).filter(a=>esPuntoVenta(a) && !estaArchivado(a));
     if(!puestos.length){ body.innerHTML = '<div class="empty">No hay puestos.</div>'; return; }
     const {movs, confs} = await traerRecepcionesDe(puestos.map(p=>p.id));
+    const nomUsuario = {};
+    try{ const ru = await sb.from('usuarios').select('id, nombre'); (ru.data||[]).forEach(u=>{ nomUsuario[u.id] = u.nombre; }); }catch(e){}
     __recepAdmin = {};
-    let h = '', totPend = 0, totDif = 0;
+    let h = '', totPend = 0, totDif = 0, totEnvios = 0, totUnid = 0, totOk = 0;
     const hoy = fechaHoyLocal();
     for(const p of puestos){
       const lista = armarRecepciones(movs, confs.filter(c=>Number(c.almacen_id)===Number(p.id)), p.id);
       lista.forEach(x=>{ __recepAdmin[x.mov.id] = Object.assign({puesto:p}, x); });
       const pend = lista.filter(x=>x.estado==='pendiente'), dif = lista.filter(x=>x.estado==='diferente');
       const okN = lista.filter(x=>x.estado==='ok' || x.estado==='revisado').length;
-      totPend += pend.length; totDif += dif.length;
+      totPend += pend.length; totDif += dif.length; totOk += okN;
+      totEnvios += lista.length; totUnid += lista.reduce((t,x)=>t+x.enviado,0);
       if(!lista.length) continue;
       h += `<div style="border:2px solid var(--border); border-radius:14px; padding:12px; margin-bottom:14px">
         <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap">
-          <div style="font-weight:800; font-size:17px">${escH(p.nombre)}</div>
+          <div><div style="font-weight:800; font-size:17px">${escH(p.nombre)}</div>
+            <div style="color:var(--muted); font-size:12px">${lista.length} envío${lista.length===1?'':'s'} · ${num(lista.reduce((t,x)=>t+x.enviado,0))} unidades</div></div>
           <div style="font-size:13px">${dif.length?`<span style="color:var(--red); font-weight:700">⚠ ${dif.length} distinto</span> · `:''}${pend.length?`<span style="color:var(--amber); font-weight:700">⏳ ${pend.length} sin confirmar</span> · `:''}<span style="color:var(--green)">✓ ${okN} bien</span></div>
         </div>`;
       h += dif.map(x=>{
@@ -1101,10 +1120,42 @@ async function cargarConciliacion(){
             <button class="ghost" style="font-size:12px; padding:5px 8px" onclick="darPorRecibido(${Number(x.mov.id)})">✓ Dar por recibido</button></div>`;
         }).join('');
       }
+      const ETQ = {ok:'<span style="color:var(--green); font-weight:700">✓ Llegó completo</span>',
+                   revisado:'<span style="color:var(--muted); font-weight:700">Revisado</span>',
+                   diferente:'<span style="color:var(--red); font-weight:700">⚠ Llegó distinto</span>',
+                   pendiente:'<span style="color:var(--amber); font-weight:700">⏳ Sin confirmar</span>'};
+      h += `<details ${lista.length<=8?'open':''} style="margin-top:10px"><summary style="cursor:pointer; font-weight:700; color:var(--accent)">Todo lo enviado a ${escH(p.nombre)} (${lista.length})</summary>`
+         + lista.map(x=>{
+             const origen = x.mov.tipo==='traslado' && nombreAlmacenDe(x.mov.almacen_origen_id) ? 'de '+escH(nombreAlmacenDe(x.mov.almacen_origen_id)) : 'entrada directa';
+             let linea3 = '';
+             if(x.conf){
+               const quien = nomUsuario[x.conf.usuario_id] || 'el puesto';
+               const cuando = x.conf.creado_en ? ' · ' + cuandoDe(x.conf.creado_en) + (x.mov.creado_en ? ' ('+tardanzaDe(x.mov.creado_en, x.conf.creado_en)+')' : '') : '';
+               const cuanto = x.estado==='ok' ? '' : ` · dijo que llegaron <strong>${num(x.recibido)}</strong>`;
+               linea3 = `Confirmó: ${escH(quien)}${cuando}${cuanto}`;
+             } else {
+               linea3 = 'Todavía nadie lo ha confirmado';
+             }
+             return `<div style="padding:9px 0; border-bottom:1px solid var(--border)">
+               <div style="display:flex; gap:8px; align-items:baseline">
+                 <div style="flex:1; min-width:0; font-weight:700; overflow-wrap:anywhere">${escH(nombreProductoDe(x.mov.producto_id))}</div>
+                 <div style="font-weight:800; font-size:16px">${num(x.enviado)}</div>
+               </div>
+               <div style="color:var(--muted); font-size:12px">${origen} · enviado ${cuandoDe(x.mov.creado_en)}</div>
+               <div style="font-size:13px; margin-top:2px">${ETQ[x.estado]} <span style="color:var(--muted)">· ${linea3}</span></div>
+             </div>`;
+           }).join('') + '</details>';
       h += '</div>';
     }
-    body.innerHTML = h || '<div class="empty">No se ha enviado nada a los puestos en estos días.</div>';
-    msg.textContent = (totDif||totPend) ? `${totDif} llegaron distinto · ${totPend} sin confirmar (últimos ${RECEPCION_DIAS} días).` : `Todo lo enviado está confirmado. 👍`;
+    const kpi = (t,v,c)=>`<div style="flex:1; min-width:120px; border:1px solid var(--border); border-radius:12px; padding:10px"><div style="color:var(--muted); font-size:12px">${t}</div><div style="font-size:22px; font-weight:800; color:${c}">${v}</div></div>`;
+    const arriba = totEnvios ? `<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px">
+        ${kpi('Envíos', totEnvios + ' <span style="font-size:13px; font-weight:500; color:var(--muted)">('+num(totUnid)+' u.)</span>', 'var(--text)')}
+        ${kpi('Llegaron bien', totOk, 'var(--green)')}
+        ${kpi('Llegaron distinto', totDif, totDif?'var(--red)':'var(--text)')}
+        ${kpi('Sin confirmar', totPend, totPend?'var(--amber)':'var(--text)')}
+      </div>` : '';
+    body.innerHTML = h ? arriba + h : '<div class="empty">No se ha enviado nada a los puestos en estos días.</div>';
+    msg.textContent = ((totDif||totPend) ? `Hay ${totDif+totPend} cosa(s) para mirar.` : `Todo lo enviado está confirmado. 👍`) + ` (últimos ${RECEPCION_DIAS} días, desde que empezó a usarse)`;
   }catch(e){
     body.textContent = '';
     msg.textContent = (e && e.message==='FALTA_SQL') ? 'Falta correr "recepcion_confirmar.sql" en Supabase. Sin eso los vendedores no pueden confirmar.' : ('No se pudo cargar: ' + ((e && e.message) || e));
