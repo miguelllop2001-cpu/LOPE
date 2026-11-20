@@ -11,21 +11,21 @@
 //    no se le pide NADA a ningún servidor de fuera.
 //  · Las llamadas de datos a Supabase NUNCA se guardan: de eso se encarga la app con su cola.
 
-const VERSION = '176';
-const CACHE_NAME = 'mi-negocio-v215';
+const VERSION = '177';
+const CACHE_NAME = 'mi-negocio-v216';
 const OBLIGATORIOS = [
   './index.html',
-  './app.css?v=176',
-  './lib-supabase.js?v=176',
-  './lib-papaparse.js?v=176',
-  './app1-base.js?v=176',
-  './app2-gestion.js?v=176',
-  './app3-deudas.js?v=176',
-  './app4-vendedor.js?v=176',
-  './app5-subida.js?v=176',
-  './app6-mayoreo.js?v=176',
-  './app7-control.js?v=176',
-  './app8-arranque.js?v=176',
+  './app.css?v=177',
+  './lib-supabase.js?v=177',
+  './lib-papaparse.js?v=177',
+  './app1-base.js?v=177',
+  './app2-gestion.js?v=177',
+  './app3-deudas.js?v=177',
+  './app4-vendedor.js?v=177',
+  './app5-subida.js?v=177',
+  './app6-mayoreo.js?v=177',
+  './app7-control.js?v=177',
+  './app8-arranque.js?v=177',
   './manifest.json'
 ];
 const OPCIONALES = ['./app.html', './icon-192.png', './icon-512.png'];

@@ -2193,6 +2193,260 @@ function irAPestana(k){
   const b = document.querySelector('.tabs button[data-tab="'+k+'"]');
   if(b) b.click();
 }
+function esUsuarioPrueba(u){
+  if(!u || u.rol !== 'vendedor') return false;
+  return String(u.nombre||'').normalize('NFD').replace(/[̀-ͯ]/g,'').trim().toLowerCase() === 'vendedor';
+}
+function __respuestaBloqueada(){
+  const NO = {data:null, error:{message:'MODO PRUEBA: no se guarda nada en la base', code:'PRUEBA'}};
+  const promesa = Promise.resolve(NO);
+  // Cualquier cosa que se encadene (.eq, .select, .single…) devuelve lo mismo: nada se envía.
+  const cadena = new Proxy(function(){}, {
+    get(_, k){ if(k === 'then') return promesa.then.bind(promesa); if(k === 'catch') return promesa.catch.bind(promesa); if(k === 'finally') return promesa.finally.bind(promesa); return ()=>cadena; },
+    apply(){ return cadena; }
+  });
+  return cadena;
+}
+function activarModoPrueba(){
+  MODO_PRUEBA = true;
+  if(!sb.__candadoPrueba){
+    const fromReal = sb.from.bind(sb);
+    sb.from = function(tabla){
+      const q = fromReal(tabla);
+      for(const m of ['insert','update','upsert','delete']) q[m] = ()=> __respuestaBloqueada();
+      return q;
+    };
+    sb.rpc = ()=> __respuestaBloqueada();
+    sb.__candadoPrueba = true;
+  }
+}
+// El panel del vendedor en prueba: todo en el teléfono, nada en la base.
+async function abrirPanelPrueba(){
+  document.getElementById('puestoActualLabel').textContent = 'Puesto: ' + puestoActual.nombre + ' (prueba)';
+  document.getElementById('bannerPrueba').style.display = 'block';
+  // Solo lo que se puede practicar sin escribir nada
+  for(const v of ['pedir','recepcion','cobrar','devoluciones','historial','mayoreo']){
+    document.querySelectorAll('button[data-vtab="'+v+'"]').forEach(b=>{ b.style.display = 'none'; });
+  }
+  document.getElementById('vbtnImpresora').style.display = 'block';
+  document.getElementById('btnFinalizarDia').style.display = 'none';
+  document.getElementById('btnBorrarPrueba').style.display = 'inline-block';
+  modoLocal = true; ventaDiaAbiertaId = null;
+  carrito = lsGet('vt_carrito_'+puestoActual.id+'_'+usuarioActual.id, []);
+  const g = leerInicioVentaActual();
+  ventaActualInicio = (g !== null && g <= carrito.length) ? g : carrito.length;
+  renderCarrito();
+  try{ await cargarMiInventario(); }catch(e){}
+}
+function borrarVentasPrueba(){
+  if(!MODO_PRUEBA) return;
+  if(!confirm('¿Borrar todas las ventas de prueba de este teléfono?')) return;
+  carrito = []; cobrosEnCarrito = []; ventaActualInicio = 0;
+  guardarInicioVentaActual(); renderCarrito();
+}
+function impresionActiva(){ return MODO_PRUEBA || lsGet('imp_activa', false) === true; }
+function impAjustes(){
+  const a = lsGet('imp_ajustes', null) || {};
+  return {modo: a.modo || null, auto: a.auto !== false,
+          encabezado: (a.encabezado != null ? a.encabezado : 'FERRETERIA LOPE'), pie: (a.pie != null ? a.pie : 'Gracias por su compra')};
+}
+function impGuardar(cambios){ lsSet('imp_ajustes', Object.assign(impAjustes(), cambios)); }
+function impGuardarAjustes(){
+  impGuardar({auto: document.getElementById('impAuto').checked,
+              encabezado: document.getElementById('impEncabezado').value,
+              pie: document.getElementById('impPie').value});
+  impPintarPanel();
+}
+// Texto plano para la impresora: sin tildes ni signos raros (estas impresoras no los traen).
+function impTexto(t){
+  return String(t==null?'':t).normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/[¡¿]/g,'').replace(/[“”«»]/g,'"').replace(/[‘’]/g,"'").replace(/[–—·•]/g,'-').replace(/[^\x20-\x7E\n]/g,'');
+}
+function impDinero(n){ const v = Math.round(Number(n||0)*100)/100; return '$' + (Number.isInteger(v) ? String(v) : v.toFixed(2)); }
+function impPartir(t, ancho){
+  const palabras = impTexto(t).split(/\s+/).filter(Boolean), lineas = [];
+  let l = '';
+  for(let w of palabras){
+    while(w.length > ancho){ if(l){ lineas.push(l); l=''; } lineas.push(w.slice(0,ancho)); w = w.slice(ancho); }
+    if(!w) continue;
+    if(!l) l = w; else if((l+' '+w).length <= ancho) l += ' '+w; else { lineas.push(l); l = w; }
+  }
+  if(l) lineas.push(l);
+  return lineas.length ? lineas : [''];
+}
+function impLR(izq, der, ancho){
+  ancho = ancho || IMP_COLUMNAS; izq = impTexto(izq); der = impTexto(der);
+  const esp = ancho - izq.length - der.length;
+  return esp >= 1 ? izq + ' '.repeat(esp) + der : (izq.slice(0, Math.max(0, ancho - der.length - 1)) + ' ' + der);
+}
+function impCentro(t, ancho){ ancho = ancho || IMP_COLUMNAS; t = impTexto(t).slice(0, ancho); const i = Math.floor((ancho - t.length)/2); return ' '.repeat(Math.max(0,i)) + t; }
+// Arma el recibo. Devuelve los bytes para la impresora y el texto para la vista previa.
+// Partes: {tipo:'centroGrande'|'centro'|'linea'|'raya'|'total', ...}
+function armarRecibo(d){
+  const partes = [];
+  const enc = String(d.encabezado||'').split('\n').map(x=>x.trim()).filter(Boolean);
+  if(enc.length){ impPartir(enc[0], 16).forEach(l=>partes.push({tipo:'centroGrande', t:l})); enc.slice(1).forEach(x=>impPartir(x, IMP_COLUMNAS).forEach(l=>partes.push({tipo:'centro', t:l}))); }
+  if(d.prueba) partes.push({tipo:'centro', t:'*** PRUEBA - NO VALIDO ***'});
+  partes.push({tipo:'raya'});
+  partes.push({tipo:'linea', t:'Recibo ' + d.numero});
+  partes.push({tipo:'linea', t:impLR(d.fecha, d.puesto)});
+  if(d.vendedor) partes.push({tipo:'linea', t:'Atendio: ' + d.vendedor});
+  partes.push({tipo:'raya'});
+  let total = 0;
+  for(const it of (d.items||[])){
+    const sub = Number(it.cantidad) * Number(it.precio); total += sub;
+    impPartir(it.nombre, IMP_COLUMNAS).forEach(l=>partes.push({tipo:'linea', t:l}));
+    partes.push({tipo:'linea', t:impLR('  ' + num(it.cantidad) + ' x ' + impDinero(it.precio), impDinero(sub))});
+  }
+  partes.push({tipo:'raya'});
+  partes.push({tipo:'total', t:impLR('TOTAL', impDinero(total))});
+  partes.push({tipo:'raya'});
+  if(d.pie) impPartir(d.pie, IMP_COLUMNAS).forEach(l=>partes.push({tipo:'centro', t:l}));
+
+  // Bytes ESC/POS
+  const b = [0x1B,0x40, 0x1B,0x74,0x00];          // iniciar · tabla de letras básica
+  const txt = s => { for(const ch of impTexto(s)) b.push(ch.charCodeAt(0)); b.push(0x0A); };
+  const vista = [];
+  for(const p of partes){
+    if(p.tipo === 'centroGrande'){ b.push(0x1B,0x61,0x01, 0x1D,0x21,0x11, 0x1B,0x45,0x01); txt(p.t); b.push(0x1D,0x21,0x00, 0x1B,0x45,0x00, 0x1B,0x61,0x00); vista.push(impCentro(p.t.split('').join(' '))); }
+    else if(p.tipo === 'centro'){ b.push(0x1B,0x61,0x01); txt(p.t); b.push(0x1B,0x61,0x00); vista.push(impCentro(p.t)); }
+    else if(p.tipo === 'raya'){ txt('-'.repeat(IMP_COLUMNAS)); vista.push('-'.repeat(IMP_COLUMNAS)); }
+    else if(p.tipo === 'total'){ b.push(0x1B,0x45,0x01, 0x1D,0x21,0x01); txt(p.t); b.push(0x1D,0x21,0x00, 0x1B,0x45,0x00); vista.push(p.t); }
+    else { txt(p.t); vista.push(impTexto(p.t)); }
+  }
+  b.push(0x1B,0x64,0x04);                          // sacar papel para poder cortarlo
+  return {bytes: new Uint8Array(b), texto: vista.join('\n'), total};
+}
+function impNumeroRecibo(){
+  const pid = puestoActual ? puestoActual.id : 0;
+  const k = 'imp_n_' + pid + (MODO_PRUEBA ? '_prueba' : '');
+  const n = Number(lsGet(k, 0)) + 1; lsSet(k, n);
+  const cod = impTexto(puestoActual ? puestoActual.nombre : '').replace(/\s+/g,'').toUpperCase() || 'LOPE';
+  return (MODO_PRUEBA ? 'PRUEBA-' : '') + cod + '-' + String(n).padStart(4,'0');
+}
+function datosRecibo(items){
+  const a = impAjustes(), d = new Date();
+  const fecha = String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear()+' '+horaDe(d.toISOString());
+  return {encabezado:a.encabezado, pie:a.pie, numero:impNumeroRecibo(), fecha, puesto: puestoActual ? puestoActual.nombre : '',
+          vendedor: usuarioActual ? usuarioActual.nombre : '', items, prueba: MODO_PRUEBA};
+}
+async function imprimirReciboDeVenta(items){
+  const datos = datosRecibo(items);
+  lsSet('imp_ultimo', datos);
+  const r = armarRecibo(datos);
+  const msg = document.getElementById('ventaMsg');
+  try{
+    const como = await impEnviar(r.bytes);
+    if(msg){ msg.textContent = '🧾 Recibo ' + datos.numero + (como==='rawbt' ? ' enviado a RawBT.' : ' impreso.'); msg.className = 'msg ok'; }
+  }catch(e){
+    if(msg){ msg.textContent = '🧾 No se pudo imprimir el recibo: ' + ((e && e.message) || e) + ' (la venta sí quedó). Revisa 🖨️ Impresora.'; msg.className = 'msg err'; }
+  }
+}
+
+// ── Bluetooth directo ──
+async function impBuscarSalida(servidor){
+  const servicios = await servidor.getPrimaryServices();
+  for(const s of servicios){
+    let cs = []; try{ cs = await s.getCharacteristics(); }catch(e){ continue; }
+    const c = cs.find(c=>c.properties.writeWithoutResponse) || cs.find(c=>c.properties.write);
+    if(c) return c;
+  }
+  return null;
+}
+async function impConectarDispositivo(dispositivo){
+  const servidor = await dispositivo.gatt.connect();
+  const c = await impBuscarSalida(servidor);
+  if(!c) throw new Error('la impresora no deja que Chrome le escriba directo. Usa RawBT.');
+  IMP.dispositivo = dispositivo; IMP.caracteristica = c;
+  if(!dispositivo.__escucha){ dispositivo.addEventListener('gattserverdisconnected', ()=>{ IMP.caracteristica = null; impPintarPanel(); }); dispositivo.__escucha = true; }
+  return c;
+}
+async function impPedirDispositivo(){
+  if(!navigator.bluetooth) throw new Error('este teléfono/navegador no deja conectar Bluetooth directo (usa Chrome en Android, o RawBT).');
+  const d = await navigator.bluetooth.requestDevice({acceptAllDevices:true, optionalServices:IMP_SERVICIOS});
+  return impConectarDispositivo(d);
+}
+async function impEnviarBT(bytes){
+  let c = IMP.caracteristica;
+  if(!c && IMP.dispositivo){ try{ c = await impConectarDispositivo(IMP.dispositivo); }catch(e){ c = null; } }
+  if(!c) c = await impPedirDispositivo();
+  const TROZO = 100;
+  for(let i=0; i<bytes.length; i+=TROZO){
+    const parte = bytes.slice(i, i+TROZO);
+    if(c.writeValueWithoutResponse && c.properties.writeWithoutResponse) await c.writeValueWithoutResponse(parte);
+    else await c.writeValue(parte);
+    await new Promise(r=>setTimeout(r, 25));
+  }
+}
+// ── RawBT ──
+function impEnviarRawBT(bytes){
+  let bin = ''; for(let i=0; i<bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  const b64 = btoa(bin);
+  impAbrir('intent:base64,' + b64 + '#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end;');
+}
+function impAbrir(url){ window.location.href = url;
+}
+// Elige el camino: el que se dejó configurado; si no hay ninguno, prueba directo y si no se puede, RawBT.
+async function impEnviar(bytes){
+  const modo = impAjustes().modo;
+  if(modo === 'rawbt'){ impEnviarRawBT(bytes); return 'rawbt'; }
+  if(modo === 'bluetooth'){ await impEnviarBT(bytes); return 'bluetooth'; }
+  if(navigator.bluetooth){
+    try{ await impEnviarBT(bytes); impGuardar({modo:'bluetooth'}); impPintarPanel(); return 'bluetooth'; }
+    catch(e){ if(e && e.name === 'NotFoundError') throw new Error('no se eligió ninguna impresora'); }
+  }
+  impEnviarRawBT(bytes); return 'rawbt';
+}
+
+// ── Panel ──
+function impPintarPanel(){
+  const a = impAjustes();
+  const est = document.getElementById('impEstado'); if(!est) return;
+  const conectada = !!IMP.caracteristica;
+  est.innerHTML = a.modo === 'rawbt' ? '📲 Imprime con la app RawBT'
+    : a.modo === 'bluetooth' ? (conectada ? '🔵 Conectada directo: ' + escH(IMP.dispositivo && IMP.dispositivo.name || 'impresora') : '🔵 Directo por Bluetooth (se conecta al imprimir)')
+    : '⚪ Todavía no se ha configurado';
+  const au = document.getElementById('impAuto'); if(au) au.checked = a.auto;
+  const en = document.getElementById('impEncabezado'); if(en && document.activeElement !== en) en.value = a.encabezado;
+  const pi = document.getElementById('impPie'); if(pi && document.activeElement !== pi) pi.value = a.pie;
+  const ult = lsGet('imp_ultimo', null);
+  const ejemplo = ult || {encabezado:a.encabezado, pie:a.pie, numero:'P49-0001', fecha:'20/11/2026 10:42 a.m.', puesto:'P 49', vendedor:'Tamy', prueba:MODO_PRUEBA,
+                          items:[{nombre:'CABLE 2X14', cantidad:3, precio:100},{nombre:'TUBO PVC 1/2', cantidad:5, precio:28}]};
+  const vista = document.getElementById('impVista');
+  if(vista) vista.textContent = armarRecibo(Object.assign({}, ejemplo, {encabezado:a.encabezado, pie:a.pie})).texto;
+}
+async function impConectarBT(){
+  const msg = document.getElementById('impMsg');
+  try{
+    await impPedirDispositivo();
+    impGuardar({modo:'bluetooth'});
+    msg.textContent = '✓ Conectada. Toca "Imprimir recibo de prueba".'; msg.className = 'msg ok';
+  }catch(e){
+    msg.textContent = (e && e.name === 'NotFoundError') ? 'No se eligió ninguna impresora.' : ('No se pudo conectar directo: ' + ((e && e.message) || e) + ' Prueba con RawBT.');
+    msg.className = 'msg err';
+  }
+  impPintarPanel();
+}
+function impUsarRawBT(){
+  impGuardar({modo:'rawbt'}); impPintarPanel();
+  const msg = document.getElementById('impMsg'); msg.textContent = '✓ Listo. Toca "Imprimir recibo de prueba". Si no tienes RawBT, te abre la Play Store para instalarla.'; msg.className = 'msg ok';
+}
+async function impImprimirPrueba(){
+  const msg = document.getElementById('impMsg');
+  const datos = datosRecibo([{nombre:'ARTICULO DE PRUEBA', cantidad:2, precio:150}, {nombre:'OTRO ARTICULO CON UN NOMBRE MUY LARGO PARA VER COMO CORTA', cantidad:1, precio:75.5}]);
+  datos.prueba = true;
+  try{ const como = await impEnviar(armarRecibo(datos).bytes); msg.textContent = como==='rawbt' ? 'Enviado a RawBT.' : '✓ Enviado a la impresora.'; msg.className = 'msg ok'; }
+  catch(e){ msg.textContent = 'No se pudo: ' + ((e && e.message) || e); msg.className = 'msg err'; }
+  impPintarPanel();
+}
+async function impReimprimir(){
+  const msg = document.getElementById('impMsg');
+  const ult = lsGet('imp_ultimo', null);
+  if(!ult){ msg.textContent = 'Todavía no se ha impreso ningún recibo.'; msg.className = 'msg err'; return; }
+  const a = impAjustes();   // encabezado y pie: los de ahora (por si se cambiaron)
+  try{ await impEnviar(armarRecibo(Object.assign({}, ult, {encabezado:a.encabezado, pie:a.pie})).bytes); msg.textContent = '✓ Reimpreso ' + ult.numero + '.'; msg.className = 'msg ok'; }
+  catch(e){ msg.textContent = 'No se pudo: ' + ((e && e.message) || e); msg.className = 'msg err'; }
+}
 
 function aplicarRestriccionesDeRol(){
   const esDueno = usuarioActual.rol === 'dueno';

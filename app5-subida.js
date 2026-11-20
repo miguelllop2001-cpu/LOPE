@@ -768,7 +768,8 @@ async function entrarComo(usuario){
   }
 
   if(usuarioActual.rol === 'vendedor'){
-    document.getElementById('appTitle').textContent = '🧾 Ventas';
+    if(esUsuarioPrueba(usuarioActual)) activarModoPrueba();
+    document.getElementById('appTitle').textContent = MODO_PRUEBA ? '🧪 Ventas (prueba)' : '🧾 Ventas';
     document.getElementById('connPill').style.display='inline';
     document.getElementById('rolPill').style.display='none';
     document.getElementById('puestoActualLabel').style.display='inline';
@@ -809,8 +810,11 @@ async function entrarComo(usuario){
     puestoActual = {id: almacenElegido, nombre: almacen?almacen.nombre:'Puesto'};
     // Solo la trabajadora comodín ve el botón "Cambiar de puesto"
     document.getElementById('btnCambiarPuesto').style.display = esComodin() ? 'block' : 'none';
-    await abrirPanelVenta();
-    try{ cargarRecepcionesHoy(); }catch(e){}   // para que el menú diga ya cuántos envíos hay por confirmar
+    if(MODO_PRUEBA){ await abrirPanelPrueba(); }
+    else {
+      await abrirPanelVenta();
+      try{ cargarRecepcionesHoy(); }catch(e){}   // para que el menú diga ya cuántos envíos hay por confirmar
+    }
   } else {
     document.getElementById('appTitle').textContent = '📦 Gestión de Almacenes';
     document.getElementById('connPill').style.display='inline';
@@ -879,6 +883,12 @@ async function cambiarPuestoComodin(){
 }
 
 function cerrarSesion(){
+  if(MODO_PRUEBA){
+    // Se recarga la app: así se quita el candado y nada del modo prueba queda vivo.
+    sessionStorage.removeItem('app_sesion');
+    location.reload();
+    return;
+  }
   // Aviso si hay cosas sin subir: no se pierden, pero que lo sepa antes de irse.
   try{
     const nPend = contarPendientesTotales();

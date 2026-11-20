@@ -8,9 +8,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f1115">
 <title>Mi Negocio</title>
-<script src="lib-supabase.js?v=176"></script>
-<script src="lib-papaparse.js?v=176"></script>
-<link rel="stylesheet" href="app.css?v=176">
+<script src="lib-supabase.js?v=177"></script>
+<script src="lib-papaparse.js?v=177"></script>
+<link rel="stylesheet" href="app.css?v=177">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -57,6 +57,7 @@
       <button data-vtab="cobrar" onclick="cambiarVTab('cobrar')">💰 Cobrar</button>
       <button data-vtab="devoluciones" onclick="cambiarVTab('devoluciones')">↩️ Devoluciones</button>
       <button data-vtab="historial" onclick="cambiarVTab('historial')">🕘 Historial</button>
+      <button data-vtab="impresora" id="vbtnImpresora" onclick="cambiarVTab('impresora')" style="display:none">🖨️ Impresora</button>
       <button data-vtab="mayoreo" id="vbtnMayoreo" onclick="cambiarVTab('mayoreo')" style="display:none">🏷️ Mayoreo</button>
       <button id="btnCambiarPuesto" onclick="cambiarPuestoComodin()" style="display:none">🔄 Cambiar de puesto</button>
       <button onclick="cerrarSesion()">🚪 Cerrar sesión</button>
@@ -146,6 +147,8 @@
 <!-- ===================== APP: VENTAS (rol vendedor) ===================== -->
   <div id="appVentas" style="display:none">
 
+    <div id="bannerPrueba" style="display:none; margin:0 0 12px; padding:10px 12px; border-radius:12px; background:#7c3aed; color:#fff; font-weight:800; text-align:center; font-size:14px">🧪 MODO PRUEBA — nada de lo que hagas aquí se guarda en el negocio</div>
+
     <div id="vtab-vender" class="vtab">
     <div class="card">
       <h2>Agregar artículo</h2>
@@ -209,6 +212,7 @@
       <div style="color:var(--muted); font-size:12px; margin:-4px 0 10px">El sobrante se guarda aparte, como un fondo. Sirve para cubrir el valor de un artículo que falte en el almacén.</div>
       <div class="row" style="justify-content:flex-end">
         <button class="success" id="btnFinalizarDia" onclick="finalizarDia()">✅ Finalizar el día</button>
+        <button class="ghost" id="btnBorrarPrueba" onclick="borrarVentasPrueba()" style="display:none">🗑 Borrar ventas de prueba</button>
       </div>
       <div id="finalizarMsg" class="msg"></div>
     </div>
@@ -317,6 +321,39 @@
         <p style="color:var(--muted); font-size:14px; margin:6px 0 0">Cuando te llegue la mercancía, cuéntala y toca <strong>✓ Llegó</strong>. Si llegó menos o más, toca <strong>Llegó otra cantidad</strong> y pon lo que contaste.</p>
         <div id="recepMsg" class="msg"></div>
         <div id="recepBody" style="margin-top:10px"></div>
+      </div>
+    </div>
+
+    <div id="vtab-impresora" class="vtab" style="display:none">
+      <div class="card">
+        <h2 style="margin-top:0">🖨️ Impresora de recibos</h2>
+        <div id="impEstado" style="font-weight:700; margin-bottom:10px"></div>
+        <div style="display:flex; flex-direction:column; gap:8px">
+          <button class="primary" onclick="impConectarBT()">🔵 Conectar directo por Bluetooth</button>
+          <button class="ghost" onclick="impUsarRawBT()">📲 Usar la app RawBT</button>
+          <button class="success" onclick="impImprimirPrueba()">🧾 Imprimir recibo de prueba</button>
+          <button class="ghost" onclick="impReimprimir()">↻ Reimprimir el último recibo</button>
+        </div>
+        <label style="display:flex; align-items:center; gap:8px; margin-top:14px; font-weight:600">
+          <input type="checkbox" id="impAuto" onchange="impGuardarAjustes()" style="width:20px; height:20px"> Imprimir solo al tocar "Finalizar venta"
+        </label>
+        <div id="impMsg" class="msg"></div>
+        <details style="margin-top:12px; font-size:14px; color:var(--muted)">
+          <summary style="cursor:pointer; font-weight:700">¿No imprime directo?</summary>
+          <ol style="padding-left:18px; margin:8px 0">
+            <li>Instala <strong>RawBT</strong> desde la Play Store.</li>
+            <li>Ábrela, elige Bluetooth y empareja la <strong>PT-210</strong>.</li>
+            <li>Vuelve aquí y toca <strong>📲 Usar la app RawBT</strong>.</li>
+          </ol>
+        </details>
+      </div>
+      <div class="card">
+        <h2 style="margin-top:0">Lo que sale en el recibo</h2>
+        <div class="field"><label>Arriba (una línea por renglón: nombre, dirección, teléfono…)</label>
+          <textarea id="impEncabezado" rows="3" onchange="impGuardarAjustes()" style="width:100%"></textarea></div>
+        <div class="field"><label>Abajo</label><input type="text" id="impPie" onchange="impGuardarAjustes()"></div>
+        <div style="font-weight:700; margin:10px 0 6px">Así se ve:</div>
+        <pre id="impVista" style="background:#fff; color:#111; border:1px dashed #999; border-radius:8px; padding:10px; font-size:12px; line-height:1.35; overflow-x:auto; white-space:pre; max-width:100%"></pre>
       </div>
     </div>
 
@@ -1226,20 +1263,20 @@
 
 </div>
 
-<script src="app1-base.js?v=176"></script>
-<script src="app2-gestion.js?v=176"></script>
-<script src="app3-deudas.js?v=176"></script>
-<script src="app4-vendedor.js?v=176"></script>
-<script src="app5-subida.js?v=176"></script>
-<script src="app6-mayoreo.js?v=176"></script>
-<script src="app7-control.js?v=176"></script>
-<script src="app8-arranque.js?v=176"></script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v176</div>
+<script src="app1-base.js?v=177"></script>
+<script src="app2-gestion.js?v=177"></script>
+<script src="app3-deudas.js?v=177"></script>
+<script src="app4-vendedor.js?v=177"></script>
+<script src="app5-subida.js?v=177"></script>
+<script src="app6-mayoreo.js?v=177"></script>
+<script src="app7-control.js?v=177"></script>
+<script src="app8-arranque.js?v=177"></script>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v177</div>
 <script>
 // Guarda la app en el teléfono para que abra AL MOMENTO (y sin internet). Cuando subes una
 // versión nueva, se descarga por detrás y sale un aviso arriba para actualizar con un toque.
 (function(){
-  var MI_VERSION = '176';
+  var MI_VERSION = '177';
   if(!('serviceWorker' in navigator)) return;
   function avisar(){
     if(document.getElementById('avisoVersion')) return;

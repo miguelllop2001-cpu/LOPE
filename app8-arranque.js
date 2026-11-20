@@ -578,6 +578,26 @@ const PESTANAS_DEL_MENU = [
 ];
 // Estas no se pueden esconder: sin ellas no se puede trabajar ni volver atrás.
 const PESTANAS_INTOCABLES = new Set(['admin','usuarios','v:vender']);
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  MODO PRUEBA  ·  el usuario "vendedor" practica sin tocar el negocio
+// ═══════════════════════════════════════════════════════════════════════════
+// Ve los productos y precios de verdad, pero NADA se guarda en la base: ni ventas, ni
+// inventario, ni dinero, ni comisiones. Se bloquea en el único punto por donde la app
+// escribe (el cliente de Supabase), así que aunque alguna pantalla lo intente, no puede.
+let MODO_PRUEBA = false;
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  IMPRESORA DE RECIBOS (térmica de 58 mm, ESC/POS — probada para la PT-210)
+// ═══════════════════════════════════════════════════════════════════════════
+// Dos caminos: directo por Bluetooth desde Chrome, o a través de la app RawBT.
+// Todo es local: no necesita internet.
+const IMP_COLUMNAS = 32;
+// Servicios Bluetooth que usan las impresoras térmicas chinas más comunes
+const IMP_SERVICIOS = [0x18f0, 0xff00, 0xffe0, 0xfff0, 0xae30, 0xae00, 0xfee7,
+  'e7810a71-73ae-499d-8c15-faa9aef0c3f2', '49535343-fe7d-4ae5-8fa9-9fafd205e455'];
+const IMP = {dispositivo:null, caracteristica:null};
 let __hoyYaAbierto = false;
 
 iniciarApp();

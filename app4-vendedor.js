@@ -165,6 +165,7 @@ function cambiarVTab(tab){
   if(tab==='devoluciones'){ cargarDevolucionesTab(); }
   if(tab==='historial'){ cargarHistorialDias(); cargarMercanciaRecibida(); }
   if(tab==='mayoreo'){ cambiarVMTab('vender'); }
+  if(tab==='impresora'){ impPintarPanel(); }
 }
 async function tvCargarStockMayoreo(){
   const alm=await asegurarAlmacenMayoreo();
@@ -340,6 +341,7 @@ async function tvNoVino(id){
 
 // ---------- VENTA DEL DÍA (abrir si no existe una abierta para hoy) ----------
 async function buscarOAbrirVentaDia(){
+  if(MODO_PRUEBA) return;   // el usuario de prueba nunca toca la venta del día de verdad
   const hoy = fechaHoyLocal();
   // El carrito local se separa POR USUARIO además de por puesto, para que dos trabajadoras
   // distintas en el mismo puesto NUNCA compartan artículos.
@@ -739,9 +741,12 @@ function finalizarVenta(){
   if(!puestoActual){ alert('Espera unos segundos: todavía se está cargando tu puesto.'); return; }
   const totalVentaActual = carrito.slice(ventaActualInicio).reduce((s,it)=> s + it.cantidad*it.precio_venta, 0);
   if(totalVentaActual <= 0){ alert('Todavía no hay artículos en la venta actual.'); return; }
+  const itemsDelCliente = carrito.slice(ventaActualInicio).map(it=>({nombre:it.nombre, cantidad:it.cantidad, precio:it.precio_venta}));
   ventaActualInicio = carrito.length;
   guardarInicioVentaActual();
   renderCarrito();
+  // Recibo para el cliente (si la impresora está activada en este teléfono)
+  if(impresionActiva() && impAjustes().auto){ try{ imprimirReciboDeVenta(itemsDelCliente); }catch(e){ console.error(e); } }
 }
 
 // Guarda el estado actual del carrito en venta_items (borra y reinserta; el día sigue abierto)
@@ -1456,6 +1461,7 @@ async function finalizarDia(){
 }
 
 async function finalizarDiaInterno(){
+  if(MODO_PRUEBA){ alert('Estás en MODO PRUEBA: el día no se cierra ni se guarda. Usa "🗑 Borrar ventas de prueba" para empezar de cero.'); return; }
   const msgEl = document.getElementById('finalizarMsg');
   let diaCerradoOk = false; // se pone true en cuanto el día queda cerrado en la base
 
