@@ -8,9 +8,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#0f1115">
 <title>Mi Negocio</title>
-<script src="lib-supabase.js?v=177"></script>
-<script src="lib-papaparse.js?v=177"></script>
-<link rel="stylesheet" href="app.css?v=177">
+<script src="lib-supabase.js?v=178"></script>
+<script src="lib-papaparse.js?v=178"></script>
+<link rel="stylesheet" href="app.css?v=178">
 </head>
 <body>
 
@@ -66,6 +66,7 @@
       <button data-tab="movimientos">🔁 Movimientos</button>
       <button data-tab="reposicion">🚚 Reposición</button>
       <button data-tab="recepcion" class="solo-dueno" style="display:none">📥 Recepción</button>
+      <button data-tab="mercdinero" class="solo-dueno" style="display:none">💵 Dinero vs mercancía</button>
       <button data-tab="compras">🛒 Compras</button>
       <button data-tab="pedidos">📝 Pedidos</button>
       <button data-tab="ventasvendedor" id="tabBtnVentasVendedor">🧾 Ventas por vendedor</button>
@@ -556,6 +557,33 @@
     </div>
   </div>
 
+  <div id="tab-mercdinero" class="tab" style="display:none">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px">
+        <h2 style="margin:0">💵 Dinero vs mercancía</h2>
+        <button class="ghost" onclick="cargarDineroVsMercancia()" style="padding:6px 12px">↻</button>
+      </div>
+      <p style="color:var(--muted); font-size:14px; margin:6px 0 10px">Lo que salió de la caja para mercancía, al lado de la mercancía que entró (a lo que costó). Los gastos fijos y las comisiones van aparte.</p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end">
+        <div class="field" style="margin:0; min-width:150px"><label>Período</label>
+          <select id="mdPeriodo" onchange="mdCambioPeriodo()">
+            <option value="mes">Este mes</option>
+            <option value="mespasado">Mes pasado</option>
+            <option value="30">Últimos 30 días</option>
+            <option value="90">Últimos 90 días</option>
+            <option value="rango">Escoger fechas…</option>
+          </select></div>
+        <div id="mdRango" style="display:none; gap:8px; flex-wrap:wrap">
+          <div class="field" style="margin:0"><label>Desde</label><input type="date" id="mdDesde"></div>
+          <div class="field" style="margin:0"><label>Hasta</label><input type="date" id="mdHasta"></div>
+          <button class="primary" onclick="cargarDineroVsMercancia()" style="align-self:flex-end">Ver</button>
+        </div>
+      </div>
+      <div id="mdMsg" class="msg"></div>
+      <div id="mdBody" style="margin-top:10px"></div>
+    </div>
+  </div>
+
   <div id="tab-recepcion" class="tab" style="display:none">
     <div class="card">
       <div style="display:flex; justify-content:space-between; align-items:center; gap:8px">
@@ -962,6 +990,7 @@
           <label>Categoría</label>
           <select id="cajaCategoria">
             <option value="pago_mercancia">Pago de mercancía</option>
+            <option value="gasto_fijo">Gasto fijo (puestos, luz…)</option>
             <option value="retiro">Retiro</option>
             <option value="deposito">Depósito / aporte</option>
             <option value="otro">Otro</option>
@@ -1260,14 +1289,14 @@
 
 </div>
 
-<script src="app1-base.js?v=177"></script>
-<script src="app2-gestion.js?v=177"></script>
-<script src="app3-deudas.js?v=177"></script>
-<script src="app4-vendedor.js?v=177"></script>
-<script src="app5-subida.js?v=177"></script>
-<script src="app6-mayoreo.js?v=177"></script>
-<script src="app7-control.js?v=177"></script>
-<script src="app8-arranque.js?v=177"></script>
-<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v177</div>
+<script src="app1-base.js?v=178"></script>
+<script src="app2-gestion.js?v=178"></script>
+<script src="app3-deudas.js?v=178"></script>
+<script src="app4-vendedor.js?v=178"></script>
+<script src="app5-subida.js?v=178"></script>
+<script src="app6-mayoreo.js?v=178"></script>
+<script src="app7-control.js?v=178"></script>
+<script src="app8-arranque.js?v=178"></script>
+<div id="versionApp" style="position:fixed; bottom:6px; right:8px; font-size:11px; color:var(--muted); opacity:0.6; z-index:9999; pointer-events:none; user-select:none">v178</div>
 </body>
 </html>

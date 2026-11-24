@@ -1590,9 +1590,12 @@ function fijarTipoCaja(tipo){
 async function registrarCaja(){
   const tipo = document.getElementById('cajaTipo').value;
   const metodo = document.getElementById('cajaMetodo').value;
-  const categoria = document.getElementById('cajaCategoria').value;
+  let categoria = document.getElementById('cajaCategoria').value;
   const monto = Number(document.getElementById('cajaMonto').value);
-  const concepto = document.getElementById('cajaConcepto').value.trim();
+  let concepto = document.getElementById('cajaConcepto').value.trim();
+  // "Gasto fijo" se guarda como categoría 'otro' con el concepto marcado: así la base (que no
+  // conoce categorías nuevas) lo acepta, y el informe Dinero vs mercancía lo reconoce igual.
+  if(categoria === 'gasto_fijo'){ categoria = 'otro'; concepto = 'Gasto fijo' + (concepto ? ': ' + concepto : ''); }
   const msgEl = document.getElementById('cajaMsg');
   if(!monto || monto<=0){ msgEl.textContent='Ingresa un monto válido.'; msgEl.className='msg err'; return; }
 

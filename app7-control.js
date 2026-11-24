@@ -2446,6 +2446,191 @@ async function impReimprimir(){
   const a = impAjustes();   // encabezado y pie: los de ahora (por si se cambiaron)
   try{ await impEnviar(armarRecibo(Object.assign({}, ult, {encabezado:a.encabezado, pie:a.pie})).bytes); msg.textContent = '✓ Reimpreso ' + ult.numero + '.'; msg.className = 'msg ok'; }
   catch(e){ msg.textContent = 'No se pudo: ' + ((e && e.message) || e); msg.className = 'msg err'; }
+}   // lo calculado y lo crudo (para reclasificar sin volver a cargar)
+
+function mdClaseAuto(m){
+  const c = String(m.concepto||'').trim(), cat = String(m.categoria||'');
+  if(/^gasto fijo/i.test(c)) return 'fijo';
+  if(cat === 'comision' || /^pago de comisi/i.test(c)) return 'comision';
+  if(/^devoluci/i.test(c)) return 'fuera';                 // se le devolvió el dinero a un cliente
+  if(/^pr[eé]stamo de dinero/i.test(c)) return 'fuera';    // se prestó (es una deuda, no un gasto)
+  if(/^cobro de pago pendiente/i.test(c)) return 'fuera';  // movimiento interno de una venta
+  if(cat === 'deposito') return 'fuera';
+  return 'mercancia';                                       // casi todo el dinero que sale es para mercancía
+}
+function mdClase(m){ const o = MD_CLASIF[String(m.id)]; return MD_CLASES[o] ? o : mdClaseAuto(m); }
+
+// ¿Este movimiento es mercancía NUEVA que entró al negocio? (no devoluciones, préstamos, ajustes…)
+function mdEsEntradaDeMercancia(m, mayoreoIds){
+  if(String(m.tipo||'').toLowerCase() !== 'ingreso') return false;
+  if(!(Number(m.cantidad) > 0)) return false;
+  if(mayoreoIds && mayoreoIds.has(Number(m.almacen_destino_id))) return false;
+  if(/devoluci|devuelto|ajuste|pr[eé]stamo|correcci|recuento|venta borrada|excel/i.test(String(m.nota||''))) return false;
+  if(/^(devmov-|devventa_|presdev-|opinv-|recdif-)/.test(String(m.clave_local||''))) return false;
+  return true;
+}
+// Costo de una entrada: el que se anotó al comprar "(a $50 c/u)"; si no hay, el costo actual del producto.
+function mdCostoDe(m, productos){
+  const mt = String(m.nota||'').match(/\(a \$\s*([\d.,]+)\s*c\/u\)/i);
+  if(mt){ const v = Number(mt[1].replace(/,/g,'')); if(isFinite(v)) return {costo:v, estimado:false}; }
+  const p = (productos||[]).find(x=>Number(x.id)===Number(m.producto_id));
+  return {costo: Number(p && p.costo || 0), estimado:true, sinCosto: !(p && Number(p.costo) > 0)};
+}
+function mdSumarDias(f, n){
+  const d = new Date(f+'T12:00:00'); d.setDate(d.getDate()+n);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function mdLunesDe(f){ const d = new Date(f+'T12:00:00'); return mdSumarDias(f, -((d.getDay()+6)%7)); }
+function mdDM(f){ const [y,m,d] = String(f).split('-'); return d+'/'+m; }
+// Las cuentas (aparte de la pantalla, para poder probarlas).
+function armarDineroVsMercancia(d){
+  const r2 = n => Math.round(n*100)/100;
+  const mayoreoIds = new Set((d.almacenes||[]).filter(a=>esMayoreo(a)).map(a=>Number(a.id)));
+  const salidas = (d.salidas||[]).filter(m=>m.tipo==='egreso' && Number(m.monto) > 0).map(m=>({
+    id:m.id, fecha: fechaLocalDe(m.creado_en), creado_en:m.creado_en, concepto:m.concepto||'', categoria:m.categoria, metodo:m.metodo,
+    monto: Number(m.monto), clase: mdClase(m), auto: !MD_CLASES[MD_CLASIF[String(m.id)]] }));
+  const entradas = (d.entradas||[]).filter(m=>mdEsEntradaDeMercancia(m, mayoreoIds)).map(m=>{
+    const c = mdCostoDe(m, d.productos);
+    return {id:m.id, fecha: fechaLocalDe(m.creado_en), creado_en:m.creado_en, producto_id:m.producto_id, almacen_id:m.almacen_destino_id,
+            cantidad:Number(m.cantidad), costo:c.costo, estimado:c.estimado, sinCosto:!!c.sinCosto, valor: r2(Number(m.cantidad)*c.costo)};
+  });
+  const tot = {mercancia:0, fijo:0, comision:0, fuera:0};
+  salidas.forEach(x=>{ tot[x.clase] += x.monto; });
+  Object.keys(tot).forEach(k=>tot[k]=r2(tot[k]));
+  const entro = r2(entradas.reduce((t,x)=>t+x.valor,0));
+  const sem = {};
+  const fila = f => { const k = mdLunesDe(f); return sem[k] = sem[k] || {lunes:k, dinero:0, mercancia:0}; };
+  salidas.filter(x=>x.clase==='mercancia').forEach(x=>{ fila(x.fecha).dinero += x.monto; });
+  entradas.forEach(x=>{ fila(x.fecha).mercancia += x.valor; });
+  let acum = 0;
+  const semanas = Object.values(sem).sort((a,b)=>a.lunes.localeCompare(b.lunes)).map(w=>{
+    w.dinero = r2(w.dinero); w.mercancia = r2(w.mercancia); w.diferencia = r2(w.dinero - w.mercancia);
+    acum = r2(acum + w.diferencia); w.acumulado = acum; return w; });
+  salidas.sort((a,b)=>String(b.creado_en).localeCompare(String(a.creado_en)));
+  entradas.sort((a,b)=>String(b.creado_en).localeCompare(String(a.creado_en)));
+  return {salidas, entradas, tot, entro, diferencia: r2(tot.mercancia - entro), semanas,
+          estimadas: entradas.filter(x=>x.estimado).length, sinCosto: entradas.filter(x=>x.sinCosto).length};
+}
+function mdRango(){
+  const hoy = fechaHoyLocal(), sel = (document.getElementById('mdPeriodo')||{}).value || 'mes';
+  if(sel === 'mes') return {desde: hoy.slice(0,8)+'01', hasta: hoy};
+  if(sel === 'mespasado'){ const fin = mdSumarDias(hoy.slice(0,8)+'01', -1); return {desde: fin.slice(0,8)+'01', hasta: fin}; }
+  if(sel === '30' || sel === '90') return {desde: mdSumarDias(hoy, -(Number(sel)-1)), hasta: hoy};
+  const de = document.getElementById('mdDesde').value, ha = document.getElementById('mdHasta').value;
+  return {desde: de || hoy.slice(0,8)+'01', hasta: ha || hoy};
+}
+function mdCambioPeriodo(){
+  const esRango = document.getElementById('mdPeriodo').value === 'rango';
+  document.getElementById('mdRango').style.display = esRango ? 'flex' : 'none';
+  if(esRango){ const hoy = fechaHoyLocal();
+    if(!document.getElementById('mdDesde').value) document.getElementById('mdDesde').value = hoy.slice(0,8)+'01';
+    if(!document.getElementById('mdHasta').value) document.getElementById('mdHasta').value = hoy; }
+  else cargarDineroVsMercancia();
+}
+async function mdCargarClasif(){
+  try{
+    const {data, error} = await sb.from('ajustes').select('valor').eq('clave','clasif_salidas').maybeSingle();
+    if(!error && data && data.valor && typeof data.valor === 'object'){ MD_CLASIF = data.valor; lsSet('ajuste_clasif_salidas', MD_CLASIF); }
+  }catch(e){}
+}
+async function cargarDineroVsMercancia(){
+  const body = document.getElementById('mdBody'), msg = document.getElementById('mdMsg');
+  msg.textContent = ''; msg.className = 'msg';
+  if(!navigator.onLine){ msg.textContent = 'Necesitas internet para ver esto.'; msg.className = 'msg err'; return; }
+  const {desde, hasta} = mdRango();
+  if(desde > hasta){ msg.textContent = 'La fecha "desde" es después de "hasta".'; msg.className = 'msg err'; return; }
+  body.textContent = 'Cargando…';
+  try{
+    const ini = new Date(desde+'T00:00:00').toISOString(), fin = new Date(mdSumarDias(hasta,1)+'T00:00:00').toISOString();
+    await mdCargarClasif();
+    const campos = 'id,tipo,producto_id,cantidad,almacen_destino_id,creado_en,nota';
+    const [salidas, entradas] = await Promise.all([
+      traerTodasLasFilas(()=> sb.from('caja_movimientos').select('id,tipo,metodo,categoria,monto,concepto,creado_en').eq('tipo','egreso').gte('creado_en', ini).lt('creado_en', fin).order('id',{ascending:true})),
+      traerTodasLasFilas(()=> sb.from('movimientos').select(campos+',clave_local').eq('tipo','ingreso').gte('creado_en', ini).lt('creado_en', fin).order('id',{ascending:true}))
+        .catch(()=> traerTodasLasFilas(()=> sb.from('movimientos').select(campos).eq('tipo','ingreso').gte('creado_en', ini).lt('creado_en', fin).order('id',{ascending:true})))
+    ]);
+    __mdCrudo = {salidas, entradas, productos: PRODUCTOS, almacenes: ALMACENES};
+    __md = armarDineroVsMercancia(__mdCrudo);
+    __md.desde = desde; __md.hasta = hasta;
+    mdPintar();
+  }catch(e){
+    body.textContent = '';
+    msg.textContent = 'No se pudo cargar: ' + ((e && e.message) || e); msg.className = 'msg err';
+  }
+}
+function mdPintar(){
+  const R = __md, body = document.getElementById('mdBody'); if(!R || !body) return;
+  const $ = n => '$' + num(Math.round(n*100)/100);
+  const sg = v => (v<-0.004?'−':'')+$(Math.abs(v));
+  const col = v => Math.abs(v)<0.01 ? 'var(--muted)' : v>0 ? 'var(--red)' : 'var(--amber)';
+  const kpi = (t,v,c,sub)=>`<div style="flex:1; min-width:140px; border:1px solid var(--border); border-radius:12px; padding:10px">
+    <div style="color:var(--muted); font-size:12px">${t}</div><div style="font-size:22px; font-weight:800; color:${c}">${v}</div>${sub?`<div style="color:var(--muted); font-size:11px">${sub}</div>`:''}</div>`;
+  const dif = R.diferencia;
+  const textoDif = Math.abs(dif) < 0.01 ? 'Cuadra exacto.'
+    : dif > 0 ? `Salieron <strong>${$(dif)}</strong> más de lo que entró en mercancía.`
+              : `Entró <strong>${$(-dif)}</strong> más de mercancía que el dinero que salió (fiada, o pagada con dinero de fuera de la caja).`;
+  let h = `<div style="color:var(--muted); font-size:13px; margin-bottom:8px">Del ${mdDM(R.desde)} al ${mdDM(R.hasta)}</div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap">
+      ${kpi('Salió para mercancía', $(R.tot.mercancia), 'var(--red)', R.salidas.filter(x=>x.clase==='mercancia').length+' salidas')}
+      ${kpi('Entró mercancía (a costo)', $(R.entro), 'var(--green)', R.entradas.length+' entradas')}
+      ${kpi('Diferencia', sg(dif), Math.abs(dif)<0.01?'var(--text)':col(dif), dif>0.004?'dinero sin mercancía':dif<-0.004?'mercancía sin salida de dinero':'')}
+    </div>
+    <div style="margin:10px 0; padding:10px; border-left:3px solid ${col(dif)}; background:var(--panel2); border-radius:8px; font-size:14px">${textoDif}
+      <div style="color:var(--muted); font-size:12px; margin-top:4px">Que una semana no cuadre puede ser normal: se paga hoy y la mercancía llega después. Lo que importa es el <strong>acumulado</strong>: si sigue creciendo, hay dinero que no se ve en mercancía.</div></div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px">
+      ${kpi('Gastos fijos', $(R.tot.fijo), 'var(--text)', 'puestos, luz…')}
+      ${kpi('Comisiones y salarios', $(R.tot.comision), 'var(--text)')}
+      ${kpi('No cuenta', $(R.tot.fuera), 'var(--muted)', 'devoluciones, préstamos…')}
+    </div>`;
+  if(R.estimadas){
+    h += `<div style="color:var(--amber); font-size:12px; margin:6px 0">⚠ ${R.estimadas} entrada(s) no tienen anotado a cuánto se compraron: se valoran con el costo de hoy del producto${R.sinCosto?` (y ${R.sinCosto} no tienen costo: cuentan $0)`:''}. Salen marcadas con *.</div>`;
+  }
+  if(R.semanas.length){
+    const td = 'padding:7px 3px; white-space:nowrap';
+    h += `<div style="font-weight:800; margin:14px 0 2px">Por semana</div>
+      <div style="color:var(--muted); font-size:12px; margin-bottom:4px">Cada fila es la semana que empieza ese lunes.</div>
+      <table style="width:100%; border-collapse:collapse; font-size:13px; font-variant-numeric:tabular-nums">
+      <tr style="color:var(--muted); font-size:11px; text-align:right"><th style="text-align:left; ${td}">Semana</th><th style="${td}">Dinero</th><th style="${td}">Merc.</th><th style="${td}">Dif.</th><th style="${td}">Acumulado</th></tr>`
+      + R.semanas.map(w=>`<tr style="border-top:1px solid var(--border); text-align:right"><td style="text-align:left; ${td}">${mdDM(w.lunes)}</td>
+            <td style="${td}">${$(w.dinero)}</td><td style="${td}">${$(w.mercancia)}</td>
+            <td style="${td}; color:${col(w.diferencia)}">${sg(w.diferencia)}</td><td style="${td}; font-weight:800; color:${col(w.acumulado)}">${sg(w.acumulado)}</td></tr>`).join('')
+      + `</table>`;
+  } else {
+    h += '<div class="empty" style="margin-top:10px">En estas fechas no salió dinero para mercancía ni entró mercancía.</div>';
+  }
+  const opc = k => Object.keys(MD_CLASES).map(c=>`<option value="${c}" ${c===k?'selected':''}>${MD_CLASES[c]}</option>`).join('');
+  if(R.salidas.length) h += `<details style="margin-top:14px" ${R.salidas.length<=15?'open':''}><summary style="cursor:pointer; font-weight:800">Salidas de dinero (${R.salidas.length})</summary>
+    <div style="color:var(--muted); font-size:12px; margin:6px 0">Si una está mal clasificada (por ejemplo, el pago de un puesto que se anotó como mercancía), cámbiala aquí.</div>`
+    + R.salidas.map(x=>`<div style="display:flex; gap:8px; align-items:center; padding:8px 0; border-bottom:1px solid var(--border)">
+        <div style="flex:1; min-width:0"><div style="font-weight:700; overflow-wrap:anywhere">${escH(x.concepto || '(sin concepto)')}</div>
+          <div style="color:var(--muted); font-size:12px">${etiquetaDia(x.fecha)} ${horaDe(x.creado_en)}${x.metodo?' · '+escH(x.metodo):''}${x.auto?'':' · <span style="color:var(--accent)">cambiado a mano</span>'}</div></div>
+        <div style="font-weight:800; white-space:nowrap">${$(x.monto)}</div>
+        <select onchange="mdReclasificar(${Number(x.id)}, this.value)" style="width:auto; max-width:130px; padding:5px; font-size:13px">${opc(x.clase)}</select>
+      </div>`).join('') + '</details>';
+  if(R.entradas.length) h += `<details style="margin-top:10px" ${R.entradas.length<=15?'open':''}><summary style="cursor:pointer; font-weight:800">Entradas de mercancía (${R.entradas.length})</summary>`
+    + R.entradas.map(x=>`<div style="display:flex; gap:8px; align-items:center; padding:8px 0; border-bottom:1px solid var(--border)">
+        <div style="flex:1; min-width:0"><div style="font-weight:700; overflow-wrap:anywhere">${escH(nombreProductoDe(x.producto_id))}</div>
+          <div style="color:var(--muted); font-size:12px">${etiquetaDia(x.fecha)} · ${escH(nombreAlmacenDe(x.almacen_id))} · ${num(x.cantidad)} × ${$(x.costo)}${x.estimado?' *':''}</div></div>
+        <div style="font-weight:800; white-space:nowrap">${$(x.valor)}</div>
+      </div>`).join('') + '</details>';
+  body.innerHTML = h;
+}
+async function mdReclasificar(id, clase){
+  if(!MD_CLASES[clase] || !__md || !__mdCrudo) return;
+  const crudo = __mdCrudo.salidas.find(s=>Number(s.id)===Number(id)); if(!crudo) return;
+  if(clase === mdClaseAuto(crudo)) delete MD_CLASIF[String(id)]; else MD_CLASIF[String(id)] = clase;
+  lsSet('ajuste_clasif_salidas', MD_CLASIF);
+  const desde = __md.desde, hasta = __md.hasta;
+  __md = armarDineroVsMercancia(__mdCrudo); __md.desde = desde; __md.hasta = hasta;
+  mdPintar();
+  const msg = document.getElementById('mdMsg');
+  let compartido = false;
+  try{
+    const r = await sb.from('ajustes').upsert({clave:'clasif_salidas', valor:MD_CLASIF, actualizado_en:new Date().toISOString()}, {onConflict:'clave'}).select();
+    compartido = !r.error && r.data && r.data.length > 0;
+  }catch(e){}
+  msg.textContent = compartido ? 'Cambiado. ✓' : 'Cambiado en este teléfono. (Para que se vea igual en todos, corre "ajustes.sql" en Supabase.)';
+  msg.className = compartido ? 'msg ok' : 'msg';
 }
 
 function aplicarRestriccionesDeRol(){

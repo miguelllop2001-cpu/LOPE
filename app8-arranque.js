@@ -31,6 +31,7 @@ document.querySelectorAll('.tabs button').forEach(btn=>{
     if(btn.dataset.tab==='hoy' && usuarioActual.rol==='dueno') cargarResumenHoy();
     if(btn.dataset.tab==='reposicion') cargarReposicion();
     if(btn.dataset.tab==='recepcion') cargarConciliacion();
+    if(btn.dataset.tab==='mercdinero') cargarDineroVsMercancia();
     if(btn.dataset.tab==='dinero') cargarDinero();
     if(btn.dataset.tab==='deudas') cargarDeudas();
     if(btn.dataset.tab==='comisionadmin') cargarDinero();
@@ -559,6 +560,7 @@ const PESTANAS_DEL_MENU = [
     {k:'hoy',           n:'📅 Resumen del día'},
     {k:'inventario',    n:'📦 Inventario'},     {k:'movimientos',  n:'🔁 Movimientos'},
     {k:'reposicion',    n:'🚚 Reposición'},     {k:'recepcion',    n:'📥 Recepción'},
+    {k:'mercdinero',    n:'💵 Dinero vs mercancía'},
     {k:'compras',       n:'🛒 Compras'},        {k:'pedidos',      n:'📝 Pedidos'},
     {k:'ventasvendedor',n:'🧾 Ventas por vendedor'}, {k:'articulo', n:'🔎 Buscar artículo'},
     {k:'conciliacion',  n:'⚖️ Conciliación'},   {k:'dinero',       n:'💵 Dinero'},
@@ -598,6 +600,21 @@ const IMP_COLUMNAS = 32;
 const IMP_SERVICIOS = [0x18f0, 0xff00, 0xffe0, 0xfff0, 0xae30, 0xae00, 0xfee7,
   'e7810a71-73ae-499d-8c15-faa9aef0c3f2', '49535343-fe7d-4ae5-8fa9-9fafd205e455'];
 const IMP = {dispositivo:null, caracteristica:null};
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  DINERO VS MERCANCÍA (solo dueño)
+//  Lo que salió de caja para mercancía, al lado de lo que entró como mercancía a costo.
+// ═══════════════════════════════════════════════════════════════════════════
+// Cómo se clasifica cada salida de dinero. El dueño puede cambiar cualquiera a mano
+// (se guarda en la tabla "ajustes", o en el teléfono si esa tabla no existe).
+const MD_CLASES = {
+  mercancia: 'Mercancía',
+  fijo:      'Gasto fijo',
+  comision:  'Comisiones y salarios',
+  fuera:     'No cuenta'
+};
+let MD_CLASIF = lsGet('ajuste_clasif_salidas', {}) || {};
+let __md = null, __mdCrudo = null;
 let __hoyYaAbierto = false;
 
 iniciarApp();
