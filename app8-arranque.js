@@ -280,6 +280,8 @@ let mostrarTodasCaja = false;
 
 let sincronizandoAdmin = false;
 
+let __registrandoCaja = false;
+
 // ---------- DEUDAS ----------
 
 

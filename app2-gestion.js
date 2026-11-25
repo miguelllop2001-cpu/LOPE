@@ -1398,12 +1398,16 @@ async function procesarOperacionAdmin(op, colaCompleta){
     }
 
   } else if(op.tipo === 'registrar_caja'){
+    // ¿Ya se guardó (en un intento anterior que perdió la respuesta)? Entonces no hay nada que hacer.
+    { const ya = await sb.from('caja_movimientos').select('id').eq('clave_caja', p.clave || ('opcaja-'+op.id)).limit(1);
+      if(!ya.error && ya.data && ya.data.length) return; }
     if(p.tipo==='egreso'){
       const saldo = await obtenerSaldoMetodo(p.metodo);
       if(saldo < p.monto) throw new Error(`Sin suficiente ${p.metodo} para este egreso (hay $${saldo.toFixed(2)})`);
     }
     // Clave única: si se reintenta, la base rechaza el repetido en vez de duplicar el dinero.
-    await meterMovimientoCajaUnico({tipo:p.tipo, metodo:p.metodo, categoria:p.categoria, monto:p.monto, concepto:p.concepto}, 'opcaja-'+op.id);
+    // La clave del registro (si la trae) es la misma con que se intentó guardar directo: no se repite.
+    await meterMovimientoCajaUnico({tipo:p.tipo, metodo:p.metodo, categoria:p.categoria, monto:p.monto, concepto:p.concepto}, p.clave || ('opcaja-'+op.id));
 
   } else if(op.tipo === 'crear_deuda_dinero'){
     if(p.tipo==='me_deben'){
@@ -1586,8 +1590,20 @@ function fijarTipoCaja(tipo){
   const monto = document.getElementById('cajaMonto');
   if(monto) monto.style.borderColor = (tipo==='egreso') ? 'var(--red)' : 'var(--green)';
 }
-
 async function registrarCaja(){
+  // Un solo registro a la vez: con la señal lenta, los toques de más ya no crean salidas repetidas.
+  if(__registrandoCaja) return;
+  __registrandoCaja = true;
+  const btn = document.getElementById('btnRegistrarCaja');
+  const textoBtn = btn ? btn.textContent : '';
+  if(btn){ btn.disabled = true; btn.textContent = 'Guardando…'; }
+  try{ await registrarCajaInterno(); }
+  finally{
+    __registrandoCaja = false;
+    if(btn){ btn.disabled = false; btn.textContent = textoBtn; }
+  }
+}
+async function registrarCajaInterno(){
   const tipo = document.getElementById('cajaTipo').value;
   const metodo = document.getElementById('cajaMetodo').value;
   let categoria = document.getElementById('cajaCategoria').value;
@@ -1599,39 +1615,62 @@ async function registrarCaja(){
   const msgEl = document.getElementById('cajaMsg');
   if(!monto || monto<=0){ msgEl.textContent='Ingresa un monto válido.'; msgEl.className='msg err'; return; }
 
-  const limpiarYEncolar = (prefijo)=>{
-    encolarOperacionAdmin('registrar_caja', {tipo, metodo, categoria, monto, concepto});
-    msgEl.textContent = prefijo+' guardado en el teléfono, se aplicará cuando vuelva la conexión.'; msgEl.className='msg ok';
-    document.getElementById('cajaMonto').value=''; document.getElementById('cajaConcepto').value='';
+  // Clave única de ESTE registro. Va con la fila y, si hay que reintentar, con la cola:
+  // así la base nunca la guarda dos veces, por la vía que sea.
+  const clave = 'manual-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2,8);
+  const fila = {tipo, metodo, categoria, monto, concepto};
+  const limpiar = ()=>{ document.getElementById('cajaMonto').value=''; document.getElementById('cajaConcepto').value=''; };
+  const encolar = (prefijo)=>{
+    encolarOperacionAdmin('registrar_caja', Object.assign({clave}, fila));
+    msgEl.textContent = prefijo+' guardado en el teléfono, se aplicará cuando vuelva la conexión. NO lo vuelvas a registrar.'; msgEl.className='msg ok';
+    limpiar();
     actualizarConexionAdminUI();
   };
 
   if(!navigator.onLine){
     if(tipo==='egreso' && obtenerSaldoMetodoLocal(metodo) < monto){
-      msgEl.textContent = `Según los últimos datos guardados no hay suficiente ${metodo} (esto puede cambiar al sincronizar). Aun así, ¿deseas guardarlo para revisarlo después? Mejor evita registrar egresos grandes sin conexión.`;
+      msgEl.textContent = `Según los últimos datos guardados no hay suficiente ${metodo} (esto puede cambiar al sincronizar). Mejor evita registrar salidas sin internet si no estás seguro.`;
       msgEl.className='msg err';
       return;
     }
-    limpiarYEncolar('Sin internet:');
+    encolar('Sin internet:');
     return;
   }
 
+  let guardado = false;
   try{
     if(tipo==='egreso'){
       const saldo = await obtenerSaldoMetodo(metodo);
       if(saldo < monto){
-        msgEl.textContent = `No hay suficiente ${metodo} registrado (hay $${num(saldo)}, intentas sacar $${num(monto)}). Si el dinero viene de fuera del negocio, regístralo primero como "Depósito / aporte".`;
+        msgEl.textContent = `No hay suficiente ${metodo} registrado (hay $${num(saldo)}, intentas sacar $${num(monto)}). Si el dinero viene de fuera del negocio, regístralo primero como "Depósito / Ingreso".`;
         msgEl.className='msg err';
         return;
       }
+      // ¿Se acaba de registrar esta MISMA salida? (mismo monto, concepto y forma, en los últimos 15 min)
+      try{
+        const desde = new Date(Date.now() - 15*60000).toISOString();
+        const {data:iguales} = await sb.from('caja_movimientos').select('id, creado_en')
+          .eq('tipo','egreso').eq('metodo',metodo).eq('monto',monto).eq('concepto',concepto).gte('creado_en', desde).limit(5);
+        if(iguales && iguales.length){
+          const min = Math.max(0, Math.round((Date.now() - new Date(iguales[0].creado_en).getTime())/60000));
+          if(!confirm(`⚠️ Hace ${min<1?'menos de un minuto':min+' min'} ya se registró una salida IGUAL: $${num(monto)} en ${metodo}${concepto?' ("'+concepto+'")':''}.\n\n¿Es OTRA salida distinta y quieres registrarla también?`)) {
+            msgEl.textContent = 'No se registró (ya estaba).'; msgEl.className='msg ok'; limpiar(); return;
+          }
+        }
+      }catch(e){}
       if(!confirm(`Vas a registrar una SALIDA de $${num(monto)} en ${metodo}${concepto?' ('+concepto+')':''}. Esto baja el dinero del negocio. ¿Confirmas?`)) return;
     }
-    const {error} = await sb.from('caja_movimientos').insert({tipo, metodo, categoria, monto, concepto});
-    if(error) throw error;
-    msgEl.textContent='Movimiento registrado.'; msgEl.className='msg ok';
-    document.getElementById('cajaMonto').value=''; document.getElementById('cajaConcepto').value='';
-    await cargarDinero();
+    await meterMovimientoCajaUnico(fila, clave);
+    guardado = true;
   }catch(err){
-    limpiarYEncolar('No se pudo conectar:');
+    // ¿Se guardó y solo se perdió la respuesta? meterMovimientoCajaUnico ya lo miró por la clave;
+    // si aun así no se sabe, va a la cola con la MISMA clave, que no la repite.
+    encolar('No se pudo conectar:');
+    return;
+  }
+  if(guardado){
+    msgEl.textContent='Movimiento registrado.'; msgEl.className='msg ok';
+    limpiar();
+    try{ await cargarDinero(); }catch(e){}   // si falla al recargar, la salida ya está: no se repite
   }
 }
